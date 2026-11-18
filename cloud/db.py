@@ -2,15 +2,42 @@
 from contextlib import contextmanager
 import os
 import sqlite3
+import threading
 import time
 from flask import g, has_request_context
 
 import psycopg
 from psycopg.rows import dict_row
+from psycopg_pool import ConnectionPool
 
 # Project-wide write lock for the small MVP. It serializes conflicting state
 # changes across multiple serverless instances, not merely one Python process.
 WRITE_LOCK = 58310974031082412
+
+# A *small* lazy pool for each Vercel Python worker. Supavisor is still the
+# authoritative transaction pooler. No connections are created on module
+# import; idle connections are released after 45 s. This never spans workers.
+_POOL = None
+_POOL_DSN = None
+_POOL_LOCK = threading.Lock()
+
+
+def _pool_for(dsn):
+    global _POOL, _POOL_DSN
+    if _POOL is not None:
+        if _POOL_DSN != dsn:
+            raise RuntimeError('Database configuration changed in a live process')
+        return _POOL
+    with _POOL_LOCK:
+        if _POOL is None:
+            _POOL = ConnectionPool(
+                conninfo=dsn, min_size=0, max_size=4, max_idle=45,
+                max_lifetime=600, timeout=8, open=True,
+                kwargs={'row_factory': dict_row, 'prepare_threshold': None,
+                        'connect_timeout': 8, 'autocommit': True},
+                check=ConnectionPool.check_connection)
+            _POOL_DSN = dsn
+    return _POOL
 
 
 class DB:
@@ -36,8 +63,11 @@ def close_request_connection():
         return
     connection=getattr(g,'shursh_db_connection',None)
     if connection is not None:
-        connection.close()
+        pool=getattr(g,'shursh_db_pool',None)
         g.shursh_db_connection=None
+        g.shursh_db_pool=None
+        if pool is not None:
+            pool.putconn(connection)
 
 
 @contextmanager
@@ -47,12 +77,16 @@ def transaction(write=False, *, rate_limit=False):
         raise RuntimeError('SHURSH_DATABASE_URL is not configured')
     in_request=has_request_context()
     stored=getattr(g,'shursh_db_connection',None) if in_request else None
+    pool = _pool_for(dsn)
     if stored is not None and stored.closed:
+        # A broken socket must never be shared or retained in the request.
+        pool.putconn(stored)
         stored=None
         g.shursh_db_connection=None
-    # Reuse the already authenticated TCP/TLS connection for subsequent
-    # transactions in the same Flask request; each block still commits
-    # independently. Never share connections across requests or threads.
+        g.shursh_db_pool=None
+    # Reuse an idle connection within the request without another checkout.
+    # Inner rate limit checks use their own connection and commit independently,
+    # including when the enclosing business transaction later rolls back.
     reusable=(stored is not None and
               stored.info.transaction_status==psycopg.pq.TransactionStatus.IDLE)
     if reusable:
@@ -60,19 +94,16 @@ def transaction(write=False, *, rate_limit=False):
         retained=True
     else:
         started=time.perf_counter()
-        # autocommit + explicit transaction() avoids implicit transactions.
-        # Transaction-mode Supavisor rejects named prepared statements.
-        connection=psycopg.connect(dsn,row_factory=dict_row,prepare_threshold=None,
-                                   connect_timeout=8,autocommit=True)
+        # The pool validates idle connections and safely recycles broken ones.
+        # prepare_threshold=None is required for Supavisor transaction mode.
+        connection=pool.getconn(timeout=8)
         if in_request:
             g.db_connect_ms=getattr(g,'db_connect_ms',0.0)+(time.perf_counter()-started)*1000
             g.db_connect_count=getattr(g,'db_connect_count',0)+1
-        # An inner rate-limit check (draw/join) must use a *different*
-        # connection. Otherwise its count would roll back with the business
-        # transaction on validation failure.
         retained=in_request and stored is None
         if retained:
             g.shursh_db_connection=connection
+            g.shursh_db_pool=pool
     try:
         with connection.transaction():
             if not write and not rate_limit:
@@ -84,6 +115,7 @@ def transaction(write=False, *, rate_limit=False):
                 connection.execute('SELECT pg_advisory_xact_lock(%s)',(WRITE_LOCK,))
             yield DB(connection)
     finally:
-        # The retained connection is closed by Flask's teardown callback.
+        # The primary checkout is returned by Flask teardown. Nested checkouts
+        # are returned immediately, after rollback/commit of this transaction.
         if not retained:
-            connection.close()
+            pool.putconn(connection)

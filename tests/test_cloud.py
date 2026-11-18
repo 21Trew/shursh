@@ -103,6 +103,23 @@ def test_authenticated_api_latency_baseline(application):
         'unit':'ms', 'endpoints':samples},sort_keys=True))
 
 
+def test_bounded_pool_reuse_and_independent_nested_transaction(application):
+    from cloud import db
+    dsn=os.environ['SHURSH_DATABASE_URL']
+    pool=db._pool_for(dsn)
+    assert pool.max_size==4
+    with db.transaction() as con:
+        pid_a=con.execute('SELECT pg_backend_pid() AS pid').fetchone()['pid']
+    with db.transaction() as con:
+        pid_b=con.execute('SELECT pg_backend_pid() AS pid').fetchone()['pid']
+    assert pid_a==pid_b, 'A warm worker should reuse the physical connection'
+    with db.transaction(write=True) as main_con:
+        outer=main_con.execute('SELECT pg_backend_pid() AS pid').fetchone()['pid']
+        with db.transaction(write=True,rate_limit=True) as rate_con:
+            inner=rate_con.execute('SELECT pg_backend_pid() AS pid').fetchone()['pid']
+            assert inner != outer, 'Rate limiter needs an independent transaction'
+
+
 def test_auth_and_session(application):
     c=application.test_client()
     assert call(c,'GET','/api/me').json == {'user':None,'demo':False}
