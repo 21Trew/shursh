@@ -588,25 +588,7 @@ def test_owner_tab_navigation_reuses_data_and_dom(browser_http):
             page.locator('main button[data-open="list"]').first.click()
             page.locator('#fld-title').fill('Cache invalidation integration')
             page.locator('#modal-form button[type="submit"]').click()
-            expect(page).to_have_url(re.compile(r'/list/\d+
-    from playwright.sync_api import sync_playwright,expect
-    with sync_playwright() as play:
-        browser=play.chromium.launch(headless=True,args=['--no-sandbox'])
-        try:
-            page=browser.new_page()
-            page.goto(browser_http+'/#access_token=fake-test-value&refresh_token=fake-refresh&type=signup')
-            expect(page).to_have_url(browser_http+'/')
-            expect(page.locator('.toast')).to_contain_text('подтверждён')
-            assert 'fake-test-value' not in page.url
-            # A provider confirmation redirects from Supabase to a new document.
-            # A same-document hash navigation would not rerun startup logic.
-            page=browser.new_page()
-            page.goto(browser_http+'/#error=access_denied&error_code=otp_expired&error_description=test')
-            expect(page).to_have_url(browser_http+'/')
-            expect(page.locator('.toast')).to_contain_text('истекла')
-        finally:
-            browser.close()
-))
+            expect(page).to_have_url(re.compile(r'/list/[0-9]+$'))
             page.locator('nav [data-nav="/lists"]').click()
             expect(page.locator('main')).to_contain_text('Cache invalidation integration')
             assert any('/api/lists' in url for url in requests), requests
