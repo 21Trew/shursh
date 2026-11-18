@@ -268,11 +268,29 @@ def test_browser_register_wishlist_reservation_and_isolation(browser_http):
             expect(page.get_by_role('dialog')).to_contain_text('Давай знакомиться!')
             page.locator('#fld-name').fill('Owner')
             page.locator('#fld-email').fill('owner@example.test')
+            page.locator('[data-password-generate]').click()
+            generated=page.locator('#fld-password').input_value()
+            assert len(generated)==20
+            assert re.search(r'[A-Z]',generated) and re.search(r'[a-z]',generated)
+            assert re.search(r'[0-9]',generated) and re.search(r'[^A-Za-z0-9]',generated)
+            assert page.locator('#fld-password').get_attribute('type')=='text'
+            page.locator('[data-password-visibility]').click()
+            assert page.locator('#fld-password').get_attribute('type')=='password'
+            page.locator('[data-password-visibility]').click()
             page.locator('#fld-password').fill('valid-password')
             page.locator('#modal-form button[type="submit"]').click()
             expect(page.locator('.toast')).to_contain_text('Проверь почту')
+            expect(page.get_by_role('dialog')).to_contain_text('Проверь почту')
+            expect(page.get_by_role('dialog')).to_contain_text('owner@example.test')
             expect(page.locator('header .user-name')).to_have_count(0)
+            page.locator('[data-close]').click()
             browser_login(page)
+            expect(page.locator('.dashboard-page h1')).to_contain_text('Owner')
+            assert 'Подарки, о которых' not in page.locator('main').inner_text()
+            page.reload()
+            expect(page.locator('.dashboard-page h1')).to_contain_text('Owner')
+            summary=page.evaluate('''async () => (await (await fetch('/api/dashboard')).json())''')
+            assert summary['user']['email']=='owner@example.test'
             assert not any('access_token' in cookie['name'] for cookie in owner.cookies())
             assert any(c['name'] == 'shursh_sid' and c['httpOnly'] and c['secure'] for c in owner.cookies())
 
@@ -324,6 +342,8 @@ def test_browser_register_wishlist_reservation_and_isolation(browser_http):
             assert other.evaluate('''async id => (await fetch('/api/lists/' + id)).status''', lid) == 404
             assert other.evaluate('''async id => (await fetch('/api/public/' + id)).status''', 'not-a-real-key') == 404
             assert owner.cookies() != other_ctx.cookies(), 'Browser sessions must be isolated'
+            other_summary=other.evaluate('''async () => (await (await fetch('/api/dashboard')).json())''')
+            assert not any(l['id']==int(lid) for l in other_summary['lists'])
 
             guest.locator('button[data-action="cancel-reservation"]').click()
             guest.locator('#modal-form button[type="submit"]').click()
@@ -452,6 +472,29 @@ def test_auth_uses_fixed_confirmation_destination_not_request_host(monkeypatch):
         with pytest.raises((RuntimeError,ValueError)):
             auth.auth_request('register',email='someone@example.test',password='some-password')
     assert len(calls)==2
+
+
+@pytest.mark.browser
+def test_browser_login_logout_and_mobile_dashboard(browser_http):
+    from playwright.sync_api import sync_playwright, expect
+    with sync_playwright() as play:
+        browser=play.chromium.launch(headless=True,args=['--no-sandbox'])
+        try:
+            page=browser.new_page(viewport={'width':1366,'height':900})
+            page.goto(browser_http+'/')
+            expect(page.locator('main h1')).to_contain_text('Подарки')
+            browser_login(page)
+            expect(page.locator('.dashboard-page h1')).to_contain_text('Owner')
+            page.set_viewport_size({'width':390,'height':844})
+            assert page.evaluate('document.documentElement.scrollWidth <= innerWidth + 2'), 'mobile overflow'
+            page.set_viewport_size({'width':1366,'height':900})
+            page.locator('header button[data-action="logout"]').click()
+            expect(page.locator('main h1')).to_contain_text('Подарки')
+            expect(page.locator('.dashboard-page')).to_have_count(0)
+            browser_login(page)
+            expect(page.locator('.dashboard-page h1')).to_contain_text('Owner')
+        finally:
+            browser.close()
 
 
 @pytest.mark.browser
