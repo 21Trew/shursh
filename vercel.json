@@ -6,5 +6,17 @@
       "includeFiles": "public/{index.html,styles.css,app.js,favicon.svg}",
       "excludeFiles": "{screenshots/**,tests/**,data/**,uploads/**,public/shursh-preview.html,public/preview-store.js}"
     }
-  }
+  },
+  "redirects": [
+    {
+      "source": "/shursh-preview.html",
+      "destination": "/",
+      "permanent": false
+    },
+    {
+      "source": "/preview-store.js",
+      "destination": "/",
+      "permanent": false
+    }
+  ]
 }
