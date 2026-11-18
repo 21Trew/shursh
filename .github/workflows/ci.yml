@@ -33,6 +33,7 @@ jobs:
           node-version: '22'
       - run: node --check public/app.js
       - run: node --check public/preview-store.js
+      - run: node --check tools/perf-browser.js
 
   postgres-integration:
     runs-on: ubuntu-latest
