@@ -1,4 +1,14 @@
-# Explicit WSGI target for Vercel's Flask detection.
-# Dependencies remain pinned in requirements.txt.
+# Vercel prioritizes pyproject.toml over requirements.txt when both exist.
+# Keep these runtime dependencies aligned with requirements.txt.
+[project]
+name = "shursh-preview"
+version = "0.0.0"
+requires-python = ">=3.12"
+dependencies = [
+    "Flask==3.1.2",
+    "psycopg[binary]==3.2.10",
+    "psycopg_pool==3.2.6",
+]
+
 [tool.vercel]
 entrypoint = "app:app"
