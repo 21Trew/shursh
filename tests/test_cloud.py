@@ -87,17 +87,24 @@ def test_authenticated_api_latency_baseline(application):
             timing=r.headers.get('Server-Timing','')
             app_ms=re.search(r'app;dur=([0-9.]+)',timing)
             conn_ms=re.search(r'db-connect;dur=([0-9.]+)',timing)
-            assert app_ms and conn_ms and 'region;desc=' in timing
+            sql_ms=re.search(r'sql-exec;dur=([0-9.]+);desc="([0-9]+) statement\\(s\\)"',timing)
+            assert app_ms and conn_ms and sql_ms and 'region;desc=' in timing
+            assert int(sql_ms.group(2)) > 0
+            assert 'SELECT ' not in timing and 'owner@example.test' not in timing
             values.append({'wall':round(wall_ms,2),
                            'app':float(app_ms.group(1)),
-                           'dbConnect':float(conn_ms.group(1))})
+                           'dbConnect':float(conn_ms.group(1)),
+                           'sqlExec':float(sql_ms.group(1)),
+                           'sqlStatements':int(sql_ms.group(2))})
         samples[endpoint]={
             'n':len(values),
             'wallP50':round(median(v['wall'] for v in values),2),
             'wallP95':round(sorted(v['wall'] for v in values)[10],2),
             'appP50':round(median(v['app'] for v in values),2),
             'dbConnectP50':round(median(v['dbConnect'] for v in values),2),
-            'dbConnectMax':round(max(v['dbConnect'] for v in values),2)}
+            'dbConnectMax':round(max(v['dbConnect'] for v in values),2),
+            'sqlExecP50':round(median(v['sqlExec'] for v in values),2),
+            'sqlStatementsP50':median(v['sqlStatements'] for v in values)}
     # Explicit scope prevents conflating these numbers with cross-region latency.
     print('SHURSH_CI_PERF=' + json.dumps({'scope':'CI-local-PostgreSQL-mocked-Auth',
         'unit':'ms', 'endpoints':samples},sort_keys=True))
@@ -146,6 +153,7 @@ def test_auth_and_session(application):
     guest_dashboard=call(c,'GET','/api/dashboard')
     assert guest_dashboard.json == {'user':None,'demo':False,'lists':[],'events':[]}
     assert 'db-connect;dur=0.0' in guest_dashboard.headers['Server-Timing']
+    assert 'sql-exec;dur=0.0;desc="0 statement(s)"' in guest_dashboard.headers['Server-Timing']
     call(c,'GET','/api/lists',status=401)
     call(c,'POST','/api/login',{'email':'owner@example.test','password':'bad-password'},401)
     r=call(c,'POST','/api/register',{'email':'owner@example.test','name':'Owner','password':'valid-password'},202)
