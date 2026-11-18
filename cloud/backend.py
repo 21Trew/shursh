@@ -82,6 +82,15 @@ class CloudRequest(Handler):
     def handle_api(self, method, path, con):
         if method == 'GET' and path == '/api/me':
             return 200, {'user': self.user(con), 'demo': False}, None
+        if method == 'GET' and path == '/api/dashboard':
+            # Two owner-scoped collections, fetched in one transaction.
+            # A guest never receives another user's data.
+            user = self.user(con)
+            if user is None:
+                return 200, {'user': None, 'demo': False, 'lists': [], 'events': []}, None
+            lists = super().handle_api('GET', '/api/lists', con)[1]['lists']
+            events = super().handle_api('GET', '/api/santas', con)[1]['events']
+            return 200, {'user': user, 'demo': False, 'lists': lists, 'events': events}, None
         if method == 'POST' and path in ('/api/register', '/api/login'):
             self.throttled('auth', 15)
             data = self.body()

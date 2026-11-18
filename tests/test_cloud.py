@@ -69,6 +69,7 @@ def make_list(c):
 def test_auth_and_session(application):
     c=application.test_client()
     assert call(c,'GET','/api/me').json == {'user':None,'demo':False}
+    assert call(c,'GET','/api/dashboard').json == {'user':None,'demo':False,'lists':[],'events':[]}
     call(c,'GET','/api/lists',status=401)
     call(c,'POST','/api/login',{'email':'owner@example.test','password':'bad-password'},401)
     r=call(c,'POST','/api/register',{'email':'owner@example.test','name':'Owner','password':'valid-password'},202)
@@ -77,6 +78,7 @@ def test_auth_and_session(application):
     cookie=r.headers['Set-Cookie']; assert all(s in cookie for s in ('HttpOnly','Secure','SameSite=Lax'))
     assert 'not-a-real-token' not in r.get_data(as_text=True)
     assert call(c,'GET','/api/me').json['user']['id']==str(IDS['owner@example.test'])
+    assert call(c,'GET','/api/dashboard').json['user']['id']==str(IDS['owner@example.test'])
     call(c,'POST','/api/lists',{'title':'CSRF'},403,headers={'Origin':'https://evil.example'})
     call(c,'POST','/api/logout',{})
     assert call(c,'GET','/api/me').json['user'] is None
@@ -86,6 +88,9 @@ def test_auth_and_session(application):
 def test_booking_isolation_and_private_images(application):
     c=login(application); other=login(application,'other@example.test'); guest=application.test_client()
     lid,wid,key=make_list(c)
+    summary=call(c,'GET','/api/dashboard').json
+    assert len(summary['lists'])==1 and summary['lists'][0]['id']==lid
+    assert call(other,'GET','/api/dashboard').json['lists']==[]
     for method,path,body in [('GET',f'/api/lists/{lid}',None),('PATCH',f'/api/lists/{lid}',{'title':'Stolen'}),('DELETE',f'/api/wishes/{wid}',None)]:
         call(other,method,path,body,404)
     call(c,'PATCH',f'/api/wishes/{wid}',{'image_data':PNG})

@@ -2,6 +2,8 @@
 import json
 import re
 import sqlite3
+import time
+from flask import g
 from pathlib import Path
 from flask import Flask, Response, request, send_from_directory
 from werkzeug.exceptions import RequestEntityTooLarge
@@ -23,8 +25,16 @@ def response(data, status=200, cookie=None):
     return result
 
 
+@app.before_request
+def timer_start():
+    g.request_started = time.perf_counter()
+
+
 @app.after_request
 def security_headers(result):
+    if request.path.startswith('/api/'):
+        elapsed = (time.perf_counter() - g.request_started) * 1000
+        result.headers['Server-Timing'] = f'app;dur={elapsed:.1f}'
     result.headers['Cache-Control'] = 'no-store'
     result.headers['X-Content-Type-Options'] = 'nosniff'
     result.headers['Referrer-Policy'] = 'no-referrer'
@@ -53,11 +63,21 @@ def api(route):
         origin = request.headers.get('Origin')
         if request.headers.get('Sec-Fetch-Site') == 'cross-site' or (origin and origin not in (f'https://{request.host}',f'http://{request.host}')):
             return response({'error':'Запрос из другого источника отклонён'},403)
+    # These read-only bootstrap endpoints are safe without a database when no
+    # session cookie exists. Avoid a Supavisor round-trip for every anonymous
+    # landing-page visit (and every browser refresh).
+    if request.method == 'GET' and not request.cookies.get('shursh_sid'):
+        if path == '/api/me':
+            return response({'user': None, 'demo': False})
+        if path == '/api/dashboard':
+            return response({'user': None, 'demo': False, 'lists': [], 'events': []})
     handler = CloudRequest(request)
     try:
-        # Rate limit ALL public API traffic in persistent storage. Auth-specific
-        # and draw/reservation limits from the shared routes also apply.
-        handler.throttled('api', 180)
+        # Authentication has a stricter dedicated limiter inside CloudRequest.
+        # Avoid two separate PostgreSQL rate-limit transactions per login.
+        # The read-only /api/me session check needs no generic rate write.
+        if path not in ('/api/me','/api/login','/api/register','/api/logout'):
+            handler.throttled('api', 180)
         write = request.method not in ('GET','HEAD')
         # Auth calls use their own transactions; they do not take the global
         # business lock while waiting for Supabase Auth over the network.
