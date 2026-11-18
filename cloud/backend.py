@@ -7,6 +7,7 @@ import re
 import sqlite3
 import time
 from uuid import UUID
+from flask import g
 
 from server import Handler, ApiError, req, token, token_hash, decode_image, LIMIT_BYTES
 from cloud import auth, db
@@ -105,7 +106,12 @@ class CloudRequest(Handler):
             payload = {'email': email, 'password': password}
             if action == 'register':
                 payload['data'] = {'name': req(data.get('name'), 'Имя', 40)}
-            result = auth.auth_request(action, **payload)
+            started_auth = time.perf_counter()
+            try:
+                result = auth.auth_request(action, **payload)
+            finally:
+                # Duration only. Never log provider response, email or tokens.
+                g.shursh_auth_ms = (time.perf_counter() - started_auth) * 1000
             # A confirmation-required signup deliberately never establishes a session.
             if action == 'register' and not result.get('access_token'):
                 return 202, {'user': None, 'pending_confirmation': True}, None

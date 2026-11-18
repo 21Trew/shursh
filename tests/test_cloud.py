@@ -252,9 +252,16 @@ def browser_login(page, email='owner@example.test'):
     page.locator('header button[data-open="login"]').click()
     page.locator('#fld-email').fill(email)
     page.locator('#fld-password').fill('valid-password')
-    page.locator('#modal-form button[type="submit"]').click()
-    # The dashboard paints a welcome shell immediately while the API loads.
-    expect(page.locator('header .user-name')).to_contain_text('Owner' if email.startswith('owner') else 'Other', timeout=10000)
+    # Wait for the *actual HTTP response*, not just the asynchronous DOM update.
+    # Distinguishes transient auth/backend errors from a UI rerender regression.
+    with page.expect_response(lambda r: r.url.endswith('/api/login') and r.request.method == 'POST', timeout=20000) as result:
+        page.locator('#modal-form button[type="submit"]').click()
+    response=result.value
+    assert response.status==200, (
+        f'Login HTTP {response.status}; '
+        f'Server-Timing: {response.headers.get("server-timing", "missing")}')
+    expect(page.locator('header .user-name')).to_contain_text(
+        'Owner' if email.startswith('owner') else 'Other', timeout=15000)
     expect(page.get_by_role('dialog')).to_have_count(0)
 
 
@@ -497,11 +504,12 @@ def test_browser_login_logout_and_mobile_dashboard(browser_http):
             page.set_viewport_size({'width':390,'height':844})
             assert page.evaluate('document.documentElement.scrollWidth <= innerWidth + 2'), 'mobile overflow'
             page.set_viewport_size({'width':1366,'height':900})
-            page.locator('header button[data-action="logout"]').click()
-            expect(page.locator('main h1')).to_contain_text('Подарки')
-            expect(page.locator('.dashboard-page')).to_have_count(0)
-            browser_login(page)
-            expect(page.locator('.dashboard-page h1')).to_contain_text('Owner')
+            for _ in range(4):
+                page.locator('header button[data-action="logout"]').click()
+                expect(page.locator('main h1')).to_contain_text('Подарки')
+                expect(page.locator('.dashboard-page')).to_have_count(0)
+                browser_login(page)
+                expect(page.locator('.dashboard-page h1')).to_contain_text('Owner')
         finally:
             browser.close()
 
@@ -627,3 +635,39 @@ def test_browser_confirmation_return_clears_provider_hash(browser_http):
             expect(page.locator('.toast')).to_contain_text('истекла')
         finally:
             browser.close()
+
+@pytest.mark.performance
+def test_authenticated_api_latency_baseline(application):
+    """Disposable CI PostgreSQL only; not a hosted Vercel/Supabase benchmark."""
+    import json
+    import re
+    from statistics import median
+    from time import perf_counter
+    client=application.test_client()
+    logged=client.post('/api/login',base_url=BASE,json={'email':'owner@example.test','password':'valid-password'})
+    assert logged.status_code == 200
+    samples={}
+    for endpoint in ('/api/me','/api/dashboard','/api/lists','/api/santas'):
+        values=[]
+        for _ in range(12):
+            before=perf_counter()
+            r=client.get(endpoint,base_url=BASE)
+            wall_ms=(perf_counter()-before)*1000
+            assert r.status_code==200
+            timing=r.headers.get('Server-Timing','')
+            app_ms=re.search(r'app;dur=([0-9.]+)',timing)
+            conn_ms=re.search(r'db-connect;dur=([0-9.]+)',timing)
+            assert app_ms and conn_ms and 'region;desc=' in timing
+            values.append({'wall':round(wall_ms,2),
+                           'app':float(app_ms.group(1)),
+                           'dbConnect':float(conn_ms.group(1))})
+        samples[endpoint]={
+            'n':len(values),
+            'wallP50':round(median(v['wall'] for v in values),2),
+            'wallP95':round(sorted(v['wall'] for v in values)[10],2),
+            'appP50':round(median(v['app'] for v in values),2),
+            'dbConnectP50':round(median(v['dbConnect'] for v in values),2),
+            'dbConnectMax':round(max(v['dbConnect'] for v in values),2)}
+    # Explicit scope prevents conflating these numbers with cross-region latency.
+    print('SHURSH_CI_PERF=' + json.dumps({'scope':'CI-local-PostgreSQL-mocked-Auth',
+        'unit':'ms', 'endpoints':samples},sort_keys=True))

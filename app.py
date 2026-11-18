@@ -1,8 +1,10 @@
 """Vercel-compatible WSGI entrypoint. No SQLite or local demo in cloud mode."""
+import time
+_MODULE_IMPORT_STARTED = time.perf_counter()
 import json
+import os
 import re
 import sqlite3
-import time
 from flask import g
 from pathlib import Path
 from flask import Flask, Response, request, send_from_directory
@@ -41,7 +43,17 @@ def security_headers(result):
         elapsed = (time.perf_counter() - g.request_started) * 1000
         db_ms=getattr(g,'db_connect_ms',0.0)
         db_count=getattr(g,'db_connect_count',0)
-        result.headers['Server-Timing'] = f'app;dur={elapsed:.1f}, db-connect;dur={db_ms:.1f};desc="{db_count} connection(s)"'
+        region = os.environ.get('VERCEL_REGION', 'local')
+        if not re.fullmatch(r'[a-z0-9]{2,8}',region):
+            region = 'unknown'
+        # This measures Python module import/initialization, not end-to-end cold
+        # start (which also includes Vercel routing and worker provisioning).
+        timing = (f'app;dur={elapsed:.1f}, db-connect;dur={db_ms:.1f};desc="{db_count} connection(s)", '
+                  f'module-init;dur={_MODULE_INIT_MS:.1f}, region;desc="{region}"')
+        auth_ms=getattr(g,'shursh_auth_ms',None)
+        if auth_ms is not None:
+            timing += f', auth-upstream;dur={auth_ms:.1f}'
+        result.headers['Server-Timing'] = timing
     # Static UI assets are public and identical for every user. Reusing them
     # avoids repeated downloads on reload; HTML, APIs and capability URLs
     # must always remain private and uncached.
@@ -135,6 +147,8 @@ def frontend(route=''):
         return send_from_directory(ROOT/'public','index.html')
     return response({'error':'Страница не найдена'},404)
 
+
+_MODULE_INIT_MS = (time.perf_counter() - _MODULE_IMPORT_STARTED) * 1000
 
 if __name__ == '__main__':
     # Local cloud-mode smoke testing only; Vercel imports app via WSGI.

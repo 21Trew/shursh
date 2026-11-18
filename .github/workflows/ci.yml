@@ -58,7 +58,9 @@ jobs:
           python-version: '3.13'
       - run: python -m pip install -r requirements.txt -r requirements-dev.txt
       - run: python -m compileall -q app.py cloud server.py tests/test_cloud.py
-      - run: python -m pytest -q tests/test_cloud.py -m "not browser"
+      - run: python -m pytest -q tests/test_cloud.py -m "not browser and not performance"
+      - name: Repeatable signed-in API timings (ephemeral PostgreSQL, mocked Auth)
+        run: python -m pytest -q -s tests/test_cloud.py -m performance
 
   browser-e2e:
     runs-on: ubuntu-24.04
