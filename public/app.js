@@ -171,11 +171,20 @@ async function dispatch(action,el){try{
  if(action==='reveal'){const path=el.dataset.mode==='owner'?`/api/santas/${el.dataset.key}/reveal`:`/api/participant/${el.dataset.key}/reveal`;await api(path,{method:'POST',body:{}});notice('Секрет раскрыт!');await render();}
  }catch(err){notice(err.message,true)}}
 let renderStarted=false;
-if(!isPreview && /(?:^#|[&#])(?:access_token|refresh_token|error_description)=/.test(location.hash)){history.replaceState(null,'',location.pathname+location.search);}
+let authReturnNotice = null;
+let authReturnError = false;
+if(!isPreview && /(?:^#|[&#])(?:access_token|refresh_token|error_description)=/.test(location.hash)){
+ const params=new URLSearchParams(location.hash.slice(1));
+ authReturnError=params.has('error')||params.has('error_code');
+ authReturnNotice=authReturnError?'Ссылка подтверждения недействительна или истекла. Попробуй зарегистрироваться снова.':'Адрес электронной почты подтверждён. Теперь войди с паролем.';
+ // Remove provider tokens *before* any async fetch or UI rendering. The
+ // application creates its own HttpOnly session cookie on password login.
+ history.replaceState(null,'',location.pathname+location.search);
+}
 async function render(){const marker=++lastRenderToken;try{if(!renderStarted){const r=await api('/api/me');currentUser=r.user;isDemo=r.demo;renderStarted=true;}
  const path=currentPath();if(path==='/'){home();return;}loading();
  if(path==='/lists')await listsPage();else if(/^\/list\/\d+$/.test(path))await ownerListPage(path.split('/')[2]);else if(/^\/w\/[A-Za-z0-9_-]+$/.test(path))await publicListPage(path.split('/')[2]);else if(/^\/r\/[A-Za-z0-9_-]+$/.test(path))await reservationPage(path.split('/')[2]);else if(path==='/santas')await santasPage();else if(/^\/santa\/\d+$/.test(path))await santaAdminPage(path.split('/')[2]);else if(/^\/join\/[A-Za-z0-9_-]+$/.test(path))await invitePage(path.split('/')[2]);else if(/^\/p\/[A-Za-z0-9_-]+$/.test(path))await participantPage(path.split('/')[2]);else errorView(new Error('Похоже, такой страницы ещё нет.'),'Страница потерялась');
  }catch(err){if(marker===lastRenderToken)errorView(err,err.message?.includes('404')?'Не найдена':'Страница не загрузилась');}}
 document.addEventListener('click',async ev=>{const n=ev.target.closest('[data-nav]');if(n){ev.preventDefault();nav(n.dataset.nav);return;}const op=ev.target.closest('[data-open]');if(op){ev.preventDefault();const key=op.dataset.open;if(key==='login'||key==='register')loginModal(key);if(key==='list')listModal();if(key==='wish')wishModal();if(key==='santa')santaModal();return;}const a=ev.target.closest('[data-action]');if(a){ev.preventDefault();await dispatch(a.dataset.action,a);}});
 window.addEventListener('popstate',render);window.addEventListener('hashchange',()=>{if(isPreview)render();});
-if(!isPreview)render();
+if(!isPreview)render().then(()=>{if(authReturnNotice)notice(authReturnNotice,authReturnError);});

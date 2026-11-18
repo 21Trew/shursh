@@ -413,3 +413,55 @@ def test_browser_santa_invites_draw_and_private_reveals(browser_http):
             assert owner_state['my_assignment'] == {'revealed': False}
         finally:
             browser.close()
+def test_auth_uses_fixed_confirmation_destination_not_request_host(monkeypatch):
+    """Verify outgoing Supabase signup request without sending email or tokens."""
+    import io
+    import json
+    from urllib.parse import urlsplit, parse_qs
+    from cloud import auth
+    monkeypatch.setenv('SUPABASE_URL','https://unit-project.supabase.co')
+    monkeypatch.setenv('SUPABASE_PUBLISHABLE_KEY','sb_publishable_for_testing')
+    redirect='https://shursh-preview-git-feat-supabase-mvp-21trews-projects.vercel.app/'
+    monkeypatch.setenv('SHURSH_AUTH_REDIRECT_URL',redirect)
+    calls=[]
+    def mock_urlopen(request,timeout):
+        calls.append((request.full_url,json.loads(request.data),dict(request.headers)))
+        return io.BytesIO(b'{"user":{"id":"test"},"access_token":null}')
+    monkeypatch.setattr(auth,'urlopen',mock_urlopen)
+    auth.auth_request('register',email='someone@example.test',password='some-password',
+                      data={'name':'Test'})
+    url,payload,headers=calls[-1]
+    assert urlsplit(url).path=='/auth/v1/signup'
+    assert parse_qs(urlsplit(url).query)=={'redirect_to':[redirect]}
+    assert 'password=some-password' not in url
+    assert payload['email']=='someone@example.test'
+    assert 'sb_publishable_for_testing' not in url
+    auth.auth_request('login',email='someone@example.test',password='some-password')
+    url,_,_=calls[-1]
+    assert url.endswith('/auth/v1/token?grant_type=password')
+    assert 'redirect_to' not in url
+    for invalid in ('http://localhost:3000/','https://evil.test/?a=b',
+                    'https://name:pass@evil.test/','https://evil.test/#token',
+                    'https://evil.test:8443/'):
+        monkeypatch.setenv('SHURSH_AUTH_REDIRECT_URL',invalid)
+        with pytest.raises((RuntimeError,ValueError)):
+            auth.auth_request('register',email='someone@example.test',password='some-password')
+    assert len(calls)==2
+
+
+@pytest.mark.browser
+def test_browser_confirmation_return_clears_provider_hash(browser_http):
+    from playwright.sync_api import sync_playwright,expect
+    with sync_playwright() as play:
+        browser=play.chromium.launch(headless=True,args=['--no-sandbox'])
+        try:
+            page=browser.new_page()
+            page.goto(browser_http+'/#access_token=fake-test-value&refresh_token=fake-refresh&type=signup')
+            expect(page).to_have_url(browser_http+'/')
+            expect(page.locator('.toast')).to_contain_text('подтверждён')
+            assert 'fake-test-value' not in page.url
+            page.goto(browser_http+'/#error=access_denied&error_code=otp_expired&error_description=test')
+            expect(page).to_have_url(browser_http+'/')
+            expect(page.locator('.toast')).to_contain_text('истекла')
+        finally:
+            browser.close()

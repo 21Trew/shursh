@@ -3,6 +3,7 @@ import json
 import os
 from urllib.error import HTTPError, URLError
 from urllib.request import Request, urlopen
+from urllib.parse import urlencode, urlsplit
 
 from server import ApiError
 
@@ -13,6 +14,17 @@ def auth_request(action, **payload):
     if not url.startswith('https://') or not key:
         raise RuntimeError('Supabase Auth is not configured')
     suffix = {'register': 'signup', 'login': 'token?grant_type=password'}[action]
+    # Never derive the confirmation destination from Host/Origin headers; they
+    # can be attacker-controlled. The Preview URL is a server-side setting.
+    if action == 'register':
+        redirect = os.environ.get('SHURSH_AUTH_REDIRECT_URL', '').strip()
+        if redirect:
+            parts = urlsplit(redirect)
+            if (parts.scheme != 'https' or not parts.hostname or parts.username
+                    or parts.password or parts.query or parts.fragment
+                    or parts.path not in ('', '/') or parts.port not in (None, 443)):
+                raise RuntimeError('SHURSH_AUTH_REDIRECT_URL must be a trusted HTTPS origin')
+            suffix += '?' + urlencode({'redirect_to': redirect})
     request = Request(f'{url}/auth/v1/{suffix}', method='POST',
                       data=json.dumps(payload).encode(),
                       headers={'apikey': key, 'Content-Type': 'application/json'})
