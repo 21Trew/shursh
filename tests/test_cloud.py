@@ -318,9 +318,15 @@ def browser_login(page, email='owner@example.test'):
             page.locator('#modal-form button[type="submit"]').click()
         response=result.value
     except PlaywrightTimeout as exc:
-        valid=page.evaluate("() => document.querySelector('#modal-form')?.checkValidity() ?? null")
+        fields=page.evaluate("""() => [...document.querySelectorAll('#modal-form input')].map(el=>({
+          type:el.type, name:el.name, valid:el.checkValidity(),
+          valueLength:el.value.length, required:el.required,
+          missing:el.validity.valueMissing, typeMismatch:el.validity.typeMismatch,
+          tooShort:el.validity.tooShort, tooLong:el.validity.tooLong,
+          badInput:el.validity.badInput, customError:el.validity.customError
+        }))""")
         disabled=page.locator('#modal-form button[type="submit"]').is_disabled() if page.locator('#modal-form button[type="submit"]').count() else None
-        raise AssertionError(f'Login timed out: request_sent={bool(sent)}, valid_form={valid}, submit_disabled={disabled}') from exc
+        raise AssertionError(f'Login timed out: request_sent={bool(sent)}, field_constraints={fields}, submit_disabled={disabled}') from exc
     assert response.status==200, (
         f'Login HTTP {response.status}; '
         f'Server-Timing: {response.headers.get("server-timing", "missing")}')
