@@ -122,6 +122,24 @@ def test_bounded_pool_reuse_and_independent_nested_transaction(application):
                 assert inner != outer, 'Nested rate limiter must use independent socket'
 
 
+def test_auth_releases_db_connection_before_upstream(application, monkeypatch):
+    from cloud import auth
+    from flask import g
+    provider=auth.auth_request
+    checked=[]
+    def assert_no_reserved_connection(action, **kwargs):
+        checked.append(getattr(g, 'shursh_db_connection', None) is None)
+        return provider(action, **kwargs)
+    monkeypatch.setattr(auth, 'auth_request', assert_no_reserved_connection)
+    client=application.test_client()
+    response=client.post('/api/login',base_url=BASE,
+        json={'email':'owner@example.test','password':'valid-password'})
+    assert response.status_code==200
+    assert checked==[True], 'Network authentication must not reserve a DB socket'
+    assert client.get('/api/me',base_url=BASE).json['user']['email']=='owner@example.test'
+    assert client.post('/api/logout',base_url=BASE,json={}).status_code==200
+
+
 def test_auth_and_session(application):
     c=application.test_client()
     assert call(c,'GET','/api/me').json == {'user':None,'demo':False}

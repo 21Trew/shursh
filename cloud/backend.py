@@ -80,6 +80,58 @@ class CloudRequest(Handler):
         if row['hits'] > limit:
             raise ApiError(429, 'Слишком много попыток. Попробуй немного позже.')
 
+    def prepare_auth(self, path):
+        self.throttled('auth', 15)
+        # Release the completed rate-limit transaction before waiting on HTTPS
+        # so slow Supabase Auth does not reserve a PostgreSQL connection.
+        db.close_request_connection()
+        data = self.body()
+        email = req(data.get('email'), 'Почта', 200).lower()
+        if not re.fullmatch(r'[^\s@]+@[^\s@]+\.[^\s@]+', email) or email == 'demo@shursh.local':
+            raise ApiError(400, 'Укажи корректную почту')
+        password = data.get('password')
+        if (not isinstance(password, str) or not 8 <= len(password) <= 200
+                or '\x00' in password or any(0xD800 <= ord(ch) <= 0xDFFF for ch in password)):
+            raise ApiError(400, 'Пароль должен содержать от 8 до 200 символов')
+        action = 'register' if path.endswith('register') else 'login'
+        payload = {'email': email, 'password': password}
+        if action == 'register':
+            payload['data'] = {'name': req(data.get('name'), 'Имя', 40)}
+        started_auth = time.perf_counter()
+        try:
+            result = auth.auth_request(action, **payload)
+        finally:
+            # Duration only. Never log provider response, email or tokens.
+            g.shursh_auth_ms = (time.perf_counter() - started_auth) * 1000
+        # A confirmation-required signup deliberately never establishes a session.
+        if action == 'register' and not result.get('access_token'):
+            return None
+        provider = result.get('user') or {}
+        if not result.get('access_token') or not provider.get('email_confirmed_at'):
+            raise ApiError(401, 'Подтверди адрес электронной почты')
+        try:
+            uid = UUID(provider['id'])
+        except (ValueError, TypeError, KeyError):
+            raise ApiError(503, 'Сервис входа временно недоступен') from None
+        # Metadata is for display ONLY; authorization uses the provider's user ID.
+        display = (provider.get('user_metadata') or {}).get('name')
+        name = display.strip()[:40] if isinstance(display, str) and display.strip() else 'Друг'
+        return (uid, name, provider.get('email') or email)
+
+    def finish_auth(self, con, prepared):
+        uid,name,verified_email = prepared
+        con.execute('INSERT INTO profiles(id,name) VALUES(?,?) ON CONFLICT(id) DO NOTHING', (uid,name))
+        value = token()
+        now = int(time.time())
+        con.execute('DELETE FROM app_sessions WHERE expires_at<=?', (now,))
+        previous = self.request.cookies.get('shursh_sid','')
+        if re.fullmatch(r'[A-Za-z0-9_-]{43}',previous):
+            con.execute('DELETE FROM app_sessions WHERE token_hash=?',(token_hash(previous),))
+        con.execute('INSERT INTO app_sessions(token_hash,user_id,email,expires_at) VALUES(?,?,?,?)',
+                    (token_hash(value),uid,verified_email,now+SESSION_SECONDS))
+        rec = con.execute('SELECT id,name FROM profiles WHERE id=?',(uid,)).fetchone()
+        return 200, {'user': {**rec,'email':verified_email}}, self.send_cookie(value)
+
     def handle_api(self, method, path, con):
         if method == 'GET' and path == '/api/me':
             return 200, {'user': self.user(con), 'demo': False}, None
@@ -92,50 +144,6 @@ class CloudRequest(Handler):
             lists = super().handle_api('GET', '/api/lists', con)[1]['lists']
             events = super().handle_api('GET', '/api/santas', con)[1]['events']
             return 200, {'user': user, 'demo': False, 'lists': lists, 'events': events}, None
-        if method == 'POST' and path in ('/api/register', '/api/login'):
-            self.throttled('auth', 15)
-            data = self.body()
-            email = req(data.get('email'), 'Почта', 200).lower()
-            if not re.fullmatch(r'[^\s@]+@[^\s@]+\.[^\s@]+', email) or email == 'demo@shursh.local':
-                raise ApiError(400, 'Укажи корректную почту')
-            password = data.get('password')
-            if (not isinstance(password, str) or not 8 <= len(password) <= 200
-                    or '\x00' in password or any(0xD800 <= ord(ch) <= 0xDFFF for ch in password)):
-                raise ApiError(400, 'Пароль должен содержать от 8 до 200 символов')
-            action = 'register' if path.endswith('register') else 'login'
-            payload = {'email': email, 'password': password}
-            if action == 'register':
-                payload['data'] = {'name': req(data.get('name'), 'Имя', 40)}
-            started_auth = time.perf_counter()
-            try:
-                result = auth.auth_request(action, **payload)
-            finally:
-                # Duration only. Never log provider response, email or tokens.
-                g.shursh_auth_ms = (time.perf_counter() - started_auth) * 1000
-            # A confirmation-required signup deliberately never establishes a session.
-            if action == 'register' and not result.get('access_token'):
-                return 202, {'user': None, 'pending_confirmation': True}, None
-            provider = result.get('user') or {}
-            if not result.get('access_token') or not provider.get('email_confirmed_at'):
-                raise ApiError(401, 'Подтверди адрес электронной почты')
-            try:
-                uid = UUID(provider['id'])
-            except (ValueError, TypeError, KeyError):
-                raise ApiError(503, 'Сервис входа временно недоступен') from None
-            # Metadata is for display ONLY; authorization uses the provider's user ID.
-            display = (provider.get('user_metadata') or {}).get('name')
-            name = display.strip()[:40] if isinstance(display, str) and display.strip() else 'Друг'
-            con.execute('INSERT INTO profiles(id,name) VALUES(?,?) ON CONFLICT(id) DO NOTHING', (uid,name))
-            value = token()
-            now = int(time.time())
-            con.execute('DELETE FROM app_sessions WHERE expires_at<=?', (now,))
-            previous = self.request.cookies.get('shursh_sid','')
-            if re.fullmatch(r'[A-Za-z0-9_-]{43}',previous):
-                con.execute('DELETE FROM app_sessions WHERE token_hash=?',(token_hash(previous),))
-            con.execute('INSERT INTO app_sessions(token_hash,user_id,email,expires_at) VALUES(?,?,?,?)',
-                        (token_hash(value),uid,provider.get('email') or email,now+SESSION_SECONDS))
-            rec = con.execute('SELECT id,name FROM profiles WHERE id=?',(uid,)).fetchone()
-            return 200, {'user': {**rec,'email':provider.get('email') or email}}, self.send_cookie(value)
         if method == 'POST' and path == '/api/logout':
             raw = self.request.cookies.get('shursh_sid','')
             if re.fullmatch(r'[A-Za-z0-9_-]{43}',raw):

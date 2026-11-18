@@ -98,6 +98,16 @@ def api(route):
             return response({'user': None, 'demo': False, 'lists': [], 'events': []})
     handler = CloudRequest(request)
     try:
+        # Auth's upstream HTTP request must not run inside a DB transaction:
+        # retain transactional session writes, but release the rate limiter
+        # socket before the external request.
+        if path in ('/api/register','/api/login') and request.method=='POST':
+            prepared=handler.prepare_auth(path)
+            if prepared is None:
+                return response({'user':None,'pending_confirmation':True},202)
+            with db.transaction(write=True,rate_limit=True) as con:
+                result=handler.finish_auth(con,prepared)
+            return response(result[1],result[0],result[2])
         # Authentication has a stricter dedicated limiter inside CloudRequest.
         # Avoid two separate PostgreSQL rate-limit transactions per login.
         # The read-only /api/me session check needs no generic rate write.
