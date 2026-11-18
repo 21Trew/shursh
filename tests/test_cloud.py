@@ -387,7 +387,7 @@ def test_static_product_copy_avoids_sentence_final_periods():
     from pathlib import Path
     root=Path(__file__).resolve().parents[1]
     ending=re.compile(r"""[А-Яа-яЁё]\.(?=</(?:p|small|h[1-6]|strong|span|div|li|a|button)\b|['"`])""")
-    paths=('public/app.js','public/shursh-preview.html','server.py','app.py','cloud/backend.py')
+    paths=('public/app.js','public/shursh-preview.html','public/index.html','server.py','app.py','cloud/backend.py')
     for name in paths:
         data=(root/name).read_text(encoding='utf-8')
         assert not ending.search(data), f'Russian text ends in a period: {name}'
@@ -401,7 +401,8 @@ def test_site_text_uses_only_short_hyphens_and_calm_confirmation_card():
     from pathlib import Path
     root = Path(__file__).resolve().parents[1]
     for name in ('public/app.js', 'public/shursh-preview.html',
-                 'server.py', 'app.py', 'cloud/backend.py', 'DESIGN.md'):
+                 'public/index.html', 'server.py', 'app.py', 'cloud/backend.py',
+                 'DESIGN.md'):
         data = (root / name).read_text(encoding='utf-8')
         assert chr(0x2014) not in data and chr(0x2013) not in data, name
     css = (root / 'public/styles.css').read_text(encoding='utf-8')
