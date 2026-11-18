@@ -143,7 +143,7 @@ def seed_demo(con):
     uid = con.execute('SELECT id FROM users WHERE email=?', ('demo@shursh.local',)).fetchone()['id']
     lists = [
         ('День рождения, ура!', 'Собрала здесь то, чему буду очень рада. Но сюрпризы тоже люблю ♡', 'День рождения', 'peach'),
-        ('Маленькие радости', 'На случай, если захочется сделать мой день чуть теплее.', 'Просто так', 'lilac')
+        ('Маленькие радости', 'На случай, если захочется сделать мой день чуть теплее', 'Просто так', 'lilac')
     ]
     list_ids = []
     for title, description, occasion, theme in lists:
@@ -151,12 +151,12 @@ def seed_demo(con):
                     (uid,title,description,occasion,theme,'link',token(),now()))
         list_ids.append(con.execute('SELECT last_insert_rowid()').fetchone()[0])
     samples = [
-        (list_ids[0], 'Плёночный фотоаппарат', 'Хочется снимать неловкие, живые моменты.', 890000, 'RUB', 'love', 'item', None),
-        (list_ids[0], 'Керамическая чашка ручной работы', 'Большая, с характером. Можно необычной формы.', 250000, 'RUB', 'nice', 'item', None),
-        (list_ids[0], 'Билеты на спектакль', 'Буду рада любому необычному театру.', 500000, 'RUB', 'love', 'experience', None),
-        (list_ids[0], 'Красивое издание любимой книги', 'С иллюстрациями и плотной бумагой.', 180000, 'RUB', 'nice', 'item', None),
-        (list_ids[1], 'Вечер настолок', 'С печеньем и классной компанией.', None, 'RUB', 'nice', 'experience', None),
-        (list_ids[1], 'Набор цветных карандашей', 'Для спонтанных зарисовок.', 190000, 'RUB', 'nice', 'item', None)
+        (list_ids[0], 'Плёночный фотоаппарат', 'Хочется снимать неловкие, живые моменты', 890000, 'RUB', 'love', 'item', None),
+        (list_ids[0], 'Керамическая чашка ручной работы', 'Большая, с характером. Можно необычной формы', 250000, 'RUB', 'nice', 'item', None),
+        (list_ids[0], 'Билеты на спектакль', 'Буду рада любому необычному театру', 500000, 'RUB', 'love', 'experience', None),
+        (list_ids[0], 'Красивое издание любимой книги', 'С иллюстрациями и плотной бумагой', 180000, 'RUB', 'nice', 'item', None),
+        (list_ids[1], 'Вечер настолок', 'С печеньем и классной компанией', None, 'RUB', 'nice', 'experience', None),
+        (list_ids[1], 'Набор цветных карандашей', 'Для спонтанных зарисовок', 190000, 'RUB', 'nice', 'item', None)
     ]
     for rec in samples:
         con.execute('''INSERT INTO wishes(list_id,title,description,price_cents,currency,priority,kind,shop_url,created_at)
@@ -297,7 +297,7 @@ def matching(participant_ids, excluded):
 
     total = count(0)
     if total == 0:
-        raise ApiError(409, 'С такими исключениями жеребьёвка невозможна. Уберите часть ограничений.')
+        raise ApiError(409, 'С такими исключениями жеребьёвка невозможна. Уберите часть ограничений')
     mask, results = 0, []
     for i in range(n):
         options = []
@@ -369,7 +369,7 @@ class Handler(BaseHTTPRequestHandler):
             t = time.monotonic()
             samples = [x for x in samples if t-x < window]
             if len(samples)>=limit:
-                raise ApiError(429,'Слишком много попыток. Попробуйте немного позже.')
+                raise ApiError(429,'Слишком много попыток. Попробуйте немного позже')
             samples.append(t)
             RATE_BUCKETS[key]=samples
 
@@ -538,7 +538,7 @@ class Handler(BaseHTTPRequestHandler):
                 con.execute('INSERT INTO reservations(wish_id,guest_name,manage_hash,created_at) VALUES(?,?,?,?)',
                             (wid,guest,token_hash(value),now()))
             except sqlite3.IntegrityError:
-                raise ApiError(409,'Этот подарок уже забронировали. Выберите другой.')
+                raise ApiError(409,'Этот подарок уже забронировали. Выберите другой')
             con.execute('COMMIT')
             return 201,{'manage_token':value},None
         match=re.fullmatch(r'/api/reservations/([A-Za-z0-9_\-]+)',path)
@@ -676,7 +676,7 @@ class Handler(BaseHTTPRequestHandler):
             con.execute('BEGIN IMMEDIATE')
             event=con.execute('SELECT * FROM santa_events WHERE invite_key=?',(match.group(1),)).fetchone()
             if not event: raise ApiError(404,'Приглашение не найдено')
-            if event['status']!='open': raise ApiError(409,'Жеребьёвка уже прошла. Присоединиться нельзя.')
+            if event['status']!='open': raise ApiError(409,'Жеребьёвка уже прошла. Присоединиться нельзя')
             count=con.execute('SELECT count(*) n FROM participants WHERE event_id=?',(event['id'],)).fetchone()['n']
             if count>=12: raise ApiError(409,'В игре уже 12 участников — максимум для MVP')
             value=token()
@@ -776,10 +776,10 @@ class Handler(BaseHTTPRequestHandler):
         except ApiError as exc:
             return self.json(exc.status,{'error':exc.message, **({'detail':exc.detail} if exc.detail else {})})
         except sqlite3.IntegrityError:
-            return self.json(409,{'error':'Конфликт данных. Обновите страницу и повторите.'})
+            return self.json(409,{'error':'Конфликт данных. Обновите страницу и повторите'})
         except Exception as exc:
             print('Internal server error:',type(exc).__name__,str(exc))
-            return self.json(500,{'error':'Ошибка сервера. Попробуйте ещё раз.'})
+            return self.json(500,{'error':'Ошибка сервера. Попробуйте ещё раз'})
 
     def do_GET(self): self.route('GET')
     def do_POST(self): self.route('POST')
