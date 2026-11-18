@@ -129,9 +129,20 @@ function dashboardContent(data){
    '<div><h3>Пока без секретов</h3><p>Собери компанию и устрой первый обмен подарками.</p>'+
    '<button class="btn btn-soft btn-small" data-open="santa">Создать игру '+ico('plus')+'</button></div></div>')+'</section></main>');
 }
-async function dashboardPage(){
+function dashboardLoading(){
+ const name=esc((currentUser?.name||'Друг').trim().split(/\s+/)[0]);
+ shell('<main class="container dashboard-page"><section class="dashboard-welcome"><div>'+
+  '<div class="section-label">Твоё пространство</div><h1>С возвращением, <em>'+name+'!</em></h1>'+
+  '<p>Хорошие сюрпризы начинаются здесь.</p>'+
+  '<div class="btn-row"><button class="btn btn-dark" data-open="list">Новый вишлист '+ico('plus')+'</button>'+
+  '<button class="btn btn-peach" data-open="santa">Создать Тайного Санту '+ico('gift')+'</button></div></div>'+
+  '<div class="dashboard-welcome-art" aria-hidden="true">'+fallbackArt('gift')+'</div></section>'+
+  '<section class="dashboard-skeleton" role="status" aria-live="polite">Загружаем твои списки и игры…</section></main>');
+}
+async function dashboardPage(marker=lastRenderToken){
  if(!currentUser){home();return;}
  const data=isPreview?await Promise.all([api('/api/lists'),api('/api/santas')]).then(([a,b])=>({user:currentUser,lists:a.lists,events:b.events})):await api('/api/dashboard');
+ if(marker!==lastRenderToken)return;
  if(!isPreview&&!data.user){currentUser=null;home();return;}
  dashboardContent(data);
 }
@@ -279,7 +290,7 @@ async function render(){const marker=++lastRenderToken;try{
   currentUser=r.user;isDemo=r.demo;renderStarted=true;
  }
  if(path==='/'){
-  if(currentUser)await dashboardPage();else home();
+  if(currentUser){dashboardLoading();await dashboardPage(marker);}else home();
   return;
  }
  loading();

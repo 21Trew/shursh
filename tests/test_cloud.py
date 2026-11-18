@@ -245,7 +245,8 @@ def browser_login(page, email='owner@example.test'):
     page.locator('#fld-email').fill(email)
     page.locator('#fld-password').fill('valid-password')
     page.locator('#modal-form button[type="submit"]').click()
-    expect(page.locator('header .user-name')).to_contain_text('Owner' if email.startswith('owner') else 'Other')
+    # The dashboard paints a welcome shell immediately while the API loads.
+    expect(page.locator('header .user-name')).to_contain_text('Owner' if email.startswith('owner') else 'Other', timeout=10000)
     expect(page.get_by_role('dialog')).to_have_count(0)
 
 
