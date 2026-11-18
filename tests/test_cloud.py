@@ -395,6 +395,24 @@ def test_static_product_copy_avoids_sentence_final_periods():
 
 
 
+
+def test_site_text_uses_only_short_hyphens_and_flat_confirmation_blob():
+    """Protect the shipped product copy and onboarding card from regressions."""
+    from pathlib import Path
+    root = Path(__file__).resolve().parents[1]
+    for name in ('public/app.js', 'public/shursh-preview.html',
+                 'server.py', 'app.py', 'cloud/backend.py', 'DESIGN.md'):
+        data = (root / name).read_text(encoding='utf-8')
+        assert chr(0x2014) not in data and chr(0x2013) not in data, name
+    css = (root / 'public/styles.css').read_text(encoding='utf-8')
+    block = css.split('.auth-confirm-card{', 1)[1].split(
+        '/* Signed-in home dashboard. */', 1)[0]
+    assert '.auth-confirm-card:before' not in block
+    assert 'box-shadow:' not in block
+
+
+
+
 @pytest.mark.browser
 def test_browser_register_wishlist_reservation_and_isolation(browser_http):
     from playwright.sync_api import sync_playwright, expect
@@ -433,6 +451,10 @@ def test_browser_register_wishlist_reservation_and_isolation(browser_http):
             assert page.locator('.toast').count()==0, 'No duplicate registration toast'
             assert page.locator('.auth-confirm-card').evaluate(
                 "(el) => getComputedStyle(el).borderTopLeftRadius !== '18px'")
+            assert page.locator('.auth-confirm-card').evaluate(
+                "(el) => getComputedStyle(el).boxShadow === 'none'")
+            assert page.locator('.auth-confirm-card').evaluate(
+                "(el) => ['none', 'normal'].includes(getComputedStyle(el, '::before').content)")
             assert page.locator('.auth-confirm-card p').inner_text().strip().endswith('.') is False
             page.set_viewport_size({'width':390,'height':844})
             expect(page.locator('.auth-confirm-card')).to_be_visible()
