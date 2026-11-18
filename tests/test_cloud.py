@@ -325,7 +325,12 @@ def browser_login(page, email='owner@example.test'):
     from playwright.sync_api import expect
     page.locator('header button[data-open="login"]').click()
     page.locator('#fld-email').fill(email)
-    page.locator('#fld-password').fill('valid-password')
+    # A headless Chromium repeat-login race sometimes cleared password after
+    # a single fill(). Key-by-key entry reproduces actual typing and we assert
+    # the value before pressing submit (without printing the password).
+    password=page.locator('#fld-password')
+    password.press_sequentially('valid-password', delay=2)
+    expect(password).to_have_value('valid-password')
     # A previous CI flake never sent the POST because native form validation
     # prevented submission. Detect this at the point of failure; never dump
     # field values, email, credentials or cookies into CI logs.
