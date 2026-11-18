@@ -682,6 +682,7 @@ def test_browser_confirmation_return_clears_provider_hash(browser_http):
             browser.close()
 
 
+@pytest.mark.browser
 @pytest.mark.fontperf
 def test_font_loading_observation(browser_http):
     """Browser-observed font requests; external third-party timing is non-gating."""

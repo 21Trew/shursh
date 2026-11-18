@@ -90,7 +90,5 @@ jobs:
           python-version: '3.13'
       - run: python -m pip install -r requirements.txt -r requirements-dev.txt playwright==1.56.0
       - run: python -m playwright install --with-deps chromium
-      - name: Browser E2E (Flask + PostgreSQL + mocked Supabase Auth)
-        run: python -m pytest -q tests/test_cloud.py -m browser
-      - name: Font loading observation (Chromium)
-        run: python -m pytest -q -s tests/test_cloud.py -m fontperf
+      - name: Browser E2E + font loading measurements
+        run: python -m pytest -q -s tests/test_cloud.py -m browser
