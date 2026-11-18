@@ -118,3 +118,63 @@ The `browser-e2e` job starts the **real Flask WSGI application** against an **ep
 ### Supabase confirmation emails (Preview)
 
 Configure `SHURSH_AUTH_REDIRECT_URL` only on the isolated Vercel Preview project. Set it to the trusted stable Preview origin, with a trailing slash. Add the **exact same URL** under Supabase **Authentication → URL Configuration → Redirect URLs**; otherwise Supabase may fall back to an unrelated Site URL (often localhost). Do not add wildcard redirects broader than the isolated Preview project. The app intentionally discards provider access/refresh tokens in the URL fragment and asks the user to sign in via the password flow, which establishes the application's HttpOnly session. Confirmation-email delivery and actual provider verification still require a real inbox and are not covered by the mocked CI tests.
+
+
+## Public beta release gates (2026-11-18)
+
+Do not merge or deploy to Production until the owner separately approves.
+The protected Preview is not a public launch. CI mocks the Supabase Auth
+transport and cannot prove SMTP delivery.
+
+### Supabase Auth: project Shursh
+
+- Authentication > Providers > Email: leave email confirmation REQUIRED.
+- Authentication > URL Configuration: set Site URL to
+  https://shursh.vercel.app/ and allow the exact redirect URLs
+  https://shursh.vercel.app/ and
+  https://shursh-preview-git-feat-supabase-mvp-21trews-projects.vercel.app/
+  (for continued staging). Never use broad wildcards.
+- Authentication > SMTP Settings: enable Custom SMTP after selecting a
+  provider. Set host, port, username and password/API credential using
+  that provider's account (NOT repository secrets); sender must be a
+  verified domain address. Configure SPF/DKIM and validate sending quotas.
+- Authentication > Email Templates > Confirm signup: retain
+  the Supabase ConfirmationURL template variable for verification links.
+- Authentication > Rate Limits: verify email quota before inviting users.
+- Register using a NEW EXTERNAL inbox, confirm email delivery (including
+  spam folder), follow the link and log in with a password. Do not send
+  tokens, session cookies, SMTP credentials or email contents to logs.
+
+Docs: https://supabase.com/docs/guides/auth/auth-smtp
+https://supabase.com/docs/guides/auth/redirect-urls
+https://supabase.com/docs/guides/auth/auth-email-templates
+
+### Vercel project: shursh (production, currently old main)
+
+- Configure Flask (app.py), not the old static/demo production target.
+- Production env variable NAMES: SHURSH_DATABASE_URL, SUPABASE_URL,
+  SUPABASE_PUBLISHABLE_KEY, SHURSH_RATE_SECRET,
+  SHURSH_AUTH_REDIRECT_URL = https://shursh.vercel.app/
+- Set credentials in Vercel secrets only. Check database role privileges
+  and plan a dedicated least-privilege login. Do not expose values.
+- Check runtime logs for capability URLs or sensitive request data;
+  establish backup/rollback plan before public invitations.
+- Only after owner approval, deploy the reviewed commit to Production
+  and validate the public origin without Vercel SSO.
+
+### Live user acceptance checklist
+
+1. Fresh external user registers; email arrives and confirmation returns
+   to the public origin; confirmed user signs in.
+2. User creates/edits wishlist and wishes; data survives reload.
+3. Guest opens public link in incognito, reserves a gift and saves
+   cancellation link. Owner cannot see booking details; guest cancels.
+4. Organizer creates Secret Santa, invites at least two guests, records
+   wishes, sets restrictions and draws. Separate guest contexts reveal
+   only their own assignments.
+5. Repeat critical paths on mobile; verify sign-out, private lists,
+   invalid links and meaningful user-facing errors.
+
+Stop public onboarding if confirmation fails, cross-user access is
+possible or secrets appear in logs. Deferred: password recovery,
+lost capability-link recovery, reminders, retention/backup policy.
