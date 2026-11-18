@@ -40,10 +40,44 @@ function money(cents,currency='RUB'){
 function dateRu(value){if(!value)return 'Не указана';try{return new Intl.DateTimeFormat('ru-RU',{day:'numeric',month:'long',year:'numeric'}).format(new Date(value+'T12:00:00'));}catch{return value}}
 function currentPath(){return isPreview?(location.hash.slice(1)||'/'):location.pathname;}
 function getLink(path){return isPreview?location.href.split('#')[0]+'#'+path:location.origin+path;}
+/* Owner-only tabs preserve their live DOM between navigations.
+   Capability/bearer URLs are deliberately excluded. */
+const ownerTabViews=new Map();
+const OWNER_VIEW_TTL=45000;
+let renderedOwnerTab=null;
+function ownerTab(path){return !!currentUser&&['/','/lists','/santas'].includes(path);}
+function clearOwnerTabViews(paths=null){
+ if(!paths){ownerTabViews.clear();return;}
+ for(const path of paths)ownerTabViews.delete(path);
+}
+function rememberOwnerTab(){
+ if(!ownerTab(renderedOwnerTab)||app.querySelector('.dashboard-skeleton'))return;
+ const node=app.querySelector('#page-view > main');
+ if(!node)return;
+ node.remove();ownerTabViews.set(renderedOwnerTab,{node,expires:Date.now()+OWNER_VIEW_TTL});
+}
+function restoreOwnerTab(path){
+ if(!ownerTab(path))return false;
+ const saved=ownerTabViews.get(path);
+ if(!saved||saved.expires<=Date.now()){ownerTabViews.delete(path);return false;}
+ const view=app.querySelector('#page-view');if(!view)return false;
+ ownerTabViews.delete(path);view.replaceChildren(saved.node);
+ view.removeAttribute('aria-busy');app.classList.remove('route-loading');
+ app.querySelectorAll('.site-header .nav [data-nav]').forEach(link=>{
+  const href=link.dataset.nav;link.classList.toggle('active',href===path);
+ });
+ renderedOwnerTab=path;return true;
+}
+
 function nav(path,{force=false}={}){
  if(currentPath()===path&&!force)return;
+ if(!force)rememberOwnerTab();else clearOwnerTabViews();
  if(isPreview){if(currentPath()===path)render();else location.hash=path;}
- else{if(currentPath()!==path)history.pushState(null,'',path);render();}
+ else{
+  if(currentPath()!==path)history.pushState(null,'',path);
+  if(!force&&restoreOwnerTab(path))lastRenderToken++;
+  else render();
+ }
  window.scrollTo({top:0,behavior:'instant'});
 }
 // Cache only authenticated owner data in RAM, never public bearer-link data.
@@ -54,7 +88,7 @@ function cacheableOwnerRead(path){
  return !!currentUser&&(/^\/api\/(?:lists|santas|dashboard)$/.test(path)||
   /^\/api\/(?:lists|santas)\/\d+$/.test(path));
 }
-function clearOwnerDataCache(){ownerCacheVersion++;ownerDataCache.clear();}
+function clearOwnerDataCache(){ownerCacheVersion++;ownerDataCache.clear();clearOwnerTabViews();}
 function invalidateOwnerDataForMutation(path){
  // Scoped invalidation: creating a wishlist does not change Santa games,
  // and changing a Santa event does not change owned wishlists.
@@ -63,13 +97,19 @@ function invalidateOwnerDataForMutation(path){
   /^\/api\/participant\/[^/]+\/wishes$/.test(path) ||
   /^\/api\/invites\/[^/]+\/join$/.test(path);
  if(!listMutation&&!santaMutation){clearOwnerDataCache();return;}
+ clearOwnerTabViews(['/'].concat(listMutation?['/lists']:[]).concat(santaMutation?['/santas']:[]));
  for(const key of ownerDataCache.keys()){
   if(key==='/api/dashboard' || (listMutation&&key.startsWith('/api/lists')) ||
       (santaMutation&&key.startsWith('/api/santas')))ownerDataCache.delete(key);
  }
 }
 function seedOwnerCache(path,value){
- if(cacheableOwnerRead(path))ownerDataCache.set(path,{value,expires:Date.now()+ownerCacheTTL(path)});
+ if(!cacheableOwnerRead(path))return;
+ ownerDataCache.set(path,{value,expires:Date.now()+ownerCacheTTL(path)});
+ if(path==='/api/dashboard'&&value?.user){
+  if(Array.isArray(value.lists))ownerDataCache.set('/api/lists',{value:{lists:value.lists},expires:Date.now()+ownerCacheTTL('/api/lists')});
+  if(Array.isArray(value.events))ownerDataCache.set('/api/santas',{value:{events:value.events},expires:Date.now()+ownerCacheTTL('/api/santas')});
+ }
 }
 function cachedOwnerValue(path){
  const entry=ownerDataCache.get(path);
@@ -166,6 +206,7 @@ function shell(body){
   });
  }
  view.innerHTML=body;view.removeAttribute('aria-busy');app.classList.remove('route-loading');
+ renderedOwnerTab=ownerTab(currentPath())?currentPath():null;
  document.title='Шурш! — вишлисты и Тайный Санта';
 }
 
@@ -218,7 +259,8 @@ async function dashboardPage(marker=lastRenderToken){
  if(!currentUser){home();return;}
  const data=isPreview?await Promise.all([api('/api/lists'),api('/api/santas')]).then(([a,b])=>({user:currentUser,lists:a.lists,events:b.events})):await api('/api/dashboard');
  if(marker!==lastRenderToken)return;
- if(!isPreview&&!data.user){currentUser=null;home();return;}
+ if(!isPreview&&!data.user){clearOwnerDataCache();currentUser=null;home();return;}
+ if(!isPreview)seedOwnerCache('/api/dashboard',data);
  dashboardContent(data);
 }
 function home(){shell(`<main><section class="container hero"><div class="hero-copy"><div class="eyebrow">${ico('spark')} Сервис хороших сюрпризов</div><h1>Подарки, о которых <em>не нужно</em> догадываться</h1><p class="hero-description">Собирай желания, делись ими с близкими и устраивай Тайного Санту без бумажек и путаницы.</p><div class="btn-row"><button class="btn btn-dark" data-open="list">Создать вишлист ${ico('arrow')}</button><button class="btn btn-peach" data-open="santa">Играть в Тайного Санту ${ico('gift')}</button></div><p class="hero-note">Никаких лишних шагов. Только приятное.</p></div><div class="hero-visual">${heroArt()}<div class="tiny-bubble bubble-heart">${ico('heart')} кое-кто уже мечтает</div><div class="tiny-bubble bubble-gift">сюрприз на подходе</div></div></section>
@@ -230,6 +272,7 @@ function home(){shell(`<main><section class="container hero"><div class="hero-co
  <section class="container section"><div class="section-intro"><div><div class="section-label">05 / Дарить без повода — тоже повод</div><h2>Для всех ваших<br>«хочу порадовать»</h2></div></div><div class="occasions">${[['gift','День рождения'],['heart','Годовщина'],['home','Новоселье'],['spark','Просто так'],['users','Свадьба'],['star','Любой праздник']].map(a=>`<span class="occasion-chip">${ico(a[0])} ${a[1]}</span>`).join('')}</div></section>
  <section class="container"><div class="final-cta"><div><h2>Пусть хорошие подарки случаются чаще.</h2><p>Первый список можно собрать прямо сейчас.</p></div><button class="btn btn-dark" data-open="list">Создать свой список ${ico('arrow')}</button></div></section></main>`);}
 function loading(){
+ renderedOwnerTab=null;
  const view=app.querySelector('#page-view');
  if(view&&renderStarted){
   app.classList.add('route-loading');view.setAttribute('aria-busy','true');return;
@@ -384,7 +427,7 @@ async function render(){const marker=++lastRenderToken;try{
   if(currentUser){if(!cachedOwnerValue('/api/dashboard'))dashboardLoading();await dashboardPage(marker);}else home();
   return;
  }
- loading();
+ if(!((path==='/lists'&&cachedOwnerValue('/api/lists')) || (path==='/santas'&&cachedOwnerValue('/api/santas'))))loading();
  if(path==='/lists')await listsPage();else if(/^\/list\/\d+$/.test(path))await ownerListPage(path.split('/')[2]);else if(/^\/w\/[A-Za-z0-9_-]+$/.test(path))await publicListPage(path.split('/')[2]);else if(/^\/r\/[A-Za-z0-9_-]+$/.test(path))await reservationPage(path.split('/')[2]);else if(path==='/santas')await santasPage();else if(/^\/santa\/\d+$/.test(path))await santaAdminPage(path.split('/')[2]);else if(/^\/join\/[A-Za-z0-9_-]+$/.test(path))await invitePage(path.split('/')[2]);else if(/^\/p\/[A-Za-z0-9_-]+$/.test(path))await participantPage(path.split('/')[2]);else errorView(new Error('Похоже, такой страницы ещё нет.'),'Страница потерялась');
  }catch(err){if(marker===lastRenderToken)errorView(err,err.message?.includes('404')?'Не найдена':'Страница не загрузилась');}}
 document.addEventListener('click',async ev=>{
@@ -416,5 +459,5 @@ document.addEventListener('click',async ev=>{
   return;
  }
  const n=ev.target.closest('[data-nav]');if(n){ev.preventDefault();nav(n.dataset.nav);return;}const op=ev.target.closest('[data-open]');if(op){ev.preventDefault();const key=op.dataset.open;if(key==='login'||key==='register')loginModal(key);if(key==='list')listModal();if(key==='wish')wishModal();if(key==='santa')santaModal();return;}const a=ev.target.closest('[data-action]');if(a){ev.preventDefault();await dispatch(a.dataset.action,a);}});
-window.addEventListener('popstate',render);window.addEventListener('hashchange',()=>{if(isPreview)render();});
+window.addEventListener('popstate',()=>{rememberOwnerTab();if(restoreOwnerTab(currentPath()))lastRenderToken++;else render();});window.addEventListener('hashchange',()=>{if(isPreview)render();});
 if(!isPreview)render().then(()=>{if(authReturnNotice)notice(authReturnNotice,authReturnError);});
