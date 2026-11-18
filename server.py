@@ -183,6 +183,8 @@ class ApiError(Exception):
 def req(value, name, maximum=140, minimum=1):
     if not isinstance(value, str):
         raise ApiError(400, f'Поле «{name}» заполнено неверно')
+    if '\x00' in value or any(0xD800 <= ord(ch) <= 0xDFFF for ch in value):
+        raise ApiError(400, f'Поле «{name}» содержит недопустимые символы')
     value = value.strip()
     if len(value) < minimum or len(value) > maximum:
         raise ApiError(400, f'Поле «{name}»: от {minimum} до {maximum} символов')
@@ -190,7 +192,7 @@ def req(value, name, maximum=140, minimum=1):
 
 
 def optional(value, name, max_length=1000):
-    return req(value or '', name, max_length, 0)
+    return req('' if value is None else value, name, max_length, 0)
 
 
 def enum(value, allowed, field):
@@ -214,12 +216,20 @@ def amount(value):
 
 
 def shop_url(value):
-    value = (value or '').strip()
+    if value is None:
+        return None
+    if not isinstance(value, str):
+        raise ApiError(400, 'Некорректная ссылка на магазин')
+    value = req(value, 'Ссылка', 2000, 0)
     if not value:
         return None
     if len(value) > 2000 or not value.startswith(('https://', 'http://')):
         raise ApiError(400, 'Ссылка должна начинаться с https:// или http://')
-    parts = urlparse(value)
+    try:
+        parts = urlparse(value)
+        _ = parts.port
+    except ValueError:
+        raise ApiError(400, 'Неверная ссылка на магазин') from None
     if not parts.hostname or parts.username or parts.password or '\\' in value or any(c.isspace() for c in value):
         raise ApiError(400, 'Неверная ссылка на магазин')
     return value
@@ -611,7 +621,7 @@ class Handler(BaseHTTPRequestHandler):
             if not event: raise ApiError(404,'Игра не найдена')
             if event['status']!='open': raise ApiError(409,'Правила уже заморожены')
             try: a,b=int(data.get('giver_id')),int(data.get('receiver_id'))
-            except (ValueError,TypeError): raise ApiError(400,'Выберите двух участников')
+            except (ValueError,TypeError,OverflowError): raise ApiError(400,'Выберите двух участников')
             if a==b: raise ApiError(400,'Самому себе и так нельзя дарить')
             if con.execute('SELECT count(*) n FROM participants WHERE event_id=? AND id IN (?,?)',(eid,a,b)).fetchone()['n']!=2:
                 raise ApiError(400,'Участник не найден')

@@ -172,7 +172,7 @@ async function dispatch(action,el){try{
  }catch(err){notice(err.message,true)}}
 let renderStarted=false;
 if(!isPreview && /(?:^#|[&#])(?:access_token|refresh_token|error_description)=/.test(location.hash)){history.replaceState(null,'',location.pathname+location.search);}
-async function render(){const marker=++lastRenderToken;try{if(!renderStarted){renderStarted=true;const r=await api('/api/me');currentUser=r.user;isDemo=r.demo;}
+async function render(){const marker=++lastRenderToken;try{if(!renderStarted){const r=await api('/api/me');currentUser=r.user;isDemo=r.demo;renderStarted=true;}
  const path=currentPath();if(path==='/'){home();return;}loading();
  if(path==='/lists')await listsPage();else if(/^\/list\/\d+$/.test(path))await ownerListPage(path.split('/')[2]);else if(/^\/w\/[A-Za-z0-9_-]+$/.test(path))await publicListPage(path.split('/')[2]);else if(/^\/r\/[A-Za-z0-9_-]+$/.test(path))await reservationPage(path.split('/')[2]);else if(path==='/santas')await santasPage();else if(/^\/santa\/\d+$/.test(path))await santaAdminPage(path.split('/')[2]);else if(/^\/join\/[A-Za-z0-9_-]+$/.test(path))await invitePage(path.split('/')[2]);else if(/^\/p\/[A-Za-z0-9_-]+$/.test(path))await participantPage(path.split('/')[2]);else errorView(new Error('Похоже, такой страницы ещё нет.'),'Страница потерялась');
  }catch(err){if(marker===lastRenderToken)errorView(err,err.message?.includes('404')?'Не найдена':'Страница не загрузилась');}}

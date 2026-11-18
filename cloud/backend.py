@@ -64,7 +64,7 @@ class CloudRequest(Handler):
         source = self.request.remote_addr or 'unknown'
         if os.environ.get('VERCEL') == '1':
             source = (self.headers.get('x-vercel-forwarded-for') or source).split(',')[0].strip()
-        secret = os.environ.get('SHURSH_RATE_SECRET') or os.environ.get('SHURSH_DATABASE_URL')
+        secret = os.environ.get('SHURSH_RATE_SECRET')
         if not secret:
             raise RuntimeError('Rate limiting is not configured')
         key = hmac.new(secret.encode(), f'{source}:{action}'.encode(), sha256).hexdigest()
@@ -88,7 +88,10 @@ class CloudRequest(Handler):
             email = req(data.get('email'), 'Почта', 200).lower()
             if not re.fullmatch(r'[^\s@]+@[^\s@]+\.[^\s@]+', email) or email == 'demo@shursh.local':
                 raise ApiError(400, 'Укажи корректную почту')
-            password = req(data.get('password'), 'Пароль', 200, 8)
+            password = data.get('password')
+            if (not isinstance(password, str) or not 8 <= len(password) <= 200
+                    or '\x00' in password or any(0xD800 <= ord(ch) <= 0xDFFF for ch in password)):
+                raise ApiError(400, 'Пароль должен содержать от 8 до 200 символов')
             action = 'register' if path.endswith('register') else 'login'
             payload = {'email': email, 'password': password}
             if action == 'register':

@@ -169,3 +169,42 @@ def test_permissions_and_rollback(application):
     assert call(c,'GET','/').headers['Referrer-Policy']=='no-referrer'
     call(c,'GET','/shursh-preview.html',status=404)
     call(c,'GET','/server.py',status=404)
+
+
+def test_direct_browser_links_and_api_errors(application):
+    owner=login(application)
+    guest=application.test_client()
+    lid,wid,key=make_list(owner)
+    eid=call(owner,'POST','/api/santas',{'title':'Deep links'},201).json['id']
+    invite=call(owner,'GET',f'/api/santas/{eid}').json['event']['invite_key']
+    participant=call(guest,'POST',f'/api/invites/{invite}/join',{'name':'Guest'},201).json['participant_token']
+    reservation=call(guest,'POST',f'/api/public/{key}/reserve/{wid}',{'guest_name':'Guest'},201).json['manage_token']
+    for path in ['/', '/lists', '/santas', f'/list/{lid}', f'/santa/{eid}',
+                 f'/w/{key}', f'/join/{invite}', f'/p/{participant}', f'/r/{reservation}']:
+        page=call(guest,'GET',path)
+        assert 'text/html' in page.content_type
+        assert 'src="/app.js"' in page.get_data(as_text=True)
+        assert page.headers['Cache-Control']=='no-store'
+    for path in ['/join/', '/join/../../server.py', '/list/abc', '/cloud/auth.py', '/.env.example']:
+        call(guest,'GET',path,status=404)
+    for invalid in [42, [], 'http://[invalid', 'https://example.org:invalid', 'https://user:pass@example.org']:
+        call(owner,'POST',f'/api/lists/{lid}/wishes',{'title':'Invalid','shop_url':invalid},400)
+    call(owner,'POST','/api/lists',{'title':'invalid\u0000title'},400)
+    call(owner,'POST','/api/lists',{'title':'valid','description':[]},400)
+    assert len(call(owner,'GET',f'/api/lists/{lid}').json['wishes'])==1
+
+
+def test_session_cookie_rotation_and_expiry(application):
+    from server import token_hash
+    client=login(application)
+    first=client.get_cookie('shursh_sid',domain='localhost').value
+    call(client,'POST','/api/login',{'email':'owner@example.test','password':'valid-password'})
+    second=client.get_cookie('shursh_sid',domain='localhost').value
+    assert first!=second
+    replay=application.test_client()
+    replay.set_cookie('shursh_sid',first,domain='localhost')
+    assert call(replay,'GET','/api/me').json['user'] is None
+    with psycopg.connect(os.environ['SHURSH_DATABASE_URL']) as con:
+        con.execute('UPDATE public.app_sessions SET expires_at=0 WHERE token_hash=%s',(token_hash(second),))
+    assert call(client,'GET','/api/me').json['user'] is None
+    call(client,'GET','/api/lists',status=401)

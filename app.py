@@ -1,5 +1,6 @@
 """Vercel-compatible WSGI entrypoint. No SQLite or local demo in cloud mode."""
 import json
+import re
 import sqlite3
 from pathlib import Path
 from flask import Flask, Response, request, send_from_directory
@@ -97,7 +98,7 @@ def frontend(route=''):
     if route in ('app.js','styles.css','favicon.svg'):
         return send_from_directory(ROOT/'public',route)
     # Serve only known app routes; never include the simulator or repository files.
-    if route in ('','index.html','lists','santas') or route.split('/')[0] in ('list','w','santa','invite','participant','reservation','r','p','i'):
+    if route in ('','index.html','lists','santas') or re.fullmatch(r'(?:list|santa)/[0-9]{1,16}|(?:w|r|join|p)/[A-Za-z0-9_-]{1,128}',route):
         return send_from_directory(ROOT/'public','index.html')
     return response({'error':'Страница не найдена'},404)
 
