@@ -528,8 +528,8 @@ def test_browser_navigation_cache_invalidation_and_persistent_header(browser_htt
             expect(page.locator('main h1')).to_contain_text('Тайный Санта')
             page.locator('header .nav [data-nav="/lists"]').click()
             expect(page.locator('main h1')).to_contain_text('Твои вишлисты')
-            assert sum(method=='GET' and path=='/api/lists' for method,path in visited)==1,visited
-            assert sum(method=='GET' and path=='/api/santas' for method,path in visited)==1,visited
+            assert sum(method=='GET' and path=='/api/lists' for method,path in visited)==0,visited
+            assert sum(method=='GET' and path=='/api/santas' for method,path in visited)==0,visited
             assert page.evaluate('document.querySelector(".site-header") === window.__stableHeader')
             assert page.evaluate('document.querySelector("footer") === window.__stableFooter')
             before=len(visited)
@@ -542,7 +542,7 @@ def test_browser_navigation_cache_invalidation_and_persistent_header(browser_htt
             expect(page).to_have_url(re.compile(r'/list/\d+$'))
             page.locator('header .nav [data-nav="/lists"]').click()
             expect(page.locator('main')).to_contain_text(title)
-            assert sum(method=='GET' and path=='/api/lists' for method,path in visited)==2,visited
+            assert sum(method=='GET' and path=='/api/lists' for method,path in visited)==1,visited
             page.locator('header .nav [data-nav="/santas"]').click()
             expect(page.locator('main h1')).to_contain_text('Тайный Санта')
             santa='No redraw game '+uuid4().hex[:7]
@@ -554,7 +554,7 @@ def test_browser_navigation_cache_invalidation_and_persistent_header(browser_htt
             assert sum('/my-wishes' in path for method,path in visited)==0,visited
             page.locator('header .nav [data-nav="/santas"]').click()
             expect(page.locator('main')).to_contain_text(santa)
-            assert sum(method=='GET' and path=='/api/santas' for method,path in visited)==2,visited
+            assert sum(method=='GET' and path=='/api/santas' for method,path in visited)==1,visited
             page.locator('header .nav [data-nav="/"]').click()
             expect(page.locator('.dashboard-page')).to_contain_text(title)
             expect(page.locator('.dashboard-page')).to_contain_text(santa)
@@ -587,21 +587,21 @@ def test_owner_tab_navigation_reuses_data_and_dom(browser_http):
             expect(page.locator('.dashboard-page')).to_be_visible()
             requests=[]
             page.on('request', lambda r: requests.append(r.url) if '/api/' in r.url else None)
-            page.locator('nav [data-nav="/lists"]').click()
+            page.locator('header .nav [data-nav="/lists"]').click()
             expect(page.locator('main h1')).to_contain_text('Твои вишлисты')
             page.locator('main').evaluate("(el) => el.dataset.identity = 'same-node'")
-            page.locator('nav [data-nav="/santas"]').click()
+            page.locator('header .nav [data-nav="/santas"]').click()
             expect(page.locator('main h1')).to_contain_text('Тайный Санта')
-            page.locator('nav [data-nav="/lists"]').click()
+            page.locator('header .nav [data-nav="/lists"]').click()
             expect(page.locator('main')).to_have_attribute('data-identity','same-node')
-            page.locator('nav [data-nav="/"]').click()
+            page.locator('header .nav [data-nav="/"]').click()
             expect(page.locator('.dashboard-page')).to_be_visible()
             assert not any('/api/lists' in url or '/api/santas' in url for url in requests), requests
             page.locator('main button[data-open="list"]').first.click()
             page.locator('#fld-title').fill('Cache invalidation integration')
             page.locator('#modal-form button[type="submit"]').click()
             expect(page).to_have_url(re.compile(r'/list/[0-9]+$'))
-            page.locator('nav [data-nav="/lists"]').click()
+            page.locator('header .nav [data-nav="/lists"]').click()
             expect(page.locator('main')).to_contain_text('Cache invalidation integration')
             assert any('/api/lists' in url for url in requests), requests
         finally:
