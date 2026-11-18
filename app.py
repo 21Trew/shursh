@@ -126,13 +126,13 @@ def api(route):
     except ApiError:
         raise
     except sqlite3.IntegrityError:
-        return response({'error':'Конфликт данных. Обнови страницу и повтори.'},409)
+        return response({'error':'Конфликт данных. Обнови страницу и повтори'},409)
     except RequestEntityTooLarge:
         raise
     except Exception as exc:
         # Never log request URLs (bearer capabilities), secrets, or raw DB errors.
         app.logger.error('Cloud API failure: %s',type(exc).__name__)
-        return response({'error':'Сервис временно недоступен. Повтори позже.'},503)
+        return response({'error':'Сервис временно недоступен. Повтори позже'},503)
 
 
 @app.get('/uploads/<filename>')
