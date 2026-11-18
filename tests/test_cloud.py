@@ -749,6 +749,17 @@ def test_browser_confirmation_return_clears_provider_hash(browser_http):
             page.goto(browser_http+'/#error=access_denied&error_code=otp_expired&error_description=test')
             expect(page).to_have_url(browser_http+'/')
             expect(page.locator('.toast')).to_contain_text('истекла')
+            # Providers may redirect with only error/error_code, without
+            # error_description. Do not leave such callback fragments in the URL.
+            page=browser.new_page()
+            page.goto(browser_http+'/#error=access_denied&error_code=otp_expired')
+            expect(page).to_have_url(browser_http+'/')
+            expect(page.locator('.toast')).to_contain_text('истекла')
+            assert 'otp_expired' not in page.url
+            page=browser.new_page()
+            page.goto(browser_http+'/#error_code=otp_expired')
+            expect(page).to_have_url(browser_http+'/')
+            expect(page.locator('.toast')).to_contain_text('истекла')
         finally:
             browser.close()
 
