@@ -377,7 +377,7 @@ def test_browser_santa_invites_draw_and_private_reveals(browser_http):
             # Before drawing nobody can read recipient identities.
             for name, _, guest, token in members:
                 state = guest.evaluate('''async token => (await (await fetch('/api/participant/' + token)).json())''', token)
-                assert state['assignment'] == {'revealed': False}
+                assert state['assignment'] is None
                 assert 'receiver_name' not in str(state)
             owner.locator('button[data-action="draw"]').click()
             owner.locator('#modal-form button[type="submit"]').click()
