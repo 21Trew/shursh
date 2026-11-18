@@ -36,6 +36,8 @@ function assert(condition, message) {
 async function run() {
   const home = await get('/');
   console.log('PUBLIC_SMOKE_META', JSON.stringify({ status: home.status, type: home.type.split(';')[0], xFrame: home.frame || '(absent)', cspPresent: Boolean(home.csp), cache: home.cache || '(absent)', htmlLength: home.body.length }));
+  const anonymousMe = await get('/api/me');
+  console.log('PUBLIC_SMOKE_API_META', JSON.stringify({status: anonymousMe.status, type: anonymousMe.type.split(';')[0], cache: anonymousMe.cache || '(absent)' }));
   assert(home.status === 200, 'Homepage must return 200');
   assert(home.type.includes('text/html'), 'Homepage must return HTML');
   assert(home.body.includes('Шурш!'), 'Homepage must contain product title');
@@ -50,7 +52,7 @@ async function run() {
   assert(styles.status === 200 && styles.type.includes('text/css'),
     'Cloud frontend CSS must load');
 
-  const me = await get('/api/me');
+  const me = anonymousMe;
   assert(me.status === 200 && me.type.includes('application/json'),
     'Anonymous /api/me must return JSON 200');
   assert(me.cache.toLowerCase().includes('no-store'),
