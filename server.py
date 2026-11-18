@@ -591,8 +591,11 @@ class Handler(BaseHTTPRequestHandler):
             mine=None
             if my_part and event['status']=='drawn':
                 mine=self.assignment_view(con,eid,my_part['id'])
+            my_wishes=[dict(r) for r in con.execute(
+                'SELECT id,title FROM participant_wishes WHERE participant_id=? ORDER BY id DESC',
+                (my_part['id'],))] if my_part else []
             return 200,{'event':dict(event),'participants':participants,'exclusions':excluded,
-                        'my_assignment':mine},None
+                        'my_assignment':mine,'my_wishes':my_wishes},None
         match=re.fullmatch(r'/api/santas/(\d+)/my-wishes',path)
         if match and method=='GET':
             user=self.auth(con);eid=int(match.group(1))
