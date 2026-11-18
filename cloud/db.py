@@ -29,25 +29,61 @@ class DB:
             raise sqlite3.IntegrityError('database constraint') from exc
 
 
+
+def close_request_connection():
+    """Release a connection retained only for the lifetime of one HTTP request."""
+    if not has_request_context():
+        return
+    connection=getattr(g,'shursh_db_connection',None)
+    if connection is not None:
+        connection.close()
+        g.shursh_db_connection=None
+
+
 @contextmanager
 def transaction(write=False, *, rate_limit=False):
-    dsn = os.environ.get('SHURSH_DATABASE_URL')
+    dsn=os.environ.get('SHURSH_DATABASE_URL')
     if not dsn:
         raise RuntimeError('SHURSH_DATABASE_URL is not configured')
-    # Transaction-mode Supavisor does not support named prepared statements.
-    started=time.perf_counter()
-    with psycopg.connect(dsn, row_factory=dict_row, prepare_threshold=None,
-                         connect_timeout=8) as connection:
-        if has_request_context():
+    in_request=has_request_context()
+    stored=getattr(g,'shursh_db_connection',None) if in_request else None
+    if stored is not None and stored.closed:
+        stored=None
+        g.shursh_db_connection=None
+    # Reuse the already authenticated TCP/TLS connection for subsequent
+    # transactions in the same Flask request; each block still commits
+    # independently. Never share connections across requests or threads.
+    reusable=(stored is not None and
+              stored.info.transaction_status==psycopg.pq.TransactionStatus.IDLE)
+    if reusable:
+        connection=stored
+        retained=True
+    else:
+        started=time.perf_counter()
+        # autocommit + explicit transaction() avoids implicit transactions.
+        # Transaction-mode Supavisor rejects named prepared statements.
+        connection=psycopg.connect(dsn,row_factory=dict_row,prepare_threshold=None,
+                                   connect_timeout=8,autocommit=True)
+        if in_request:
             g.db_connect_ms=getattr(g,'db_connect_ms',0.0)+(time.perf_counter()-started)*1000
             g.db_connect_count=getattr(g,'db_connect_count',0)+1
-        # For a standalone Postgres CI fixture and the Supabase pooler alike.
-        if not write and not rate_limit:
-            connection.execute('SET TRANSACTION ISOLATION LEVEL REPEATABLE READ READ ONLY')
-        connection.execute('SET LOCAL ROLE shursh_backend')
-        connection.execute("SET LOCAL statement_timeout = '10s'")
-        connection.execute("SET LOCAL lock_timeout = '8s'")
-        if write and not rate_limit:
-            connection.execute('SELECT pg_advisory_xact_lock(%s)', (WRITE_LOCK,))
-        yield DB(connection)
-        # psycopg commits on successful context exit and rolls back on any error.
+        # An inner rate-limit check (draw/join) must use a *different*
+        # connection. Otherwise its count would roll back with the business
+        # transaction on validation failure.
+        retained=in_request and stored is None
+        if retained:
+            g.shursh_db_connection=connection
+    try:
+        with connection.transaction():
+            if not write and not rate_limit:
+                connection.execute('SET TRANSACTION ISOLATION LEVEL REPEATABLE READ READ ONLY')
+            connection.execute('SET LOCAL ROLE shursh_backend')
+            connection.execute("SET LOCAL statement_timeout = '10s'")
+            connection.execute("SET LOCAL lock_timeout = '8s'")
+            if write and not rate_limit:
+                connection.execute('SELECT pg_advisory_xact_lock(%s)',(WRITE_LOCK,))
+            yield DB(connection)
+    finally:
+        # The retained connection is closed by Flask's teardown callback.
+        if not retained:
+            connection.close()

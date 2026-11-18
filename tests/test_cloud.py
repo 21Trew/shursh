@@ -83,6 +83,9 @@ def test_auth_and_session(application):
     owner_dashboard=call(c,'GET','/api/dashboard')
     assert owner_dashboard.json['user']['id']==str(IDS['owner@example.test'])
     assert 'db-connect;dur=' in owner_dashboard.headers['Server-Timing']
+    # A rate-limit transaction and the owner data read share one connection.
+    assert 'desc="1 connection(s)"' in owner_dashboard.headers['Server-Timing']
+    assert 'desc="1 connection(s)"' in call(c,'GET','/api/lists').headers['Server-Timing']
     call(c,'POST','/api/lists',{'title':'CSRF'},403,headers={'Origin':'https://evil.example'})
     call(c,'POST','/api/logout',{})
     assert call(c,'GET','/api/me').json['user'] is None

@@ -30,6 +30,11 @@ def timer_start():
     g.request_started = time.perf_counter()
 
 
+@app.teardown_request
+def release_database_connection(_error):
+    db.close_request_connection()
+
+
 @app.after_request
 def security_headers(result):
     if request.path.startswith('/api/'):
