@@ -66,6 +66,43 @@ def make_list(c):
     key=call(c,'GET',f'/api/lists/{lid}').json['list']['share_key']
     return lid,wid,key
 
+@pytest.mark.performance
+def test_authenticated_api_latency_baseline(application):
+    """Disposable CI PostgreSQL only; not a hosted Vercel/Supabase benchmark."""
+    import json
+    import re
+    from statistics import median
+    from time import perf_counter
+    client=application.test_client()
+    logged=client.post('/api/login',base_url=BASE,json={'email':'owner@example.test','password':'valid-password'})
+    assert logged.status_code == 200
+    samples={}
+    for endpoint in ('/api/me','/api/dashboard','/api/lists','/api/santas'):
+        values=[]
+        for _ in range(12):
+            before=perf_counter()
+            r=client.get(endpoint,base_url=BASE)
+            wall_ms=(perf_counter()-before)*1000
+            assert r.status_code==200
+            timing=r.headers.get('Server-Timing','')
+            app_ms=re.search(r'app;dur=([0-9.]+)',timing)
+            conn_ms=re.search(r'db-connect;dur=([0-9.]+)',timing)
+            assert app_ms and conn_ms and 'region;desc=' in timing
+            values.append({'wall':round(wall_ms,2),
+                           'app':float(app_ms.group(1)),
+                           'dbConnect':float(conn_ms.group(1))})
+        samples[endpoint]={
+            'n':len(values),
+            'wallP50':round(median(v['wall'] for v in values),2),
+            'wallP95':round(sorted(v['wall'] for v in values)[10],2),
+            'appP50':round(median(v['app'] for v in values),2),
+            'dbConnectP50':round(median(v['dbConnect'] for v in values),2),
+            'dbConnectMax':round(max(v['dbConnect'] for v in values),2)}
+    # Explicit scope prevents conflating these numbers with cross-region latency.
+    print('SHURSH_CI_PERF=' + json.dumps({'scope':'CI-local-PostgreSQL-mocked-Auth',
+        'unit':'ms', 'endpoints':samples},sort_keys=True))
+
+
 def test_auth_and_session(application):
     c=application.test_client()
     assert call(c,'GET','/api/me').json == {'user':None,'demo':False}
@@ -252,11 +289,19 @@ def browser_login(page, email='owner@example.test'):
     page.locator('header button[data-open="login"]').click()
     page.locator('#fld-email').fill(email)
     page.locator('#fld-password').fill('valid-password')
-    # Wait for the *actual HTTP response*, not just the asynchronous DOM update.
-    # Distinguishes transient auth/backend errors from a UI rerender regression.
-    with page.expect_response(lambda r: r.url.endswith('/api/login') and r.request.method == 'POST', timeout=20000) as result:
-        page.locator('#modal-form button[type="submit"]').click()
-    response=result.value
+    # Distinguish no submit, pending request, HTTP error and render regression.
+    # Diagnostics intentionally omit email, password, cookies, and URLs.
+    from playwright.sync_api import TimeoutError as PlaywrightTimeout
+    sent=[]
+    page.on('request',lambda r: sent.append('sent') if r.url.endswith('/api/login') and r.method=='POST' else None)
+    try:
+        with page.expect_response(lambda r: r.url.endswith('/api/login') and r.request.method == 'POST', timeout=20000) as result:
+            page.locator('#modal-form button[type="submit"]').click()
+        response=result.value
+    except PlaywrightTimeout as exc:
+        valid=page.evaluate("() => document.querySelector('#modal-form')?.checkValidity() ?? null")
+        disabled=page.locator('#modal-form button[type="submit"]').is_disabled() if page.locator('#modal-form button[type="submit"]').count() else None
+        raise AssertionError(f'Login timed out: request_sent={bool(sent)}, valid_form={valid}, submit_disabled={disabled}') from exc
     assert response.status==200, (
         f'Login HTTP {response.status}; '
         f'Server-Timing: {response.headers.get("server-timing", "missing")}')
@@ -636,38 +681,40 @@ def test_browser_confirmation_return_clears_provider_hash(browser_http):
         finally:
             browser.close()
 
-@pytest.mark.performance
-def test_authenticated_api_latency_baseline(application):
-    """Disposable CI PostgreSQL only; not a hosted Vercel/Supabase benchmark."""
+
+@pytest.mark.fontperf
+def test_font_loading_observation(browser_http):
+    """Browser-observed font requests; external third-party timing is non-gating."""
     import json
-    import re
-    from statistics import median
     from time import perf_counter
-    client=application.test_client()
-    logged=client.post('/api/login',base_url=BASE,json={'email':'owner@example.test','password':'valid-password'})
-    assert logged.status_code == 200
-    samples={}
-    for endpoint in ('/api/me','/api/dashboard','/api/lists','/api/santas'):
-        values=[]
-        for _ in range(12):
-            before=perf_counter()
-            r=client.get(endpoint,base_url=BASE)
-            wall_ms=(perf_counter()-before)*1000
-            assert r.status_code==200
-            timing=r.headers.get('Server-Timing','')
-            app_ms=re.search(r'app;dur=([0-9.]+)',timing)
-            conn_ms=re.search(r'db-connect;dur=([0-9.]+)',timing)
-            assert app_ms and conn_ms and 'region;desc=' in timing
-            values.append({'wall':round(wall_ms,2),
-                           'app':float(app_ms.group(1)),
-                           'dbConnect':float(conn_ms.group(1))})
-        samples[endpoint]={
-            'n':len(values),
-            'wallP50':round(median(v['wall'] for v in values),2),
-            'wallP95':round(sorted(v['wall'] for v in values)[10],2),
-            'appP50':round(median(v['app'] for v in values),2),
-            'dbConnectP50':round(median(v['dbConnect'] for v in values),2),
-            'dbConnectMax':round(max(v['dbConnect'] for v in values),2)}
-    # Explicit scope prevents conflating these numbers with cross-region latency.
-    print('SHURSH_CI_PERF=' + json.dumps({'scope':'CI-local-PostgreSQL-mocked-Auth',
-        'unit':'ms', 'endpoints':samples},sort_keys=True))
+    from playwright.sync_api import sync_playwright
+    with sync_playwright() as play:
+        browser=play.chromium.launch(headless=True,args=['--no-sandbox'])
+        try:
+            page=browser.new_page(viewport={'width':1280,'height':800})
+            started=perf_counter()
+            page.goto(browser_http+'/',wait_until='domcontentloaded',timeout=30000)
+            dom_ms=round((perf_counter()-started)*1000,1)
+            fonts=page.evaluate("""async () => {
+              const done=await Promise.race([
+                document.fonts.ready.then(()=>true),
+                new Promise(resolve=>setTimeout(()=>resolve(false),8000))
+              ]);
+              const faces=[...document.fonts].map(f=>({family:f.family,status:f.status}));
+              const resources=performance.getEntriesByType('resource')
+                .filter(x=>/^https:\/\/fonts\.(?:googleapis|gstatic)\.com\//.test(x.name))
+                .map(x=>({domain:new URL(x.name).hostname,
+                           durationMs:Math.round(x.duration),
+                           transferSize:x.transferSize}));
+              return {fontReady:done,fontFaces:faces.length,
+                loadedFaces:faces.filter(x=>x.status==='loaded').length,
+                resources};
+            }""")
+            assert isinstance(fonts['resources'],list)
+            print('SHURSH_FONT_PERF='+json.dumps({
+                'scope':'CI-Chromium-external-Google-Fonts','domContentLoadedMs':dom_ms,
+                'fontReady':fonts['fontReady'],'fontFaceCount':fonts['fontFaces'],
+                'loadedFaceCount':fonts['loadedFaces'],
+                'resources':fonts['resources']},ensure_ascii=False))
+        finally:
+            browser.close()
