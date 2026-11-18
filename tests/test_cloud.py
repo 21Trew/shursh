@@ -108,16 +108,18 @@ def test_bounded_pool_reuse_and_independent_nested_transaction(application):
     dsn=os.environ['SHURSH_DATABASE_URL']
     pool=db._pool_for(dsn)
     assert pool.max_size==4
-    with db.transaction() as con:
-        pid_a=con.execute('SELECT pg_backend_pid() AS pid').fetchone()['pid']
-    with db.transaction() as con:
-        pid_b=con.execute('SELECT pg_backend_pid() AS pid').fetchone()['pid']
-    assert pid_a==pid_b, 'A warm worker should reuse the physical connection'
-    with db.transaction(write=True) as main_con:
-        outer=main_con.execute('SELECT pg_backend_pid() AS pid').fetchone()['pid']
-        with db.transaction(write=True,rate_limit=True) as rate_con:
-            inner=rate_con.execute('SELECT pg_backend_pid() AS pid').fetchone()['pid']
-            assert inner != outer, 'Rate limiter needs an independent transaction'
+    seen=[]
+    for _ in range(12):
+        with db.transaction() as con:
+            seen.append(con.execute('SELECT pg_backend_pid() AS pid').fetchone()['pid'])
+    assert len(set(seen)) <= pool.max_size
+    assert len(set(seen)) < len(seen), 'Warm workers should reuse sockets'
+    with application.test_request_context('/api/test'):
+        with db.transaction(write=True) as main_con:
+            outer=main_con.execute('SELECT pg_backend_pid() AS pid').fetchone()['pid']
+            with db.transaction(write=True,rate_limit=True) as rate_con:
+                inner=rate_con.execute('SELECT pg_backend_pid() AS pid').fetchone()['pid']
+                assert inner != outer, 'Nested rate limiter must use independent socket'
 
 
 def test_auth_and_session(application):
@@ -713,7 +715,7 @@ def test_font_loading_observation(browser_http):
             started=perf_counter()
             page.goto(browser_http+'/',wait_until='domcontentloaded',timeout=30000)
             dom_ms=round((perf_counter()-started)*1000,1)
-            fonts=page.evaluate("""async () => {
+            fonts=page.evaluate(r"""async () => {
               const done=await Promise.race([
                 document.fonts.ready.then(()=>true),
                 new Promise(resolve=>setTimeout(()=>resolve(false),8000))

@@ -89,14 +89,23 @@ def transaction(write=False, *, rate_limit=False):
     # including when the enclosing business transaction later rolls back.
     reusable=(stored is not None and
               stored.info.transaction_status==psycopg.pq.TransactionStatus.IDLE)
+    ephemeral=False
     if reusable:
         connection=stored
         retained=True
     else:
         started=time.perf_counter()
-        # The pool validates idle connections and safely recycles broken ones.
-        # prepare_threshold=None is required for Supavisor transaction mode.
-        connection=pool.getconn(timeout=8)
+        if stored is not None:
+            # An inner independent rate limit transaction must not wait for
+            # another pool checkout while its outer transaction still holds
+            # PostgreSQL locks: under concurrency that can deadlock the pool.
+            # This uncommon path gets its own short-lived socket.
+            connection=psycopg.connect(dsn,row_factory=dict_row,
+                prepare_threshold=None,connect_timeout=8,autocommit=True)
+            ephemeral=True
+        else:
+            # Pooled connections are checked for liveness on every lease.
+            connection=pool.getconn(timeout=8)
         if in_request:
             g.db_connect_ms=getattr(g,'db_connect_ms',0.0)+(time.perf_counter()-started)*1000
             g.db_connect_count=getattr(g,'db_connect_count',0)+1
@@ -118,4 +127,7 @@ def transaction(write=False, *, rate_limit=False):
         # The primary checkout is returned by Flask teardown. Nested checkouts
         # are returned immediately, after rollback/commit of this transaction.
         if not retained:
-            pool.putconn(connection)
+            if ephemeral:
+                connection.close()
+            else:
+                pool.putconn(connection)
