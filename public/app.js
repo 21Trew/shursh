@@ -97,7 +97,11 @@ function invalidateOwnerDataForMutation(path){
   /^\/api\/participant\/[^/]+\/wishes$/.test(path) ||
   /^\/api\/invites\/[^/]+\/join$/.test(path);
  if(!listMutation&&!santaMutation){clearOwnerDataCache();return;}
- clearOwnerTabViews(['/'].concat(listMutation?['/lists']:[]).concat(santaMutation?['/santas']:[]));
+ const invalidTabs=['/'].concat(listMutation?['/lists']:[]).concat(santaMutation?['/santas']:[]);
+ clearOwnerTabViews(invalidTabs);
+ // The currently displayed page can be stale too: never put it back in RAM
+ // after its successful write has invalidated the backing data.
+ if(invalidTabs.includes(renderedOwnerTab))renderedOwnerTab=null;
  for(const key of ownerDataCache.keys()){
   if(key==='/api/dashboard' || (listMutation&&key.startsWith('/api/lists')) ||
       (santaMutation&&key.startsWith('/api/santas')))ownerDataCache.delete(key);
