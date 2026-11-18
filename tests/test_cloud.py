@@ -396,7 +396,7 @@ def test_static_product_copy_avoids_sentence_final_periods():
 
 
 
-def test_site_text_uses_only_short_hyphens_and_flat_confirmation_blob():
+def test_site_text_uses_only_short_hyphens_and_calm_confirmation_card():
     """Protect the shipped product copy and onboarding card from regressions."""
     from pathlib import Path
     root = Path(__file__).resolve().parents[1]
@@ -409,6 +409,9 @@ def test_site_text_uses_only_short_hyphens_and_flat_confirmation_blob():
         '/* Signed-in home dashboard. */', 1)[0]
     assert '.auth-confirm-card:before' not in block
     assert 'box-shadow:' not in block
+    assert 'transform:' not in block
+    assert 'border-radius:24px' in block
+    assert 'background:#e9f4ec' in block
 
 
 
@@ -450,14 +453,20 @@ def test_browser_register_wishlist_reservation_and_isolation(browser_http):
             expect(page.get_by_role('dialog')).to_contain_text('owner@example.test')
             assert page.locator('.toast').count()==0, 'No duplicate registration toast'
             assert page.locator('.auth-confirm-card').evaluate(
-                "(el) => getComputedStyle(el).borderTopLeftRadius !== '18px'")
+                "(el) => getComputedStyle(el).borderTopLeftRadius === '24px'")
+            assert page.locator('.auth-confirm-card').evaluate(
+                "(el) => getComputedStyle(el).backgroundColor === 'rgb(233, 244, 236)'")
             assert page.locator('.auth-confirm-card').evaluate(
                 "(el) => getComputedStyle(el).boxShadow === 'none'")
             assert page.locator('.auth-confirm-card').evaluate(
                 "(el) => ['none', 'normal'].includes(getComputedStyle(el, '::before').content)")
+            assert page.locator('.auth-confirm-symbol').evaluate(
+                "(el) => getComputedStyle(el).transform === 'none'")
             assert page.locator('.auth-confirm-card p').inner_text().strip().endswith('.') is False
             page.set_viewport_size({'width':390,'height':844})
             expect(page.locator('.auth-confirm-card')).to_be_visible()
+            assert page.locator('.auth-confirm-card').evaluate(
+                "(el) => getComputedStyle(el).borderTopLeftRadius === '20px'")
             assert page.evaluate('document.documentElement.scrollWidth <= window.innerWidth + 2'), 'Mobile horizontal overflow'
             page.set_viewport_size({'width':1366,'height':900})
             expect(page.locator('header .user-name')).to_have_count(0)
