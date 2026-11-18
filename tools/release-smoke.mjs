@@ -35,6 +35,7 @@ function assert(condition, message) {
 
 async function run() {
   const home = await get('/');
+  console.log('PUBLIC_SMOKE_META', JSON.stringify({ status: home.status, type: home.type.split(';')[0], xFrame: home.frame || '(absent)', cspPresent: Boolean(home.csp), cache: home.cache || '(absent)', htmlLength: home.body.length }));
   assert(home.status === 200, 'Homepage must return 200');
   assert(home.type.includes('text/html'), 'Homepage must return HTML');
   assert(home.body.includes('Шурш!'), 'Homepage must contain product title');
