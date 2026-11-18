@@ -325,9 +325,9 @@ def browser_login(page, email='owner@example.test'):
     from playwright.sync_api import expect
     page.locator('header button[data-open="login"]').click()
     page.locator('#fld-email').fill(email)
-    # A headless Chromium repeat-login race sometimes cleared password after
-    # a single fill(). Key-by-key entry reproduces actual typing and we assert
-    # the value before pressing submit (without printing the password).
+    # Regression: an old 10 ms deferred modal autofocus stole focus from
+    # the password field during fast typing. Type like a human and assert
+    # the value before submit, without exposing credentials in CI output.
     password=page.locator('#fld-password')
     password.press_sequentially('valid-password', delay=2)
     expect(password).to_have_value('valid-password')
