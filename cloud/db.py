@@ -53,6 +53,19 @@ def _pool_for(dsn):
     return _POOL
 
 
+def _timed_execute(connection, statement, params=None):
+    """Aggregate execution timing only; never retain SQL text or parameters."""
+    started = time.perf_counter()
+    try:
+        if params is None:
+            return connection.execute(statement)
+        return connection.execute(statement, params)
+    finally:
+        if has_request_context():
+            g.sql_exec_ms = getattr(g, 'sql_exec_ms', 0.0) + (time.perf_counter() - started) * 1000
+            g.sql_exec_count = getattr(g, 'sql_exec_count', 0) + 1
+
+
 class DB:
     def __init__(self, connection):
         self.connection = connection
@@ -63,7 +76,7 @@ class DB:
         if statement.strip().upper() in ('BEGIN IMMEDIATE', 'COMMIT'):
             return None
         try:
-            return self.connection.execute(statement.replace('?', '%s'), params)
+            return _timed_execute(self.connection, statement.replace('?', '%s'), params)
         except psycopg.IntegrityError as exc:
             # Preserve the shared API's existing conflict handling.
             raise sqlite3.IntegrityError('database constraint') from exc
@@ -129,12 +142,12 @@ def transaction(write=False, *, rate_limit=False):
     try:
         with connection.transaction():
             if not write and not rate_limit:
-                connection.execute('SET TRANSACTION ISOLATION LEVEL REPEATABLE READ READ ONLY')
-            connection.execute('SET LOCAL ROLE shursh_backend')
-            connection.execute("SET LOCAL statement_timeout = '10s'")
-            connection.execute("SET LOCAL lock_timeout = '8s'")
+                _timed_execute(connection, 'SET TRANSACTION ISOLATION LEVEL REPEATABLE READ READ ONLY')
+            _timed_execute(connection, 'SET LOCAL ROLE shursh_backend')
+            _timed_execute(connection, "SET LOCAL statement_timeout = '10s'")
+            _timed_execute(connection, "SET LOCAL lock_timeout = '8s'")
             if write and not rate_limit:
-                connection.execute('SELECT pg_advisory_xact_lock(%s)',(WRITE_LOCK,))
+                _timed_execute(connection, 'SELECT pg_advisory_xact_lock(%s)',(WRITE_LOCK,))
             yield DB(connection)
     finally:
         # The primary checkout is returned by Flask teardown. Nested checkouts
