@@ -87,7 +87,7 @@ def test_authenticated_api_latency_baseline(application):
             timing=r.headers.get('Server-Timing','')
             app_ms=re.search(r'app;dur=([0-9.]+)',timing)
             conn_ms=re.search(r'db-connect;dur=([0-9.]+)',timing)
-            sql_ms=re.search(r'sql-exec;dur=([0-9.]+);desc="([0-9]+) statement\\(s\\)"',timing)
+            sql_ms=re.search(r'sql-exec;dur=([0-9.]+);desc="([0-9]+) statement\(s\)"',timing)
             assert app_ms and conn_ms and sql_ms and 'region;desc=' in timing
             assert int(sql_ms.group(2)) > 0
             assert 'SELECT ' not in timing and 'owner@example.test' not in timing
