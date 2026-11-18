@@ -110,3 +110,7 @@ CI поднимает одноразовый PostgreSQL 17, применяет �
 ### Аудит облачного API
 
 Проверены прямые SPA-маршруты приглашений, брони, желаний и участников. Тесты охватывают ротацию и истечение сессии, ошибочные ссылки и отклонение некорректного JSON-содержимого. `SHURSH_RATE_SECRET` обязателен; пароль базы не используется как запасной секрет. Ссылки гостевого доступа являются bearer-capabilities: перед релизом необходимо проверить настройки логов платформы, исключить запись токенов и определить механизм отзыва/перевыпуска ссылок. Зелёный CI не подтверждает живой Supabase Auth, SMTP или браузерный E2E.
+
+## Browser E2E (CI)
+
+The `browser-e2e` job starts the **real Flask WSGI application** against an **ephemeral PostgreSQL 17 service** and uses Playwright Chromium with multiple isolated browser contexts (desktop and mobile). It covers the register confirmation UI (mock provider), sign-in, wishlist creation, wishlist sharing and guest reservation, cancellation, owner/other-user data isolation, private lists, invitation joins, participant wishes, Secret Santa draws, and private reveals. External Supabase Auth transport is mocked; this does **not** prove live Supabase registration, email delivery, or login in the hosted Preview. The hosted protected Preview is checked separately via Vercel smoke tests. The job uses no hosted secrets, screenshots or auth-state artifacts.

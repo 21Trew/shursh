@@ -208,3 +208,202 @@ def test_session_cookie_rotation_and_expiry(application):
         con.execute('UPDATE public.app_sessions SET expires_at=0 WHERE token_hash=%s',(token_hash(second),))
     assert call(client,'GET','/api/me').json['user'] is None
     call(client,'GET','/api/lists',status=401)
+
+# Browser E2E: Chrome against the real Flask API and a disposable PostgreSQL DB.
+# External Supabase Auth is mocked here; live provider/email requires a separate test.
+import re
+import threading
+from uuid import uuid4
+
+@pytest.fixture
+def browser_http(application):
+    from werkzeug.serving import make_server
+    server = make_server('127.0.0.1', 0, application, threaded=True)
+    worker = threading.Thread(target=server.serve_forever, daemon=True)
+    worker.start()
+    try:
+        yield f'http://localhost:{server.server_port}'
+    finally:
+        server.shutdown()
+        worker.join(timeout=5)
+
+
+def browser_login(page, email='owner@example.test'):
+    from playwright.sync_api import expect
+    page.locator('header button[data-open="login"]').click()
+    page.locator('#fld-email').fill(email)
+    page.locator('#fld-password').fill('valid-password')
+    page.locator('#modal-form button[type="submit"]').click()
+    expect(page.locator('header .user-name')).to_contain_text('Owner' if email.startswith('owner') else 'Other')
+    expect(page.get_by_role('dialog')).to_have_count(0)
+
+
+@pytest.mark.browser
+def test_browser_register_wishlist_reservation_and_isolation(browser_http):
+    from playwright.sync_api import sync_playwright, expect
+    title = 'Playwright список ' + uuid4().hex[:8]
+    wish = 'Настольная игра для теста'
+    with sync_playwright() as play:
+        browser = play.chromium.launch(headless=True, args=['--no-sandbox'])
+        try:
+            owner = browser.new_context(viewport={'width': 1366, 'height': 900})
+            page = owner.new_page()
+            page.set_default_timeout(15000)
+            page.goto(browser_http + '/')
+            expect(page.locator('main h1')).to_be_visible()
+
+            # Registration and email-confirmation copy in the real UI.
+            page.locator('main button[data-open="list"]').first.click()
+            expect(page.get_by_role('dialog')).to_contain_text('Давай знакомиться!')
+            page.locator('#fld-name').fill('Owner')
+            page.locator('#fld-email').fill('owner@example.test')
+            page.locator('#fld-password').fill('valid-password')
+            page.locator('#modal-form button[type="submit"]').click()
+            expect(page.locator('.toast')).to_contain_text('Проверь почту')
+            expect(page.locator('header .user-name')).to_have_count(0)
+            browser_login(page)
+            assert not any('access_token' in cookie['name'] for cookie in owner.cookies())
+            assert any(c['name'] == 'shursh_sid' and c['httpOnly'] and c['secure'] for c in owner.cookies())
+
+            page.locator('main button[data-open="list"]').first.click()
+            page.locator('#fld-title').fill(title)
+            page.locator('#modal-form button[type="submit"]').click()
+            expect(page).to_have_url(re.compile(r'/list/\d+$'))
+            lid = page.url.rsplit('/', 1)[-1]
+            expect(page.locator('main h1')).to_have_text(title)
+
+            page.locator('button[data-open="wish"]').first.click()
+            page.locator('#fld-title').fill(wish)
+            page.locator('#modal-form button[type="submit"]').click()
+            expect(page.locator('.wishlist-grid')).to_contain_text(wish)
+            share = page.locator('button[data-action="copy"][data-url*="/w/"]').get_attribute('data-url')
+            assert share.startswith(browser_http + '/w/')
+            key = share.rsplit('/', 1)[-1]
+
+            guest_ctx = browser.new_context(viewport={'width': 390, 'height': 844}, is_mobile=True)
+            guest = guest_ctx.new_page()
+            guest.set_default_timeout(15000)
+            guest.goto(share)
+            expect(guest.locator('main h1')).to_have_text(title)
+            expect(guest.locator('.wishlist-grid')).to_contain_text(wish)
+            assert guest.evaluate('document.documentElement.scrollWidth <= window.innerWidth + 2'), 'Mobile horizontal overflow'
+            guest.locator('button[data-action="reserve"]').click()
+            guest.locator('#fld-guest_name').fill('Друг с телефона')
+            guest.locator('#modal-form button[type="submit"]').click()
+            expect(guest).to_have_url(re.compile(r'/r/[A-Za-z0-9_-]+$'))
+            expect(guest.locator('main h1')).to_contain_text('Подарок ждёт')
+
+            watcher_ctx = browser.new_context()
+            watcher = watcher_ctx.new_page()
+            watcher.goto(share)
+            expect(watcher.locator('button[data-action="reserve"]')).to_be_disabled()
+            assert 'Уже забронировано' in watcher.locator('.wishlist-grid').inner_text()
+
+            # Owner cannot infer a friend's booking from their private view.
+            page.goto(browser_http + f'/list/{lid}')
+            expect(page.locator('.wishlist-grid')).to_contain_text(wish)
+            assert 'Уже забронировано' not in page.locator('.wishlist-grid').inner_text()
+            owner_detail = page.evaluate('''async id => (await (await fetch('/api/lists/' + id)).json())''', lid)
+            assert 'reserved' not in owner_detail['wishes'][0]
+
+            other_ctx = browser.new_context()
+            other = other_ctx.new_page()
+            other.goto(browser_http + '/')
+            browser_login(other, 'other@example.test')
+            assert other.evaluate('''async id => (await fetch('/api/lists/' + id)).status''', lid) == 404
+            assert other.evaluate('''async id => (await fetch('/api/public/' + id)).status''', 'not-a-real-key') == 404
+            assert owner.cookies() != other_ctx.cookies(), 'Browser sessions must be isolated'
+
+            guest.locator('button[data-action="cancel-reservation"]').click()
+            guest.locator('#modal-form button[type="submit"]').click()
+            expect(guest.locator('main h1')).to_contain_text('Бронь отменена')
+            watcher.reload()
+            expect(watcher.locator('button[data-action="reserve"]')).to_be_enabled()
+
+            page.locator('button[data-action="edit-list"]').click()
+            page.locator('#fld-visibility').select_option('private')
+            page.locator('#modal-form button[type="submit"]').click()
+            expect(page.locator('.alert')).to_contain_text('Список приватный')
+            assert guest.evaluate('''async k => (await fetch('/api/public/' + k)).status''', key) == 404
+            guest.goto(share)
+            expect(guest.locator('main')).to_contain_text('Страница не загрузилась')
+        finally:
+            browser.close()
+
+
+@pytest.mark.browser
+def test_browser_santa_invites_draw_and_private_reveals(browser_http):
+    from playwright.sync_api import sync_playwright, expect
+    title = 'Санта Playwright ' + uuid4().hex[:8]
+    with sync_playwright() as play:
+        browser = play.chromium.launch(headless=True, args=['--no-sandbox'])
+        try:
+            owner_ctx = browser.new_context(viewport={'width': 1280, 'height': 900})
+            owner = owner_ctx.new_page()
+            owner.set_default_timeout(15000)
+            owner.goto(browser_http + '/')
+            browser_login(owner)
+            owner.locator('main button[data-open="santa"]').first.click()
+            owner.locator('#fld-title').fill(title)
+            owner.locator('#modal-form button[type="submit"]').click()
+            expect(owner).to_have_url(re.compile(r'/santa/\d+$'))
+            eid = owner.url.rsplit('/', 1)[-1]
+            invite = owner.locator('input[aria-label="Ссылка-приглашение"]').input_value()
+            assert invite.startswith(browser_http + '/join/')
+
+            members = []
+            for name, mobile in [('Петя', True), ('Катя', False)]:
+                context = browser.new_context(viewport={'width': 390, 'height': 844} if mobile else {'width': 1366, 'height': 900}, is_mobile=mobile)
+                guest = context.new_page()
+                guest.set_default_timeout(15000)
+                guest.goto(invite)
+                expect(guest.locator('.invite-card h1')).to_have_text(title)
+                guest.locator('#join-name').fill(name)
+                guest.locator('#join-form button[type="submit"]').click()
+                expect(guest).to_have_url(re.compile(r'/p/[A-Za-z0-9_-]+$'))
+                token = guest.url.rsplit('/', 1)[-1]
+                guest.locator('#participant-wish-form input[name="title"]').fill('Подарок для ' + name)
+                guest.locator('#participant-wish-form button[type="submit"]').click()
+                expect(guest.locator('.my-wishes-list')).to_contain_text('Подарок для ' + name)
+                members.append((name, context, guest, token))
+
+            owner.reload()
+            expect(owner.locator('.person-row')).to_have_count(3)
+            other = browser.new_context().new_page()
+            other.goto(browser_http + '/')
+            browser_login(other, 'other@example.test')
+            assert other.evaluate('''async id => (await fetch('/api/santas/' + id)).status''', eid) == 404
+
+            # Before drawing nobody can read recipient identities.
+            for name, _, guest, token in members:
+                state = guest.evaluate('''async token => (await (await fetch('/api/participant/' + token)).json())''', token)
+                assert state['assignment'] == {'revealed': False}
+                assert 'receiver_name' not in str(state)
+            owner.locator('button[data-action="draw"]').click()
+            owner.locator('#modal-form button[type="submit"]').click()
+            expect(owner.locator('button[data-action="reveal"]')).to_be_visible()
+            assert owner.locator('.secret-card .recipient').count() == 0
+
+            for name, _, guest, token in members:
+                guest.reload()
+                expect(guest.locator('button[data-action="reveal"]')).to_be_visible()
+                state = guest.evaluate('''async token => (await (await fetch('/api/participant/' + token)).json())''', token)
+                assert state['assignment'] == {'revealed': False}
+                assert 'receiver_name' not in str(state)
+
+            first_name, _, first, first_token = members[0]
+            first.locator('button[data-action="reveal"]').click()
+            expect(first.locator('.secret-card .recipient')).to_be_visible()
+            assert first.locator('.secret-card .recipient').inner_text() != first_name
+            second_name, _, second, second_token = members[1]
+            second_state = second.evaluate('''async token => (await (await fetch('/api/participant/' + token)).json())''', second_token)
+            assert second_state['assignment'] == {'revealed': False}
+            second.locator('button[data-action="reveal"]').click()
+            expect(second.locator('.secret-card .recipient')).to_be_visible()
+            assert second.locator('.secret-card .recipient').inner_text() != second_name
+            # Event administrator still sees only their own recipient.
+            owner_state = owner.evaluate('''async id => (await (await fetch('/api/santas/' + id)).json())''', eid)
+            assert 'assignments' not in owner_state
+            assert owner_state['my_assignment'] == {'revealed': False}
+        finally:
+            browser.close()
