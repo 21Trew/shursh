@@ -460,6 +460,9 @@ def test_browser_confirmation_return_clears_provider_hash(browser_http):
             expect(page).to_have_url(browser_http+'/')
             expect(page.locator('.toast')).to_contain_text('подтверждён')
             assert 'fake-test-value' not in page.url
+            # A provider confirmation redirects from Supabase to a new document.
+            # A same-document hash navigation would not rerun startup logic.
+            page=browser.new_page()
             page.goto(browser_http+'/#error=access_denied&error_code=otp_expired&error_description=test')
             expect(page).to_have_url(browser_http+'/')
             expect(page.locator('.toast')).to_contain_text('истекла')
