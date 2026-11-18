@@ -381,6 +381,20 @@ def browser_login(page, email='owner@example.test'):
     expect(page.get_by_role('dialog')).to_have_count(0)
 
 
+
+def test_static_product_copy_avoids_sentence_final_periods():
+    """All shipped Russian UI copy follows Shursh punctuation; user data is untouched."""
+    from pathlib import Path
+    root=Path(__file__).resolve().parents[1]
+    ending=re.compile(r'[А-Яа-яЁё]\\.(?=</(?:p|small|h[1-6]|strong|span|div|li|a|button)\\b|[\\\'\x22\x60])')
+    paths=('public/app.js','public/shursh-preview.html','server.py','app.py','cloud/backend.py')
+    for name in paths:
+        data=(root/name).read_text(encoding='utf-8')
+        assert not ending.search(data), f'Russian text ends in a period: {name}'
+
+
+
+
 @pytest.mark.browser
 def test_browser_register_wishlist_reservation_and_isolation(browser_http):
     from playwright.sync_api import sync_playwright, expect
@@ -411,9 +425,19 @@ def test_browser_register_wishlist_reservation_and_isolation(browser_http):
             page.locator('[data-password-visibility]').click()
             page.locator('#fld-password').fill('valid-password')
             page.locator('#modal-form button[type="submit"]').click()
-            expect(page.locator('.toast')).to_contain_text('Проверь почту')
             expect(page.get_by_role('dialog')).to_contain_text('Проверь почту')
+            expect(page.locator('.auth-confirm-card')).to_be_visible()
+            expect(page.locator('.auth-confirm-card .auth-confirm-symbol .icon')).to_be_visible()
+            expect(page.locator('.auth-confirm-card')).to_contain_text('Письмо с подтверждением отправлено!')
             expect(page.get_by_role('dialog')).to_contain_text('owner@example.test')
+            assert page.locator('.toast').count()==0, 'No duplicate registration toast'
+            assert page.locator('.auth-confirm-card').evaluate(
+                "(el) => getComputedStyle(el).borderTopLeftRadius !== '18px'")
+            assert page.locator('.auth-confirm-card p').inner_text().strip().endswith('.') is False
+            page.set_viewport_size({'width':390,'height':844})
+            expect(page.locator('.auth-confirm-card')).to_be_visible()
+            assert page.evaluate('document.documentElement.scrollWidth <= window.innerWidth + 2'), 'Mobile horizontal overflow'
+            page.set_viewport_size({'width':1366,'height':900})
             expect(page.locator('header .user-name')).to_have_count(0)
             page.locator('[data-close]').click()
             browser_login(page)
