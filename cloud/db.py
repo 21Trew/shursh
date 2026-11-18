@@ -53,8 +53,19 @@ def _pool_for(dsn):
     return _POOL
 
 
-def _timed_execute(connection, statement, params=None):
-    """Aggregate execution timing only; never retain SQL text or parameters."""
+# These static, ordered statements share one PostgreSQL protocol call.
+# Keep SET TRANSACTION first: it must precede data access in read transactions.
+# No user-provided SQL or parameters are ever part of these batches.
+_TX_SETTINGS = (
+    "SET LOCAL ROLE shursh_backend; "
+    "SET LOCAL statement_timeout = '10s'; "
+    "SET LOCAL lock_timeout = '8s'"
+)
+_TX_SETTINGS_READ = "SET TRANSACTION ISOLATION LEVEL REPEATABLE READ READ ONLY; " + _TX_SETTINGS
+
+
+def _timed_execute(connection, statement, params=None, *, statement_count=1):
+    """Aggregate timings/counts only: never retain SQL text or parameters."""
     started = time.perf_counter()
     try:
         if params is None:
@@ -63,7 +74,8 @@ def _timed_execute(connection, statement, params=None):
     finally:
         if has_request_context():
             g.sql_exec_ms = getattr(g, 'sql_exec_ms', 0.0) + (time.perf_counter() - started) * 1000
-            g.sql_exec_count = getattr(g, 'sql_exec_count', 0) + 1
+            g.sql_exec_count = getattr(g, 'sql_exec_count', 0) + statement_count
+            g.sql_exec_calls = getattr(g, 'sql_exec_calls', 0) + 1
 
 
 class DB:
@@ -142,10 +154,9 @@ def transaction(write=False, *, rate_limit=False):
     try:
         with connection.transaction():
             if not write and not rate_limit:
-                _timed_execute(connection, 'SET TRANSACTION ISOLATION LEVEL REPEATABLE READ READ ONLY')
-            _timed_execute(connection, 'SET LOCAL ROLE shursh_backend')
-            _timed_execute(connection, "SET LOCAL statement_timeout = '10s'")
-            _timed_execute(connection, "SET LOCAL lock_timeout = '8s'")
+                _timed_execute(connection, _TX_SETTINGS_READ, statement_count=4)
+            else:
+                _timed_execute(connection, _TX_SETTINGS, statement_count=3)
             if write and not rate_limit:
                 _timed_execute(connection, 'SELECT pg_advisory_xact_lock(%s)',(WRITE_LOCK,))
             yield DB(connection)
