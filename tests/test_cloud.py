@@ -308,6 +308,21 @@ def browser_login(page, email='owner@example.test'):
     page.locator('header button[data-open="login"]').click()
     page.locator('#fld-email').fill(email)
     page.locator('#fld-password').fill('valid-password')
+    # A previous CI flake never sent the POST because native form validation
+    # prevented submission. Detect this at the point of failure; never dump
+    # field values, email, credentials or cookies into CI logs.
+    validity=page.evaluate("""() => ({
+      formValid: document.querySelector('#modal-form').checkValidity(),
+      invalid: [...document.querySelectorAll('#modal-form input')]
+        .filter(input => !input.checkValidity())
+        .map(input => ({
+          name: input.name, type: input.type, length: input.value.length,
+          required: input.required, tooShort: input.validity.tooShort,
+          tooLong: input.validity.tooLong, typeMismatch: input.validity.typeMismatch,
+          valueMissing: input.validity.valueMissing
+        }))
+    })""")
+    assert validity['formValid'], f'Browser login form invalid before submit: {validity["invalid"]}'
     # Distinguish no submit, pending request, HTTP error and render regression.
     # Diagnostics intentionally omit email, password, cookies, and URLs.
     from playwright.sync_api import TimeoutError as PlaywrightTimeout
@@ -574,7 +589,7 @@ def test_browser_login_logout_and_mobile_dashboard(browser_http):
             page.set_viewport_size({'width':390,'height':844})
             assert page.evaluate('document.documentElement.scrollWidth <= innerWidth + 2'), 'mobile overflow'
             page.set_viewport_size({'width':1366,'height':900})
-            for _ in range(4):
+            for _ in range(6):
                 page.locator('header button[data-action="logout"]').click()
                 expect(page.locator('main h1')).to_contain_text('Подарки')
                 expect(page.locator('.dashboard-page')).to_have_count(0)

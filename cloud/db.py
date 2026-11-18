@@ -1,5 +1,6 @@
 """PostgreSQL adapter for the shared parameterized API queries."""
 from contextlib import contextmanager
+import atexit
 import os
 import sqlite3
 import threading
@@ -20,6 +21,18 @@ WRITE_LOCK = 58310974031082412
 _POOL = None
 _POOL_DSN = None
 _POOL_LOCK = threading.Lock()
+
+
+def _close_pool_at_exit():
+    # Serverless workers can finish with idle pool maintenance threads.
+    # Close explicitly before Python interpreter teardown, otherwise the
+    # default daemon cleanup can block the CI job for 20+ seconds.
+    pool = _POOL
+    if pool is not None:
+        pool.close(timeout=2)
+
+
+atexit.register(_close_pool_at_exit)
 
 
 def _pool_for(dsn):
