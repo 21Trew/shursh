@@ -1,0 +1,4 @@
+# Explicit WSGI target for Vercel's Flask detection.
+# Dependencies remain pinned in requirements.txt.
+[tool.vercel]
+entrypoint = "app:app"
