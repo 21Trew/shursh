@@ -55,6 +55,19 @@ function cacheableOwnerRead(path){
   /^\/api\/(?:lists|santas)\/\d+$/.test(path));
 }
 function clearOwnerDataCache(){ownerCacheVersion++;ownerDataCache.clear();}
+function invalidateOwnerDataForMutation(path){
+ // Scoped invalidation: creating a wishlist does not change Santa games,
+ // and changing a Santa event does not change owned wishlists.
+ const listMutation=/^\/api\/(?:lists|wishes)(?:\/|$)/.test(path);
+ const santaMutation=/^\/api\/santas(?:\/|$)/.test(path) ||
+  /^\/api\/participant\/[^/]+\/wishes$/.test(path) ||
+  /^\/api\/invites\/[^/]+\/join$/.test(path);
+ if(!listMutation&&!santaMutation){clearOwnerDataCache();return;}
+ for(const key of ownerDataCache.keys()){
+  if(key==='/api/dashboard' || (listMutation&&key.startsWith('/api/lists')) ||
+      (santaMutation&&key.startsWith('/api/santas')))ownerDataCache.delete(key);
+ }
+}
 function seedOwnerCache(path,value){
  if(cacheableOwnerRead(path))ownerDataCache.set(path,{value,expires:Date.now()+ownerCacheTTL(path)});
 }
@@ -75,7 +88,7 @@ async function api(path,opts={}){
    credentials:'same-origin',body:opts.body?JSON.stringify(opts.body):undefined});
   const data=await response.json().catch(()=>({error:'Не удалось прочитать ответ сервера'}));
   if(!response.ok)throw new Error(data.error||'Произошла ошибка');
-  if(method!=='GET')clearOwnerDataCache();
+  if(method!=='GET')invalidateOwnerDataForMutation(path);
   return data;
  })();
  if(cached){
