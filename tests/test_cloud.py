@@ -386,7 +386,7 @@ def test_static_product_copy_avoids_sentence_final_periods():
     """All shipped Russian UI copy follows Shursh punctuation; user data is untouched."""
     from pathlib import Path
     root=Path(__file__).resolve().parents[1]
-    ending=re.compile(r'[А-Яа-яЁё]\\.(?=</(?:p|small|h[1-6]|strong|span|div|li|a|button)\\b|[\\\'\x22\x60])')
+    ending=re.compile(r"""[А-Яа-яЁё]\.(?=</(?:p|small|h[1-6]|strong|span|div|li|a|button)\b|['"`])""")
     paths=('public/app.js','public/shursh-preview.html','server.py','app.py','cloud/backend.py')
     for name in paths:
         data=(root/name).read_text(encoding='utf-8')
