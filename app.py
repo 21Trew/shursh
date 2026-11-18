@@ -43,12 +43,15 @@ def security_headers(result):
         elapsed = (time.perf_counter() - g.request_started) * 1000
         db_ms=getattr(g,'db_connect_ms',0.0)
         db_count=getattr(g,'db_connect_count',0)
+        sql_ms=getattr(g,'sql_exec_ms',0.0)
+        sql_count=getattr(g,'sql_exec_count',0)
         region = os.environ.get('VERCEL_REGION', 'local')
         if not re.fullmatch(r'[a-z0-9]{2,8}',region):
             region = 'unknown'
         # This measures Python module import/initialization, not end-to-end cold
         # start (which also includes Vercel routing and worker provisioning).
         timing = (f'app;dur={elapsed:.1f}, db-connect;dur={db_ms:.1f};desc="{db_count} connection(s)", '
+                  f'sql-exec;dur={sql_ms:.1f};desc="{sql_count} statement(s)", '
                   f'module-init;dur={_MODULE_INIT_MS:.1f}, region;desc="{region}"')
         auth_ms=getattr(g,'shursh_auth_ms',None)
         if auth_ms is not None:
