@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Шурш! — self-contained local web MVP. Python 3.10+, no dependencies."""
+"""Шурш! - self-contained local web MVP. Python 3.10+, no dependencies."""
 from __future__ import annotations
 
 import base64
@@ -164,7 +164,7 @@ def seed_demo(con):
     con.execute('''INSERT INTO santa_events(owner_id,title,description,exchange_date,budget_cents,currency,rules,invite_key,created_at)
                    VALUES (?,?,?,?,?,?,?,?,?)''',
                 (uid,'Санта на нашей кухне','Чай, печенье и маленькие сюрпризы','2026-12-25',250000,'RUB',
-                 'Главное — внимание, а не цена. Упаковываем подарки красиво!',token(),now()))
+                 'Главное - внимание, а не цена. Упаковываем подарки красиво!',token(),now()))
     eid = con.execute('SELECT last_insert_rowid()').fetchone()[0]
     for name, user_id in [('Саша',uid),('Маша',None),('Дима',None),('Настя',None)]:
         con.execute('INSERT INTO participants(event_id,user_id,name,created_at) VALUES(?,?,?,?)',(eid,user_id,name,now()))
@@ -678,7 +678,7 @@ class Handler(BaseHTTPRequestHandler):
             if not event: raise ApiError(404,'Приглашение не найдено')
             if event['status']!='open': raise ApiError(409,'Жеребьёвка уже прошла. Присоединиться нельзя')
             count=con.execute('SELECT count(*) n FROM participants WHERE event_id=?',(event['id'],)).fetchone()['n']
-            if count>=12: raise ApiError(409,'В игре уже 12 участников — максимум для MVP')
+            if count>=12: raise ApiError(409,'В игре уже 12 участников - максимум для MVP')
             value=token()
             con.execute('INSERT INTO participants(event_id,name,access_hash,created_at) VALUES(?,?,?,?)',
                         (event['id'],name,token_hash(value),now()))
