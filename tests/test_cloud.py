@@ -69,7 +69,9 @@ def make_list(c):
 def test_auth_and_session(application):
     c=application.test_client()
     assert call(c,'GET','/api/me').json == {'user':None,'demo':False}
-    assert call(c,'GET','/api/dashboard').json == {'user':None,'demo':False,'lists':[],'events':[]}
+    guest_dashboard=call(c,'GET','/api/dashboard')
+    assert guest_dashboard.json == {'user':None,'demo':False,'lists':[],'events':[]}
+    assert 'db-connect;dur=0.0' in guest_dashboard.headers['Server-Timing']
     call(c,'GET','/api/lists',status=401)
     call(c,'POST','/api/login',{'email':'owner@example.test','password':'bad-password'},401)
     r=call(c,'POST','/api/register',{'email':'owner@example.test','name':'Owner','password':'valid-password'},202)
@@ -78,7 +80,9 @@ def test_auth_and_session(application):
     cookie=r.headers['Set-Cookie']; assert all(s in cookie for s in ('HttpOnly','Secure','SameSite=Lax'))
     assert 'not-a-real-token' not in r.get_data(as_text=True)
     assert call(c,'GET','/api/me').json['user']['id']==str(IDS['owner@example.test'])
-    assert call(c,'GET','/api/dashboard').json['user']['id']==str(IDS['owner@example.test'])
+    owner_dashboard=call(c,'GET','/api/dashboard')
+    assert owner_dashboard.json['user']['id']==str(IDS['owner@example.test'])
+    assert 'db-connect;dur=' in owner_dashboard.headers['Server-Timing']
     call(c,'POST','/api/lists',{'title':'CSRF'},403,headers={'Origin':'https://evil.example'})
     call(c,'POST','/api/logout',{})
     assert call(c,'GET','/api/me').json['user'] is None
@@ -152,6 +156,7 @@ def test_santa_atomic_draw_and_isolation(application):
         if name=='A': assert r['receiver_name']=='B'
     game=call(c,'GET',f'/api/santas/{eid}').json
     assert game['my_assignment']=={'revealed':False} and 'assignments' not in game
+    assert game['my_wishes']==[]
 
 
 def test_permissions_and_rollback(application):
@@ -494,6 +499,100 @@ def test_browser_login_logout_and_mobile_dashboard(browser_http):
             expect(page.locator('.dashboard-page')).to_have_count(0)
             browser_login(page)
             expect(page.locator('.dashboard-page h1')).to_contain_text('Owner')
+        finally:
+            browser.close()
+
+
+@pytest.mark.browser
+def test_browser_navigation_cache_invalidation_and_persistent_header(browser_http):
+    from playwright.sync_api import sync_playwright, expect
+    with sync_playwright() as play:
+        browser=play.chromium.launch(headless=True,args=['--no-sandbox'])
+        try:
+            page=browser.new_page(viewport={'width':1280,'height':820})
+            page.set_default_timeout(15000)
+            page.goto(browser_http+'/')
+            browser_login(page)
+            expect(page.locator('.dashboard-metrics')).to_be_visible()
+            page.evaluate('window.__stableHeader = document.querySelector(".site-header")')
+            page.evaluate('window.__stableFooter = document.querySelector("footer")')
+            visited=[]
+            page.on('request',lambda request: visited.append((request.method,request.url.split(browser_http)[-1]))
+                    if request.url.startswith(browser_http+'/api/') else None)
+            page.locator('header .nav [data-nav="/lists"]').click()
+            expect(page.locator('main h1')).to_contain_text('Твои вишлисты')
+            page.locator('header .nav [data-nav="/santas"]').click()
+            expect(page.locator('main h1')).to_contain_text('Тайный Санта')
+            page.locator('header .nav [data-nav="/lists"]').click()
+            expect(page.locator('main h1')).to_contain_text('Твои вишлисты')
+            assert sum(method=='GET' and path=='/api/lists' for method,path in visited)==1,visited
+            assert sum(method=='GET' and path=='/api/santas' for method,path in visited)==1,visited
+            assert page.evaluate('document.querySelector(".site-header") === window.__stableHeader')
+            assert page.evaluate('document.querySelector("footer") === window.__stableFooter')
+            before=len(visited)
+            page.locator('header .nav [data-nav="/lists"]').click()
+            assert len(visited)==before,'same-route click should not fetch'
+            title='No redraw '+uuid4().hex[:7]
+            page.locator('main button[data-open="list"]').first.click()
+            page.locator('#fld-title').fill(title)
+            page.locator('#modal-form button[type="submit"]').click()
+            expect(page).to_have_url(re.compile(r'/list/\d+
+    from playwright.sync_api import sync_playwright,expect
+    with sync_playwright() as play:
+        browser=play.chromium.launch(headless=True,args=['--no-sandbox'])
+        try:
+            page=browser.new_page()
+            page.goto(browser_http+'/#access_token=fake-test-value&refresh_token=fake-refresh&type=signup')
+            expect(page).to_have_url(browser_http+'/')
+            expect(page.locator('.toast')).to_contain_text('подтверждён')
+            assert 'fake-test-value' not in page.url
+            # A provider confirmation redirects from Supabase to a new document.
+            # A same-document hash navigation would not rerun startup logic.
+            page=browser.new_page()
+            page.goto(browser_http+'/#error=access_denied&error_code=otp_expired&error_description=test')
+            expect(page).to_have_url(browser_http+'/')
+            expect(page.locator('.toast')).to_contain_text('истекла')
+        finally:
+            browser.close()
+))
+            page.locator('header .nav [data-nav="/lists"]').click()
+            expect(page.locator('main')).to_contain_text(title)
+            assert sum(method=='GET' and path=='/api/lists' for method,path in visited)==2,visited
+            page.locator('header .nav [data-nav="/santas"]').click()
+            expect(page.locator('main h1')).to_contain_text('Тайный Санта')
+            santa='No redraw game '+uuid4().hex[:7]
+            page.locator('main button[data-open="santa"]').first.click()
+            page.locator('#fld-title').fill(santa)
+            page.locator('#modal-form button[type="submit"]').click()
+            expect(page).to_have_url(re.compile(r'/santa/\d+
+    from playwright.sync_api import sync_playwright,expect
+    with sync_playwright() as play:
+        browser=play.chromium.launch(headless=True,args=['--no-sandbox'])
+        try:
+            page=browser.new_page()
+            page.goto(browser_http+'/#access_token=fake-test-value&refresh_token=fake-refresh&type=signup')
+            expect(page).to_have_url(browser_http+'/')
+            expect(page.locator('.toast')).to_contain_text('подтверждён')
+            assert 'fake-test-value' not in page.url
+            # A provider confirmation redirects from Supabase to a new document.
+            # A same-document hash navigation would not rerun startup logic.
+            page=browser.new_page()
+            page.goto(browser_http+'/#error=access_denied&error_code=otp_expired&error_description=test')
+            expect(page).to_have_url(browser_http+'/')
+            expect(page.locator('.toast')).to_contain_text('истекла')
+        finally:
+            browser.close()
+))
+            expect(page.locator('main h1')).to_contain_text(santa)
+            assert sum('/my-wishes' in path for method,path in visited)==0,visited
+            page.locator('header .nav [data-nav="/santas"]').click()
+            expect(page.locator('main')).to_contain_text(santa)
+            assert sum(method=='GET' and path=='/api/santas' for method,path in visited)==2,visited
+            page.locator('header .nav [data-nav="/"]').click()
+            expect(page.locator('.dashboard-page')).to_contain_text(title)
+            expect(page.locator('.dashboard-page')).to_contain_text(santa)
+            # No browser localStorage, sessionStorage or IndexedDB owner persistence.
+            assert page.evaluate('localStorage.length===0 && sessionStorage.length===0')
         finally:
             browser.close()
 

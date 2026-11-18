@@ -2,6 +2,8 @@
 from contextlib import contextmanager
 import os
 import sqlite3
+import time
+from flask import g, has_request_context
 
 import psycopg
 from psycopg.rows import dict_row
@@ -33,8 +35,12 @@ def transaction(write=False, *, rate_limit=False):
     if not dsn:
         raise RuntimeError('SHURSH_DATABASE_URL is not configured')
     # Transaction-mode Supavisor does not support named prepared statements.
+    started=time.perf_counter()
     with psycopg.connect(dsn, row_factory=dict_row, prepare_threshold=None,
                          connect_timeout=8) as connection:
+        if has_request_context():
+            g.db_connect_ms=getattr(g,'db_connect_ms',0.0)+(time.perf_counter()-started)*1000
+            g.db_connect_count=getattr(g,'db_connect_count',0)+1
         # For a standalone Postgres CI fixture and the Supabase pooler alike.
         if not write and not rate_limit:
             connection.execute('SET TRANSACTION ISOLATION LEVEL REPEATABLE READ READ ONLY')

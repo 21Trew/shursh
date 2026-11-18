@@ -301,7 +301,7 @@ function loginModal(mode='login'){
    const payload=readForm(form);
    const result=await api(register?'/api/register':'/api/login',{method:'POST',body:payload});
    if(result.pending_confirmation){confirmationModal(payload.email);notice('Проверь почту — письмо с подтверждением запрошено.');return;}
-   currentUser=result.user;notice(register?'Аккаунт создан!':'С возвращением!');nav('/',{force:true});
+   currentUser=result.user;broadcastSessionChange();notice(register?'Аккаунт создан!':'С возвращением!');nav('/',{force:true});
   },
   footer:(register?'Уже есть аккаунт?':'Нет аккаунта?')+
    ' <button type="button" data-open="'+(register?'login':'register')+'">'+(register?'Войти':'Зарегистрироваться')+'</button>'+
@@ -318,7 +318,7 @@ function reserveModal(id,key){modal({title:'Забронировать пода�
 async function confirmAction(title,subtitle,handler,label='Удалить'){modal({title,subtitle,content:'<div class="alert alert-error">Это действие нельзя отменить.</div>',submitLabel:label,onSubmit:handler});}
 async function dispatch(action,el){try{
  if(action==='reset-preview'){window.SHURSH_PREVIEW_RESET?.();return;}
- if(action==='logout'){await api('/api/logout',{method:'POST',body:{}});currentUser=null;notice('Ты вышел из аккаунта');nav('/',{force:true});}
+ if(action==='logout'){await api('/api/logout',{method:'POST',body:{}});currentUser=null;broadcastSessionChange();notice('Ты вышел из аккаунта');nav('/',{force:true});}
  if(action==='demo-login'){const r=await api('/api/demo-login',{method:'POST',body:{}});currentUser=r.user;closeModal();notice('Демо-аккаунт открыт');nav('/lists');}
  if(action==='refresh-owner'){clearOwnerDataCache();await render();return;}
  if(action==='sample-list'){if(!isDemo){listModal();return;}if(!currentUser){const r=await api('/api/demo-login',{method:'POST',body:{}});currentUser=r.user;}const {lists}=await api('/api/lists');if(lists.length)nav(`/w/${lists[lists.length-1].share_key}`);else nav('/lists');}
@@ -334,6 +334,14 @@ async function dispatch(action,el){try{
  if(action==='draw')modal({title:'Провести жеребьёвку?',subtitle:'После этого изменить участников и исключения уже нельзя. Имена распределятся случайно и останутся в секрете.',content:`<div class="alert">Сейчас участвуют: ${loadedSanta.participants.map(p=>esc(p.name)).join(', ')}.</div>`,submitLabel:'Провести жеребьёвку',onSubmit:async()=>{await api(`/api/santas/${loadedSanta.event.id}/draw`,{method:'POST',body:{}});notice('Готово! Все подарки нашли своего дарителя.');await render();}});
  if(action==='reveal'){const path=el.dataset.mode==='owner'?`/api/santas/${el.dataset.key}/reveal`:`/api/participant/${el.dataset.key}/reveal`;await api(path,{method:'POST',body:{}});notice('Секрет раскрыт!');await render();}
  }catch(err){notice(err.message,true)}}
+// Invalidate sensitive owner RAM cache across browser tabs after sign-in/out.
+const sessionChannel=(!isPreview&&'BroadcastChannel' in window)?
+ new BroadcastChannel('shursh-session-changed'):null;
+function broadcastSessionChange(){sessionChannel?.postMessage('changed');}
+sessionChannel?.addEventListener('message',event=>{
+ if(event.data!=='changed')return;
+ clearOwnerDataCache();currentUser=null;renderStarted=false;render();
+});
 let renderStarted=false;
 let authReturnNotice = null;
 let authReturnError = false;

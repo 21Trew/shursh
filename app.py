@@ -34,7 +34,9 @@ def timer_start():
 def security_headers(result):
     if request.path.startswith('/api/'):
         elapsed = (time.perf_counter() - g.request_started) * 1000
-        result.headers['Server-Timing'] = f'app;dur={elapsed:.1f}'
+        db_ms=getattr(g,'db_connect_ms',0.0)
+        db_count=getattr(g,'db_connect_count',0)
+        result.headers['Server-Timing'] = f'app;dur={elapsed:.1f}, db-connect;dur={db_ms:.1f};desc="{db_count} connection(s)"'
     result.headers['Cache-Control'] = 'no-store'
     result.headers['X-Content-Type-Options'] = 'nosniff'
     result.headers['Referrer-Policy'] = 'no-referrer'
