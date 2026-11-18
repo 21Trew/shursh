@@ -225,7 +225,7 @@ def shop_url(value):
     return value
 
 
-def image_store(data):
+def decode_image(data):
     if not data:
         return None
     if not isinstance(data, str) or len(data) > 3_500_000 or not data.startswith('data:image/'):
@@ -246,6 +246,14 @@ def image_store(data):
     if not valid:
         raise ApiError(400, 'Формат изображения не совпадает с содержимым')
     ext = {'jpeg':'jpg','png':'png','webp':'webp'}[typ]
+    return raw, ext
+
+
+def image_store(data):
+    decoded = decode_image(data)
+    if not decoded:
+        return None
+    raw, ext = decoded
     (ROOT/'uploads').mkdir(exist_ok=True)
     filename = f'{secrets.token_hex(20)}.{ext}'
     (ROOT/'uploads'/filename).write_bytes(raw)
@@ -369,6 +377,11 @@ class Handler(BaseHTTPRequestHandler):
         except (ValueError,UnicodeError):
             raise ApiError(400,'Неверный формат JSON')
 
+    owner_profile_table = 'users'
+
+    def store_image(self, con, list_id, data):
+        return image_store(data)
+
     def handle_api(self,method,path,con):
         user = self.user(con)
         if method == 'GET' and path == '/api/me':
@@ -422,9 +435,9 @@ class Handler(BaseHTTPRequestHandler):
             theme=enum(data.get('theme') or 'peach',('peach','lilac','mint','yellow'),'Оформление')
             visibility=enum(data.get('visibility') or 'link',('link','private'),'Доступ')
             key=token()
-            con.execute('''INSERT INTO wishlists(owner_id,title,description,occasion,theme,visibility,share_key,created_at)
-                           VALUES(?,?,?,?,?,?,?,?)''',(user['id'],title,desc,occasion,theme,visibility,key,now()))
-            return 201, {'id':con.execute('SELECT last_insert_rowid()').fetchone()[0]},None
+            inserted=con.execute('''INSERT INTO wishlists(owner_id,title,description,occasion,theme,visibility,share_key,created_at)
+                           VALUES(?,?,?,?,?,?,?,?) RETURNING id''',(user['id'],title,desc,occasion,theme,visibility,key,now()))
+            return 201, {'id':inserted.fetchone()['id']},None
         match=re.fullmatch(r'/api/lists/(\d+)',path)
         if match:
             user=self.auth(con); lid=int(match.group(1))
@@ -458,10 +471,10 @@ class Handler(BaseHTTPRequestHandler):
             priority=enum(data.get('priority') or 'nice',('nice','love'),'Приоритет')
             kind=enum(data.get('kind') or 'item',('item','experience'),'Тип подарка')
             url=shop_url(data.get('shop_url'))
-            image_path=image_store(data.get('image_data'))
-            con.execute('''INSERT INTO wishes(list_id,title,description,price_cents,currency,priority,kind,shop_url,image_path,created_at)
-                           VALUES(?,?,?,?,?,?,?,?,?,?)''', (lid,title,desc,price,currency,priority,kind,url,image_path,now()))
-            return 201,{'id':con.execute('SELECT last_insert_rowid()').fetchone()[0]},None
+            image_path=self.store_image(con,lid,data.get('image_data'))
+            inserted=con.execute('''INSERT INTO wishes(list_id,title,description,price_cents,currency,priority,kind,shop_url,image_path,created_at)
+                           VALUES(?,?,?,?,?,?,?,?,?,?) RETURNING id''', (lid,title,desc,price,currency,priority,kind,url,image_path,now()))
+            return 201,{'id':inserted.fetchone()['id']},None
         match=re.fullmatch(r'/api/wishes/(\d+)',path)
         if match and method in ('PATCH','DELETE'):
             user=self.auth(con); wid=int(match.group(1))
@@ -479,14 +492,14 @@ class Handler(BaseHTTPRequestHandler):
             updates={k:f(data['price'] if k=='price_cents' else data[k]) for k,f in fields.items()
                      if ('price' if k=='price_cents' else k) in data}
             if data.get('image_data'):
-                updates['image_path']=image_store(data['image_data'])
+                updates['image_path']=self.store_image(con,rec['list_id'],data['image_data'])
             if not updates: raise ApiError(400,'Нет изменений')
             con.execute(f'''UPDATE wishes SET {', '.join(k+'=?' for k in updates)} WHERE id=?''',(*updates.values(),wid))
             return 200,{'ok':True},None
         match=re.fullmatch(r'/api/public/([A-Za-z0-9_\-]+)',path)
         if match and method=='GET':
-            item=con.execute('''SELECT w.*,users.name AS owner_name FROM wishlists w
-                                 JOIN users ON users.id=w.owner_id WHERE w.share_key=?''',(match.group(1),)).fetchone()
+            item=con.execute(f'''SELECT w.*,p.name AS owner_name FROM wishlists w
+                                 JOIN {self.owner_profile_table} p ON p.id=w.owner_id WHERE w.share_key=?''',(match.group(1),)).fetchone()
             if not item or item['visibility']!='link': raise ApiError(404,'Этот список сейчас недоступен')
             owner_view=bool(user and user['id']==item['owner_id'])
             output={k:v for k,v in dict(item).items() if k not in ('owner_id','share_key')}
@@ -548,10 +561,10 @@ class Handler(BaseHTTPRequestHandler):
             budget=amount(data.get('budget'))
             currency=enum(data.get('currency') or 'RUB',('RUB','EUR','USD'),'Валюта')
             rules=optional(data.get('rules'),'Правила',1000)
-            con.execute('''INSERT INTO santa_events(owner_id,title,description,exchange_date,budget_cents,currency,rules,invite_key,created_at)
-                           VALUES(?,?,?,?,?,?,?,?,?)''',
-                        (user['id'],title,description,date,budget,currency,rules,token(),now()))
-            eid=con.execute('SELECT last_insert_rowid()').fetchone()[0]
+            inserted=con.execute('''INSERT INTO santa_events(owner_id,title,description,exchange_date,budget_cents,currency,rules,invite_key,created_at)
+                           VALUES(?,?,?,?,?,?,?,?,?) RETURNING id''',
+                        (user['id'],title,description,date or None,budget,currency,rules,token(),now()))
+            eid=inserted.fetchone()['id']
             con.execute('INSERT INTO participants(event_id,user_id,name,created_at) VALUES(?,?,?,?)',
                         (eid,user['id'],user['name'],now()))
             return 201,{'id':eid},None
@@ -602,7 +615,7 @@ class Handler(BaseHTTPRequestHandler):
             if a==b: raise ApiError(400,'Самому себе и так нельзя дарить')
             if con.execute('SELECT count(*) n FROM participants WHERE event_id=? AND id IN (?,?)',(eid,a,b)).fetchone()['n']!=2:
                 raise ApiError(400,'Участник не найден')
-            con.execute('INSERT OR IGNORE INTO exclusions VALUES(?,?,?)',(eid,a,b))
+            con.execute('INSERT INTO exclusions VALUES(?,?,?) ON CONFLICT DO NOTHING',(eid,a,b))
             return 201,{'ok':True},None
         match=re.fullmatch(r'/api/santas/(\d+)/exclusions/(\d+)/(\d+)',path)
         if match and method=='DELETE':

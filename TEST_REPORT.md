@@ -22,3 +22,12 @@
 - Browser E2E с реальным HTTP-сервером не выполнялся из-за URLBlocklist в установленном Chromium. HTTP API проверен отдельно реальными запросами.
 - Не проверялось развертывание в облаке, публичный HTTPS, доставка email и межустройственная работа автономного HTML-превью.
 - Не выполнялся полноценный аудит безопасности или нагрузочное тестирование.
+
+## Cloud integration
+
+- Локальный регрессионный набор SQLite: 6/6 passed (повторный запуск).
+- Python compileall для app/cloud/tests и Node syntax check: passed.
+- `tests/test_cloud.py`: CI с PostgreSQL 17, Auth transport mock, транзакции,
+  гонки бронирования и жеребьёвки, приватность, изоляция, RLS privileges.
+- Реальный Supabase Auth и email delivery не проверены в интеграционном CI.
+- Результат PostgreSQL CI следует смотреть на последнем коммите PR.
