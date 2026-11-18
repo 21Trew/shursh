@@ -563,6 +563,18 @@ def test_browser_navigation_cache_invalidation_and_persistent_header(browser_htt
             browser.close()
 
 
+def test_static_assets_cache_but_private_endpoints_do_not(application):
+    client=application.test_client()
+    for path in ('/app.js','/styles.css','/favicon.svg'):
+        result=client.get(path)
+        assert result.status_code==200
+        assert result.headers['Cache-Control']=='public, max-age=300, must-revalidate'
+    for path in ('/','/api/me','/api/dashboard'):
+        result=client.get(path)
+        assert result.status_code==200
+        assert result.headers['Cache-Control']=='no-store'
+
+
 @pytest.mark.browser
 def test_owner_tab_navigation_reuses_data_and_dom(browser_http):
     from playwright.sync_api import sync_playwright, expect

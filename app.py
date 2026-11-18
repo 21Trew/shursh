@@ -42,7 +42,13 @@ def security_headers(result):
         db_ms=getattr(g,'db_connect_ms',0.0)
         db_count=getattr(g,'db_connect_count',0)
         result.headers['Server-Timing'] = f'app;dur={elapsed:.1f}, db-connect;dur={db_ms:.1f};desc="{db_count} connection(s)"'
-    result.headers['Cache-Control'] = 'no-store'
+    # Static UI assets are public and identical for every user. Reusing them
+    # avoids repeated downloads on reload; HTML, APIs and capability URLs
+    # must always remain private and uncached.
+    if request.path in ('/app.js','/styles.css','/favicon.svg'):
+        result.headers['Cache-Control'] = 'public, max-age=300, must-revalidate'
+    else:
+        result.headers['Cache-Control'] = 'no-store'
     result.headers['X-Content-Type-Options'] = 'nosniff'
     result.headers['Referrer-Policy'] = 'no-referrer'
     result.headers['X-Frame-Options'] = 'DENY'
