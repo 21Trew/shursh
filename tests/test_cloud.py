@@ -217,8 +217,14 @@ from uuid import uuid4
 
 @pytest.fixture
 def browser_http(application):
-    from werkzeug.serving import make_server
-    server = make_server('127.0.0.1', 0, application, threaded=True)
+    from werkzeug.serving import make_server, WSGIRequestHandler
+    class PrivateTestHandler(WSGIRequestHandler):
+        # Guest invitation/reservation URLs are bearer capabilities. Never put
+        # their raw paths in public CI logs, including failed test output.
+        def log_request(self, code='-', size='-'):
+            pass
+    server = make_server('127.0.0.1', 0, application, threaded=True,
+                         request_handler=PrivateTestHandler)
     worker = threading.Thread(target=server.serve_forever, daemon=True)
     worker.start()
     try:
