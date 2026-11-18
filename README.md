@@ -136,8 +136,9 @@ transport and cannot prove SMTP delivery.
   (for continued staging). Never use broad wildcards.
 - Authentication > SMTP Settings: enable Custom SMTP after selecting a
   provider. Set host, port, username and password/API credential using
-  that provider's account (NOT repository secrets); sender must be a
-  verified domain address. Configure SPF/DKIM and validate sending quotas.
+  that provider's account (NOT repository secrets); sender must be permitted
+  by the SMTP account (a confirmed mailbox is sufficient for Yandex SMTP).
+  For custom domains, configure SPF/DKIM and validate sending quotas.
 - Authentication > Email Templates > Confirm signup: retain
   the Supabase ConfirmationURL template variable for verification links.
 - Authentication > Rate Limits: verify email quota before inviting users.
@@ -178,3 +179,82 @@ https://supabase.com/docs/guides/auth/auth-email-templates
 Stop public onboarding if confirmation fails, cross-user access is
 possible or secrets appear in logs. Deferred: password recovery,
 lost capability-link recovery, reminders, retention/backup policy.
+
+
+## Release candidate preflight (2026-11-18)
+
+### Current verified state
+
+- GitHub PR #1 is Draft, tested branch is feat/supabase-mvp
+- CI covers Python 3.11/3.13, PostgreSQL integration, frontend syntax and
+  Playwright Chromium, including signup confirmation UI with mocked provider,
+  login, wishes, public reservations, Secret Santa invitations/draw and mobile
+- Supabase project is ACTIVE_HEALTHY, all 3 migrations are registered,
+  RLS is enabled on all 12 public tables
+- Hosted Supabase Auth logs contain successful /signup and /token requests
+  after external Yandex SMTP delivery was confirmed by a user inbox screenshot
+  This does not by itself prove every step of one complete live signup journey
+- shursh-preview is a separate Flask project on the feature commit; SSO enabled
+- shursh.vercel.app still serves old main (28afd5f), not the cloud MVP
+- The distinct Vercel project shursh has framework=null and ZERO Production
+  env variable keys; the Preview project has five Preview-only keys
+- Supabase security advisor warns that leaked password protection is disabled
+
+### Production configuration gate (requires separate approval)
+
+The following settings are **not configured** in Production yet
+
+1. Vercel -> team 21trews-projects -> project shursh -> Settings
+   Set Framework Preset to Flask and Root Directory to repository root
+   Ensure the Git repo is 21Trew/shursh and the production source is the
+   exact reviewed SHA, NOT an unrelated static demo
+2. Environment Variables -> Production (server-side only)
+   - SUPABASE_URL: the existing Shursh Supabase HTTPS project origin
+   - SUPABASE_PUBLISHABLE_KEY: publishable key, never a service-role key
+   - SHURSH_DATABASE_URL: TLS PostgreSQL pooler URI for a dedicated limited
+     production login that can SET ROLE shursh_backend
+   - SHURSH_RATE_SECRET: strong independent random secret, different from Preview
+   - SHURSH_AUTH_REDIRECT_URL: https://shursh.vercel.app/
+   Store values in Vercel secure environment settings, not in GitHub, logs,
+   scripts or chat. Avoid reusing the privileged postgres login
+3. Supabase Authentication -> URL Configuration
+   - Site URL: https://shursh.vercel.app/
+   - Exact redirect allowlist includes https://shursh.vercel.app/
+     and the stable protected Preview origin
+   - No wildcard redirect destinations
+   - Confirm signup email template retains the Supabase ConfirmationURL
+   - Email confirmation remains required
+4. Set operational email sending quota appropriate for the first-user pilot
+   Review provider restrictions and Supabase Authentication -> Rate Limits
+5. Decide rollback procedure before inviting users. The old production
+   deployment is a static/demo version, so switching back temporarily hides
+   cloud functionality even though PostgreSQL data remains stored
+
+### After explicitly authorized Production deployment (no automatic release)
+
+Run the **read-only anonymous smoke** from this repository on Node.js 22+
+
+    node tools/release-smoke.mjs
+
+This always checks only https://shursh.vercel.app and uses **no cookies,
+credentials, account creation, or modification requests**. It validates:
+homepage and security headers, JS/CSS assets, no-session /api/me and
+/api/dashboard with no private data, no-store policies and 404 behavior.
+The tool does NOT prove that a logged-in user can register or draw names
+
+Then perform this **separate live acceptance** in fresh browser contexts:
+
+1. Register one fresh external inbox, receive confirmation, follow redirect
+   back to https://shursh.vercel.app/ and sign in by password
+2. Create and edit a wishlist and wishes, reload, verify persistent data
+3. Share the guest link in incognito, reserve and cancel a gift using only
+   the guest's private management URL; confirm owner privacy isolation
+4. Create a Secret Santa for at least three participants and check invite,
+   participant-specific private links, exclusions and recipient reveal
+5. Verify mobile layout, sign-out, invalid links, access denial and error copy
+6. Check Vercel runtime logs without printing capability URLs or tokens
+
+Stop the public rollout and do not send invitations if authentication, data
+isolation, critical flows or privacy checks fail. Merge or Production deploy
+requires explicit owner authorization; note that merging into a Git-connected
+Production branch can trigger a deployment automatically
