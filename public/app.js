@@ -407,9 +407,11 @@ sessionChannel?.addEventListener('message',event=>{
 let renderStarted=false;
 let authReturnNotice = null;
 let authReturnError = false;
-if(!isPreview && /(?:^#|[&#])(?:access_token|refresh_token|error_description)=/.test(location.hash)){
- const params=new URLSearchParams(location.hash.slice(1));
- authReturnError=params.has('error')||params.has('error_code');
+const authFragment=new URLSearchParams(location.hash.slice(1));
+if(!isPreview && ['access_token','refresh_token','error','error_code','error_description']
+    .some(key=>authFragment.has(key))){
+ const params=authFragment;
+ authReturnError=params.has('error')||params.has('error_code')||params.has('error_description');
  authReturnNotice=authReturnError?'Ссылка подтверждения недействительна или истекла. Попробуй зарегистрироваться снова.':'Адрес электронной почты подтверждён. Теперь войди с паролем.';
  // Remove provider tokens *before* any async fetch or UI rendering. The
  // application creates its own HttpOnly session cookie on password login.
