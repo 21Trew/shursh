@@ -78,7 +78,7 @@ class CloudRequest(Handler):
             # Do not acquire other request keys while holding this key's row lock.
             # Expired buckets can be pruned by a separate maintenance job.
         if row['hits'] > limit:
-            raise ApiError(429, 'Слишком много попыток. Попробуй немного позже.')
+            raise ApiError(429, 'Слишком много попыток. Попробуй немного позже')
 
     def prepare_auth(self, path):
         self.throttled('auth', 15)
@@ -164,7 +164,7 @@ class CloudRequest(Handler):
             JOIN wishlists w ON w.id=i.list_id WHERE w.owner_id=?''',(owner['id'],)).fetchone()['total']
         total = con.execute('SELECT coalesce(sum(octet_length(content)),0) AS total FROM wish_images').fetchone()['total']
         if used+len(raw)>IMAGE_USER_LIMIT or total+len(raw)>IMAGE_TOTAL_LIMIT:
-            raise ApiError(413, 'Лимит изображений достигнут. Удали лишние фотографии.')
+            raise ApiError(413, 'Лимит изображений достигнут. Удали лишние фотографии')
         import secrets
         path = '/uploads/'+secrets.token_hex(20)+'.'+ext
         mime = {'jpg':'image/jpeg','png':'image/png','webp':'image/webp'}[ext]
