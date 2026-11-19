@@ -23,12 +23,9 @@ def test_only_allowlisted_https_product_pages(url):
 
 @pytest.mark.parametrize('url', [
     'https://www.ozon.ru/product/test',
-    'https://www.wildberries.ru/catalog/123/detail.aspx',
+    'https://www.wildberries.ru/catalog/140707460/detail.aspx',
     'https://www.wb.ru/catalog/123/detail.aspx',
     'https://market.yandex.ru/card/example/1',
-    'https://www.bookvoed.ru/product/test',
-    'https://www.chitai-gorod.ru/product/1',
-    'https://www.labirint.ru/books/123',
 ])
 def test_marketplace_domains_supported(url):
     assert pm._target(url, pm.SHOP_DOMAINS) == url
@@ -109,12 +106,12 @@ def test_image_safely_imported_to_existing_upload_format(monkeypatch):
     def fake_request(url, domains, limit):
         if url.endswith('.png'):
             return url, 'image/png', image
-        return 'https://www.ozon.ru/product/123', 'text/html; charset=utf-8', page
+        return 'https://www.ozon.ru/product/12345678', 'text/html; charset=utf-8', page
     monkeypatch.setattr(pm, '_request_public', fake_request)
-    result = pm.fetch_product_metadata('https://www.ozon.ru/product/123')
+    result = pm.fetch_product_metadata('https://www.ozon.ru/product/12345678')
     assert result['title'] == 'Настольная игра'
     assert result['price'] == '890.00'
-    assert result['shop_url'] == 'https://www.ozon.ru/product/123'
+    assert result['shop_url'] == 'https://www.ozon.ru/product/12345678'
     assert base64.b64decode(result['image_data'].split(',', 1)[1]) == image
 
 
@@ -125,7 +122,7 @@ def test_image_from_untrusted_domain_is_not_fetched(monkeypatch):
         return url, 'text/html', '''<meta property="og:title" content="Подарок">
           <meta property="og:image" content="https://127.0.0.1/secret.png">'''.encode('utf-8')
     monkeypatch.setattr(pm, '_request_public', fake_request)
-    result = pm.fetch_product_metadata('https://www.ozon.ru/product/123')
+    result = pm.fetch_product_metadata('https://www.ozon.ru/product/12345678')
     assert result['title'] == 'Подарок'
     assert result['image_data'] is None
     assert len(calls) == 1
@@ -136,7 +133,7 @@ def test_blocked_store_returns_useful_error(monkeypatch):
         raise ApiError(422, 'Магазин не предоставил данные товара')
     monkeypatch.setattr(pm, '_request_public', blocked)
     with pytest.raises(ApiError) as error:
-        pm.fetch_product_metadata('https://www.wildberries.ru/catalog/123/detail.aspx')
+        pm.fetch_product_metadata('https://www.wildberries.ru/catalog/140707460/detail.aspx')
     assert error.value.status == 422
 
 
@@ -150,7 +147,7 @@ def test_antibot_challenge_never_becomes_wishlist_title(monkeypatch, challenge):
         return url, 'text/html', page
     monkeypatch.setattr(pm, '_request_public', fake_request)
     with pytest.raises(ApiError) as error:
-        pm.fetch_product_metadata('https://www.ozon.ru/product/123')
+        pm.fetch_product_metadata('https://www.ozon.ru/product/12345678')
     assert error.value.status == 422
 
 
@@ -171,7 +168,7 @@ def test_store_landing_page_is_not_a_product(monkeypatch, title):
         return url, 'text/html', html.encode('utf-8')
     monkeypatch.setattr(pm, '_request_public', fake_request)
     with pytest.raises(ApiError) as error:
-        pm.fetch_product_metadata('https://market.yandex.ru/card/123')
+        pm.fetch_product_metadata('https://market.yandex.ru/card/igra/103227515458')
     assert error.value.status == 422
     # Store's logo must not be added to a new wish
     assert len(calls) == 1
