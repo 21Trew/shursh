@@ -38,7 +38,7 @@ def probe_page(name, url):
 def probe_api(name, url, kind):
     started = monotonic()
     try:
-        request = Request(url, headers={"User-Agent": "ShurshWishlist/0.1 (lvs.codelab@yandex.ru)",
+        request = Request(url, headers={"User-Agent": "ShurshProductImporter/1.0",
                                          "Accept": "application/json"})
         with urlopen(request, timeout=7) as response:
             if response.status != 200 or len(raw := response.read(160000)) > 159999:
