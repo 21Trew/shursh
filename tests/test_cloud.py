@@ -447,6 +447,8 @@ def test_browser_manual_product_link_and_uncluttered_header(browser_http):
             page.route('**/api/product-preview', intercept_import)
             page.goto(browser_http + '/')
             expect(page.locator('main h1')).to_be_visible()
+            expect(page.locator('.footer')).to_contain_text('Сделано с заботой о сюрпризах')
+            assert page.locator('.footer a[href^="mailto:"]').count() == 0
             assert page.locator('header button[data-open="list"]').count() == 0
             browser_login(page)
             assert page.locator('header button[data-nav="/lists"]').count() == 0
