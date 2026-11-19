@@ -322,6 +322,7 @@ async function santasPage(marker=lastRenderToken){if(!currentUser){shell(`<main 
 let loadedSanta=null;
 let activeGameContext=null;
 let gameChatTimer=null;
+let gameRosterTimer=null;
 async function santaAdminPage(id,marker=lastRenderToken){return santaGamePage(id,marker);}
 async function santaGamePage(id,marker=lastRenderToken,participantToken=null){
  const memberView=participantToken!==null;
@@ -333,21 +334,21 @@ async function santaGamePage(id,marker=lastRenderToken,participantToken=null){
  if(memberView)id=e.id;
  const gameWishes=memberView?d.wishes:(d.my_wishes||[]);
  activeGameContext={base:memberView?'/api/participant/'+participantToken:'/api/santas/'+id,
-  event:e,richEnabled:d.rich_enabled!==false,own:gameWishes,recipient:e.status==='drawn'?(memberView?d.assignment?.wish_cards:d.my_assignment?.wish_cards)||[]:[]};
+  event:e,richEnabled:d.rich_enabled!==false,own:gameWishes,memberView,memberId:memberView?d.participant.id:null,currentUserId:currentUser?.id,recipient:e.status==='drawn'?(memberView?d.assignment?.wish_cards:d.my_assignment?.wish_cards)||[]:[]};
  const people=d.participants;
  const selects=(id,label)=>selectField(label,id,people.map(p=>[p.id,p.name]),null);
  shell(`<main class="container page"><div class="guest-topline">${memberView? `${ico('lock')} Личный кабинет участника <span>/</span> <strong>${esc(d.participant.name)}</strong>`:`<button class="text-link" data-nav="/santas">${ico('back')} Все игры</button> <span>/</span> <span>${esc(e.title)}</span>`}</div><div class="page-hero"><div><div class="section-label">${e.status==='drawn'?'Жеребьёвка проведена':'Приглашаем участников'}</div><h1>${esc(e.title)}</h1><p>${esc(e.description||'Праздник начинается с маленькой тайны')}</p></div><span class="chip ${e.status==='drawn'?'chip-green':'chip-lilac'}">${ico(e.status==='drawn'?'check':'users')} ${e.status==='drawn'?'Игра началась':'Приём открыт'}</span></div><div class="santa-detail-layout"><div>
- <div class="panel"><div class="panel-heading-actions"><h2>Участники <span class="chip">${people.length}</span></h2>${!memberView&&e.status==='open'?'<button class="btn btn-soft btn-small" data-action="add-player">'+ico('plus')+' Добавить участника</button>':''}</div><div class="person-list">${people.map(p=>`<div class="person-row"><div class="avatar">${esc(p.name.slice(0,1).toUpperCase())}</div><div class="person-main"><strong>${esc(p.name)} ${p.is_organizer||(!memberView&&p.user_id===currentUser.id)?'<span class="chip chip-peach">Организатор</span>':''}${memberView&&p.id===d.participant.id?'<span class="chip">Ты</span>':''}</strong><small>${p.wish_count} ${plural(p.wish_count,'желание','желания','желаний')}</small></div>${!memberView&&e.status==='open'&&p.user_id!==currentUser.id?`<div class="person-actions"><button class="btn btn-soft btn-small" title="Выдать новую личную ссылку" data-action="new-player-link" data-id="${p.id}">${ico('link')}</button><button class="btn btn-soft btn-small" title="Убрать участника" data-action="remove-player" data-id="${p.id}">${ico('trash')}</button></div>`:''}</div>`).join('')}</div>${e.status==='open'?`<div class="divider-line"></div><p class="note">Пригласи друзей по общей ссылке. Каждый сможет присоединиться без регистрации и получит собственную личную ссылку</p><div class="share-field"><input class="input" aria-label="Ссылка-приглашение" readonly value="${attr(getLink(`/join/${e.invite_key}`))}"><button class="btn btn-dark btn-small" data-action="copy" data-url="${attr(getLink(`/join/${e.invite_key}`))}">${ico('copy')} Копировать</button></div>`:''}</div>
+ <div class="panel"><div class="panel-heading-actions"><h2>Участники <span class="chip" data-santa-roster-count>${people.length}</span></h2>${!memberView&&e.status==='open'?'<button class="btn btn-soft btn-small" data-action="add-player">'+ico('plus')+' Добавить участника</button>':''}</div><div class="person-list" data-santa-roster>${people.map(p=>santaRosterPerson(p,activeGameContext)).join('')}</div>${e.status==='open'?`<div class="divider-line"></div><p class="note">Пригласи друзей по общей ссылке. Каждый сможет присоединиться без регистрации и получит собственную личную ссылку</p><div class="share-field"><input class="input" aria-label="Ссылка-приглашение" readonly value="${attr(getLink(`/join/${e.invite_key}`))}"><button class="btn btn-dark btn-small" data-action="copy" data-url="${attr(getLink(`/join/${e.invite_key}`))}">${ico('copy')} Копировать</button></div>`:''}</div>
  <div class="panel"><div class="panel-heading-actions"><h2>Мои пожелания</h2>${!memberView||currentUser?`<button class="btn btn-soft btn-small" data-action="import-own-wishes" ${memberView?`data-key="${attr(participantToken)}"`:`data-id="${id}"`}>${ico('plus')} Из вишлиста</button>`:''}</div><p class="note">Твои пожелания увидит только тот, кому выпадет тебя одаривать</p><div class="my-wishes-list">${wishesMarkup(gameWishes)}</div>
  ${d.rich_enabled!==false?`<button class="btn btn-dark btn-small" type="button" data-action="add-game-gift">${ico('plus')} Добавить подарок</button>`:
  `<form class="form" id="legacy-santa-wish-form"><div class="share-field"><input class="input" name="title" required maxlength="130" placeholder="Название подарка"><button class="btn btn-dark btn-small" type="submit">Добавить ${ico('plus')}</button></div></form><p class="note">Подробные карточки появятся после обновления игры</p>`}</div>
  ${!memberView&&e.status==='open'?`<div class="panel"><h2>Исключения</h2><p class="note">Укажи пары, которые не должны выпадать друг другу. Ограничения работают направленно: «А → Б» означает, что А не может дарить Б</p><div class="rules-list" style="margin:17px 0">${d.exclusions.length?d.exclusions.map(r=>`<span class="rule-chip">${esc(people.find(p=>p.id===r.giver_id)?.name||'?')} → ${esc(people.find(p=>p.id===r.receiver_id)?.name||'?')} <button title="Убрать ограничение" data-action="remove-rule" data-from="${r.giver_id}" data-to="${r.receiver_id}">×</button></span>`).join(''):'<span class="muted">Пока нет исключений</span>'}</div><form class="form" id="rule-form"><div class="form-grid">${selects('giver_id','Кто дарит')}${selects('receiver_id','Кому нельзя дарить')}</div><button class="btn btn-soft btn-small" type="submit">${ico('plus')} Добавить ограничение</button></form></div>`:''}
- </div><div><div class="panel"><div class="panel-heading-actions"><h2>О событии</h2>${!memberView?`<button class="btn btn-soft btn-small" data-action="edit-santa">${ico('edit')} Изменить</button>`:''}</div><div class="details-box"><p>${ico('calendar')} <strong>Дата:</strong> ${dateRu(e.exchange_date)}</p><p>${ico('gift')} <strong>Бюджет:</strong> ${money(e.budget_cents,e.currency)}</p><p>${ico('users')} <strong>Участников:</strong> ${people.length}</p>${e.rules?`<div class="divider-line"></div><strong>Правила:</strong><p>${esc(e.rules)}</p>`:''}</div></div>
- ${!memberView&&e.status==='open'?`<div class="panel"><h2>Время раскрыть карты?</h2><p class="note">После жеребьёвки приглашения, состав и исключения будут заморожены. Каждый увидит только своего получателя</p><div class="alert">${ico('info')} Понадобится минимум 3 участника. Желательно, чтобы все успели присоединиться</div><button class="btn btn-dark" style="width:100%" data-action="draw" ${people.length<3?'disabled':''}>Провести жеребьёвку ${ico('spark')}</button></div>`:`<div class="panel"><h2>Твой секрет</h2>${e.status==='drawn'?secretCard(memberView?d.assignment:d.my_assignment,!memberView,memberView?participantToken:id):`<div class="secret-card">${envelopeArt()}<h2>Пока храним интригу</h2><p>Организатор ещё собирает всех участников. После жеребьёвки здесь появится конверт с твоим получателем</p></div>`}</div>`}
+ </div><div><div class="panel"><div class="panel-heading-actions"><h2>О событии</h2>${!memberView?`<button class="btn btn-soft btn-small" data-action="edit-santa">${ico('edit')} Изменить</button>`:''}</div><div class="details-box"><p>${ico('calendar')} <strong>Дата:</strong> ${dateRu(e.exchange_date)}</p><p>${ico('gift')} <strong>Бюджет:</strong> ${money(e.budget_cents,e.currency)}</p><p>${ico('users')} <strong>Участников:</strong> <span data-santa-event-count>${people.length}</span></p>${e.rules?`<div class="divider-line"></div><strong>Правила:</strong><p>${esc(e.rules)}</p>`:''}</div></div>
+ ${!memberView&&e.status==='open'?`<div class="panel"><h2>Время раскрыть карты?</h2><p class="note">После жеребьёвки приглашения, состав и исключения будут заморожены. Каждый увидит только своего получателя</p><div class="alert">${ico('info')} Понадобится минимум 3 участника. Желательно, чтобы все успели присоединиться</div><button class="btn btn-dark" style="width:100%" data-action="draw" ${people.length<3?'disabled':''}>Провести жеребьёвку ${ico('spark')}</button></div>`:`<div class="panel"><h2>Кому ты даришь</h2>${e.status==='drawn'?secretCard(memberView?d.assignment:d.my_assignment,!memberView,memberView?participantToken:id):`<div class="secret-card">${envelopeArt()}<h2>Пока храним интригу</h2><p>Организатор ещё собирает всех участников. После жеребьёвки здесь появится конверт с твоим получателем</p></div>`}</div>`}
  ${memberView?`<div class="panel"><h2>Твоя личная ссылка</h2><p class="note">Не пересылай никому: по ней открывается твой секрет. Сохрани в закладки</p><div class="share-field"><input class="input" readonly value="${attr(getLink(`/p/${participantToken}`))}" aria-label="Личная ссылка"><button class="btn btn-dark btn-small" data-action="copy" data-url="${attr(getLink(`/p/${participantToken}`))}">${ico('copy')} Копировать</button></div></div>`:''}
  </div></div>
  ${d.rich_enabled!==false?`<section class="panel game-chat-panel" id="game-chat" aria-label="Чаты игры">
- <div class="panel-heading-actions"><h2>Общение</h2><span class="chip">${ico('users')} Только участники</span></div>
+ <div class="panel-heading-actions"><h2>Чаты игры</h2><span class="chip">${ico('users')} Только участники</span></div>
  <p class="note">Общий чат открыт всем участникам. После жеребьёвки появятся личные переписки. Личность тайного дарителя не раскрывается</p>
  <div class="game-chat-tabs" role="group" aria-label="Выбрать чат">
  <button class="btn btn-soft btn-small active" type="button" data-chat-room="general" aria-pressed="true">Общий чат</button>
@@ -356,9 +357,10 @@ async function santaGamePage(id,marker=lastRenderToken,participantToken=null){
  <div class="game-chat-messages" role="log" aria-live="polite"><p class="note">Загружаем сообщения…</p></div>
  <form id="game-chat-form" class="game-chat-form"><label for="game-chat-input" class="sr-only">Текст сообщения</label><input id="game-chat-input" class="input" name="message" placeholder="Напиши сообщение" maxlength="500" autocomplete="off" required><button class="btn btn-dark btn-small" type="submit">Отправить ${ico('arrow')}</button></form>
  <button class="text-link game-chat-refresh" type="button" data-chat-refresh>Обновить сообщения</button>
- </section>`:`<section class="panel"><h2>Общение</h2><p class="note">Чаты появятся после обновления игры. Остальные возможности доступны</p></section>`}</main>`);
+ </section>`:`<section class="panel"><h2>Чаты игры</h2><p class="note">Чаты появятся после обновления игры. Остальные возможности доступны</p></section>`}</main>`);
  document.getElementById('rule-form')?.addEventListener('submit',async ev=>{ev.preventDefault();try{await api(`/api/santas/${id}/exclusions`,{method:'POST',body:readForm(ev.currentTarget)});notice('Исключение добавлено');await render();}catch(err){notice(err.message,true)}});
  setupGameChat(activeGameContext);
+ setupSantaRoster(activeGameContext);
  document.getElementById('legacy-santa-wish-form')?.addEventListener('submit',async ev=>{
   ev.preventDefault();
   const form=ev.currentTarget,button=form.querySelector('button');
@@ -371,7 +373,7 @@ async function santaGamePage(id,marker=lastRenderToken,participantToken=null){
 }
 async function myWishesForAdmin(id){const res=await api(`/api/santas/${id}/my-wishes`);return wishesMarkup(res.wishes);}
 function secretCard(assignment,organizer,identifier){if(!assignment||!assignment.revealed)return `<div class="secret-card">${envelopeArt()}<h2>Твой получатель ждёт внутри</h2><p>Никто, кроме тебя, не увидит это имя</p><button class="btn btn-dark" data-action="reveal" data-mode="${organizer?'owner':'participant'}" data-key="${attr(identifier)}">Узнать, кому я дарю ${ico('spark')}</button></div>`;
- return `<div class="secret-card revealed">${ico('check')}<p>Твой секретный получатель</p><div class="recipient">${esc(assignment.receiver_name)}</div><p>Здорово, правда? Теперь самое интересное - выбрать подарок!</p><div class="recipient-wishes"><strong>Пожелания получателя</strong>${assignment.wish_cards?.length?wishesMarkup(assignment.wish_cards,'recipient'):'<p>Пожеланий пока нет. Можно придумать сюрприз самостоятельно</p>'}</div></div>`;}
+ return `<div class="secret-card revealed">${ico('check')}<p>Кому ты даришь</p><div class="recipient">${esc(assignment.receiver_name)}</div><p>Здорово, правда? Теперь самое интересное - выбрать подарок!</p><div class="recipient-wishes"><strong>Пожелания получателя</strong>${assignment.wish_cards?.length?wishesMarkup(assignment.wish_cards,'recipient'):'<p>Пожеланий пока нет. Можно придумать сюрприз самостоятельно</p>'}</div></div>`;}
 async function invitePage(key,marker=lastRenderToken){const {event:e,already_joined}=await api(`/api/invites/${key}`);if(marker!==lastRenderToken)return;shell(`<main class="container page"><div class="invite-card"><div class="invite-icon">${envelopeArt()}</div><div class="section-label" style="text-align:center">Тебя зовут в игру!</div><h1>${esc(e.title)}</h1><p>${esc(e.description||'Кто-то хочет устроить вам небольшой праздник')}</p><div class="invite-info"><div class="info-tile"><small>Когда обмениваемся</small><strong>${dateRu(e.exchange_date)}</strong></div><div class="info-tile"><small>Бюджет</small><strong>${money(e.budget_cents,e.currency)}</strong></div></div>${e.rules?`<div class="details-box"><strong>Правила от организатора</strong><p>${esc(e.rules)}</p></div>`:''}${already_joined?'<div class="alert">Ты уже участвуешь в этой игре. Повторное вступление не требуется</div>':e.status==='open'?`<form class="invite-form" id="join-form"><h3>Как тебя зовут?</h3><div class="field"><label for="join-name">Твоё имя</label><input id="join-name" name="name" maxlength="50" required placeholder="Например, Маша"></div><button class="btn btn-dark" type="submit">Присоединиться ${ico('arrow')}</button><p class="note" style="margin-top:15px">После вступления получишь личную ссылку - сохрани её, чтобы вернуться в игру</p></form>`:`<div class="alert">Жеребьёвка уже состоялась. Новые участники присоединиться не могут</div>`}</div></main>`);
  document.getElementById('join-form')?.addEventListener('submit',async ev=>{ev.preventDefault();const btn=ev.currentTarget.querySelector('button');btn.disabled=true;try{const r=await api(`/api/invites/${key}/join`,{method:'POST',body:readForm(ev.currentTarget)});nav(`/p/${r.participant_token}`);notice('Ты в игре! Сохрани личную ссылку');}catch(err){notice(err.message,true);btn.disabled=false;}});
 }
@@ -500,12 +502,14 @@ function santaSettingsModal(){
 }
 async function importOwnWishesModal(el){
  if(!currentUser){loginModal();return;}
- const own=await api('/api/lists');
- if(!own.lists?.length){notice('Сначала создай собственный вишлист',true);return;}
+ // One server call fetches only safe list/gift titles (no bulky image blobs).
+ const collection=await api('/api/santa/library');
+ const lists=collection.lists||[];
+ if(!lists.length){notice('Сначала создай собственный вишлист',true);return;}
  const endpoint=el.dataset.key?'/api/participant/'+el.dataset.key+'/wishes/import':
    '/api/santas/'+el.dataset.id+'/my-wishes/import';
- const options=own.lists.map(l=>'<option value="'+l.id+'">'+esc(l.title)+'</option>').join('');
- modal({title:'Добавить из вишлиста',subtitle:'Выбери свой вишлист и подарки. В игру копируются названия, оригинал не меняется',
+ const options=lists.map(l=>'<option value="'+l.id+'">'+esc(l.title)+'</option>').join('');
+ modal({title:'Добавить из вишлиста',subtitle:'Выбери список и подарки. Копируются название, описание, цена, ссылка и доступное фото',
    content:'<div class="field"><label for="import-list">Вишлист</label><select id="import-list" name="list_id">'+options+'</select></div>'+
      '<div id="import-wish-choices" class="import-wish-choices" role="group" aria-label="Выбрать подарки"></div>',
    submitLabel:'Добавить выбранное',onSubmit:async form=>{
@@ -516,22 +520,18 @@ async function importOwnWishesModal(el){
      notice(result.added?'Добавлено подарков: '+result.added:'Эти подарки уже добавлены');
      await render();
    }});
- const listSelect=modalRoot.querySelector('#import-list');
+ const select=modalRoot.querySelector('#import-list');
  const choices=modalRoot.querySelector('#import-wish-choices');
- let generation=0;
- async function loadSelected(){
-   const gen=++generation;
-   choices.textContent='Загружаем подарки…';
-   try{
-     const result=await api('/api/lists/'+Number(listSelect.value));
-     if(gen!==generation||!choices.isConnected)return;
-     choices.innerHTML=result.wishes.length?result.wishes.map(w=>
-       '<label class="import-wish-choice"><input type="checkbox" name="wish_ids" value="'+w.id+'" checked><span>'+esc(w.title)+'</span></label>').join(''):
-       '<p class="note">В этом вишлисте пока нет подарков</p>';
-   }catch(err){if(gen===generation&&choices.isConnected)choices.textContent=err.message;}
- }
- listSelect.addEventListener('change',loadSelected);
- await loadSelected();
+ const byId=new Map(lists.map(l=>[String(l.id),l.wishes||[]]));
+ const show=()=>{
+   if(!choices.isConnected)return;
+   const gifts=byId.get(select.value)||[];
+   choices.innerHTML=gifts.length?gifts.map(w=>
+     '<label class="import-wish-choice"><input type="checkbox" name="wish_ids" value="'+w.id+'" checked><span>'+esc(w.title)+'</span></label>').join(''):
+     '<p class="note">В этом вишлисте пока нет подарков</p>';
+ };
+ select.addEventListener('change',show);
+ show();
 }
 function reserveModal(id,key){modal({title:'Забронировать подарок',subtitle:'Владелец списка не узнает, что ты выбрал. Сохрани приватную ссылку для отмены',content:`${field('Как тебя зовут?','guest_name','Например, Маша','text','',true,'maxlength="50"')}`,submitLabel:'Забронировать',onSubmit:async form=>{const r=await api(`/api/public/${key}/reserve/${id}`,{method:'POST',body:readForm(form)});nav(`/r/${r.manage_token}`);notice('Подарок за тобой!');}});}
 async function confirmAction(title,subtitle,handler,label='Удалить'){modal({title,subtitle,content:'<div class="alert alert-error">Это действие нельзя отменить</div>',submitLabel:label,onSubmit:handler});}
@@ -541,6 +541,7 @@ async function dispatch(action,el){try{
  if(action==='demo-login'){const r=await api('/api/demo-login',{method:'POST',body:{}});currentUser=r.user;closeModal();notice('Демо-аккаунт открыт');nav('/lists');}
  if(action==='sample-list'){if(!isDemo){listModal();return;}if(!currentUser){const r=await api('/api/demo-login',{method:'POST',body:{}});currentUser=r.user;}const {lists}=await api('/api/lists');if(lists.length)nav(`/w/${lists[lists.length-1].share_key}`);else nav('/lists');}
  if(action==='copy')await clipboard(el.dataset.url);
+ if(action==='scroll-game-gifts'){const track=el.closest('.game-gifts-carousel')?.querySelector('.game-gifts-track');if(track)track.scrollBy({left:(el.dataset.direction==='prev'?-1:1)*Math.max(180,track.clientWidth*.7),behavior:'smooth'});}
  if(action==='edit-list')listModal(loadedList.list);
  if(action==='add-game-gift')gameGiftModal();
  if(action==='show-game-gift')showGameWishDetails(el);

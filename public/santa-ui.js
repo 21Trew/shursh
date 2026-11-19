@@ -2,8 +2,8 @@
 'use strict';
 function gameWishCard(w,source='own'){
  const mine=source==='own';
- const image=w.image_data?'<img src="'+attr(w.image_data)+'" alt="'+attr(w.title)+'" loading="lazy">':artFor(w);
- const detail=w.wanted||w.description||'Открой карточку, чтобы посмотреть пожелания';
+ const image=w.image_data?'<img src="'+attr(w.image_data)+'" alt="'+attr(w.title)+'" loading="lazy" decoding="async">':artFor(w);
+ const detail=w.wanted||w.description||'Нажми, чтобы посмотреть детали';
  return '<article class="wish-card game-gift-card">'+
   '<button type="button" class="card-hitarea" data-action="show-game-gift" data-id="'+w.id+'" data-source="'+source+'" aria-label="Посмотреть подарок '+attr(w.title)+'"></button>'+
   '<div class="wish-image">'+image+'</div><div class="wish-content"><h3>'+esc(w.title)+'</h3>'+
@@ -13,8 +13,12 @@ function gameWishCard(w,source='own'){
   '</div></article>';
 }
 function wishesMarkup(wishes,source='own'){
- return wishes?.length?'<div class="wishlist-grid game-wishes-grid">'+wishes.map(w=>gameWishCard(w,source)).join('')+'</div>':
-  '<span class="muted note">Пока нет подарков. Добавь конкретные идеи и пожелания</span>';
+ if(!wishes?.length)return '<span class="muted note">Пока нет подарков. Добавь конкретные идеи и пожелания</span>';
+ return '<div class="game-gifts-carousel"><div class="game-gifts-toolbar"><span class="note">'+
+  wishes.length+' '+plural(wishes.length,'подарок','подарка','подарков')+'</span>'+
+  (wishes.length>1?'<div class="game-gifts-arrows"><button class="btn btn-soft btn-small" type="button" data-action="scroll-game-gifts" data-direction="prev" aria-label="Предыдущие подарки">'+ico('back')+'</button><button class="btn btn-soft btn-small" type="button" data-action="scroll-game-gifts" data-direction="next" aria-label="Следующие подарки">'+ico('arrow')+'</button></div>':'')+
+  '</div><div class="game-gifts-track" tabindex="0" role="region" aria-label="Подарки — горизонтальная лента">'+
+  wishes.map(w=>gameWishCard(w,source)).join('')+'</div></div>';
 }
 function showGameWishDetails(el){
  const state=activeGameContext;if(!state)return;
@@ -53,20 +57,25 @@ function gameGiftModal(edit=null){
  const state=activeGameContext;if(!state)return;
  const gift=edit||{},isEdit=!!edit;
  const budget=gift.price_cents==null?'':String(gift.price_cents/100);
- modal({title:isEdit?'Изменить подарок':'Добавить подарок в игру',
-   subtitle:'Опиши конкретную вещь, цвет, модель и то, чего лучше избегать. Информацию увидит твой даритель',
-   content:field('Название подарка','title','Например, настольная игра','text',gift.title||'',true,'maxlength="130"')+
-   textArea('Что хотелось бы','wanted','Модель, цвет, размер, важные детали',gift.wanted||'')+
-   textArea('Чего не хотелось бы','unwanted','Аналоги, цвета, размеры, особенности',gift.unwanted||'')+
-   textArea('Дополнительное описание','description','Любые детали',gift.description||'')+
-   field('Ссылка на товар (необязательно)','shop_url','https://...','url',gift.shop_url||'')+
-   '<div class="form-grid">'+field('Ориентировочная цена','price','Например, 1500','number',budget,false,'min="0" step="0.01"')+
+ modal({title:isEdit?'Редактировать желание':'Добавить желание',
+   subtitle:'Как в обычном вишлисте: добавь ссылку, фотографию, цену и уточни, какие подарки подойдут',
+   content:field('Ссылка на товар (необязательно)','shop_url','https://...','url',gift.shop_url||'')+
+   '<p class="field-hint">Сохраним ссылку, а название, цену и фото можно указать самостоятельно</p>'+
+   field('Что хочется?','title','Например, настольная игра','text',gift.title||'',true,'maxlength="130"')+
+   textArea('Комментарий','description','Размер, цвет, модель, особенности',gift.description||'')+
+   textArea('Что хотелось бы','wanted','То, что особенно порадует',gift.wanted||'')+
+   textArea('Чего не хотелось бы','unwanted','Что не подходит и чего лучше избегать',gift.unwanted||'')+
+   '<div class="form-grid">'+
+   field('Ориентировочная цена','price','Например, 1500','number',budget,false,'min="0" step="0.01"')+
    selectField('Валюта','currency',[['RUB','₽ Рубли'],['EUR','€ Евро'],['USD','$ Доллары']],gift.currency||'RUB')+'</div>'+
-   '<div class="field"><label for="game-gift-photo">Фотография</label><input id="game-gift-photo" type="file" accept="image/png,image/jpeg,image/webp"><p class="field-hint">Фото автоматически уменьшается для экономии места</p></div>'+
+   '<div class="field"><label for="game-gift-photo">Фотография (необязательно)</label>'+
+   '<div class="file-picker"><input id="game-gift-photo" name="image" type="file" accept="image/png,image/jpeg,image/webp">'+
+   '<div class="field-hint">JPG, PNG или WEBP до 10 МБ. Фото сожмём до 250 КБ</div></div></div>'+
    (isEdit&&gift.image_data?'<label class="switch-label"><input type="checkbox" id="game-gift-remove-photo"> Удалить фотографию</label>':''),
-   submitLabel:isEdit?'Сохранить':'Добавить подарок',
+   submitLabel:isEdit?'Сохранить':'Добавить желание',
    onSubmit:async form=>{
     const data=readForm(form);
+    delete data.image;
     const file=form.querySelector('#game-gift-photo')?.files?.[0];
     data.image_data=file?await smallGamePhoto(file):
       form.querySelector('#game-gift-remove-photo')?.checked?null:(gift.image_data||null);
@@ -75,11 +84,13 @@ function gameGiftModal(edit=null){
     notice(isEdit?'Подарок обновлён':'Подарок добавлен');
     await render();
    }});
+ for(const name of ['wanted','unwanted']){const input=modalRoot.querySelector('#fld-'+name);if(input)input.maxLength=500;}
+ const desc=modalRoot.querySelector('#fld-description');if(desc)desc.maxLength=800;
 }
 function setupGameChat(state){
  const root=document.querySelector('#game-chat');if(!root)return;
  if(gameChatTimer){clearInterval(gameChatTimer);gameChatTimer=null;}
- let room='general',loading=false,pendingRefresh=false;
+ let room='general',loading=false,pendingRefresh=false,lastContent='';
  const list=root.querySelector('.game-chat-messages');
  const apiRoom=()=>state.base+'/messages/'+room;
  const load=async()=>{
@@ -90,17 +101,20 @@ function setupGameChat(state){
   try{
    const result=await api(apiRoom());
    if(!root.isConnected||requestedRoom!==room||room!==result.room)return;
-   list.innerHTML=result.messages.length?result.messages.map(m=>
-    '<div class="chat-message '+(m.mine?'chat-mine':'')+'"><div class="chat-meta">'+
-    esc(m.author)+'</div><p>'+esc(m.message)+'</p></div>').join(''):
-    '<p class="note">Сообщений пока нет. Начни разговор!</p>';
-   list.scrollTop=list.scrollHeight;
+   const signature=JSON.stringify(result.messages.map(m=>m.id));
+   if(signature!==lastContent){
+    list.innerHTML=result.messages.length?result.messages.map(m=>
+     '<div class="chat-message '+(m.mine?'chat-mine':'')+'"><div class="chat-meta">'+
+     esc(m.author)+'</div><p>'+esc(m.message)+'</p></div>').join(''):
+     '<p class="note">Сообщений пока нет. Начни разговор!</p>';
+    lastContent=signature;list.scrollTop=list.scrollHeight;
+   }
   }catch(err){if(root.isConnected&&requestedRoom===room)list.innerHTML='<p class="note" role="alert">'+esc(err.message)+'</p>';}
   finally{loading=false;if(pendingRefresh&&root.isConnected){pendingRefresh=false;load();}}
  };
  root.addEventListener('click',ev=>{
   const tab=ev.target.closest('[data-chat-room]');
-  if(tab){room=tab.dataset.chatRoom;root.querySelectorAll('[data-chat-room]').forEach(b=>{
+  if(tab){room=tab.dataset.chatRoom;lastContent='';root.querySelectorAll('[data-chat-room]').forEach(b=>{
    const selected=b===tab;b.classList.toggle('active',selected);b.setAttribute('aria-pressed',String(selected));
   });list.innerHTML='<p class="note">Загружаем сообщения…</p>';load();}
   if(ev.target.closest('[data-chat-refresh]'))load();
@@ -118,5 +132,55 @@ function setupGameChat(state){
  gameChatTimer=setInterval(()=>{
   if(!root.isConnected){clearInterval(gameChatTimer);gameChatTimer=null;return;}
   if(document.visibilityState==='visible')load();
- },20000);
+ },15000);
+}
+
+/* Small read-only poll: update the roster without reloading game details or
+   fetching the private wishlist/image payload. All access is server-checked. */
+function santaRosterPerson(p,state){
+ const organizer=!!p.is_organizer||(!state.memberView&&p.user_id===state.currentUserId);
+ const mine=state.memberView&&p.id===state.memberId;
+ const adminActions=!state.memberView&&state.event.status==='open'&&!organizer;
+ return '<div class="person-row"><div class="avatar">'+esc(p.name.slice(0,1).toUpperCase())+
+  '</div><div class="person-main"><strong>'+esc(p.name)+' '+
+  (organizer?'<span class="chip chip-peach">Организатор</span>':'')+
+  (mine?'<span class="chip">Ты</span>':'')+'</strong><small>'+
+  p.wish_count+' '+plural(p.wish_count,'желание','желания','желаний')+'</small></div>'+
+  (adminActions?'<div class="person-actions"><button class="btn btn-soft btn-small" title="Выдать новую личную ссылку" data-action="new-player-link" data-id="'+p.id+'">'+ico('link')+'</button>'+
+  '<button class="btn btn-soft btn-small" title="Убрать участника" data-action="remove-player" data-id="'+p.id+'">'+ico('trash')+'</button></div>':'')+
+  '</div>';
+}
+function setupSantaRoster(state){
+ const root=document.querySelector('[data-santa-roster]');if(!root)return;
+ if(gameRosterTimer){clearInterval(gameRosterTimer);gameRosterTimer=null;}
+ const route=state.base+'/roster';
+ let running=false,previous=null,failures=0;
+ const update=async()=>{
+  if(!root.isConnected){clearInterval(gameRosterTimer);gameRosterTimer=null;return;}
+  if(document.visibilityState==='hidden'||running)return;
+  running=true;
+  try{
+   const info=await api(route);
+   if(!root.isConnected||activeGameContext!==state)return;
+   failures=0;
+   if(info.status!==state.event.status){
+    if(state.base.startsWith('/api/santas/'))ownerDataCache.delete(state.base);
+    await render();
+    return;
+   }
+   const signature=JSON.stringify(info.participants.map(p=>[p.id,p.name,p.wish_count,p.is_organizer]));
+   if(signature===previous)return;
+   previous=signature;
+   root.innerHTML=info.participants.map(p=>santaRosterPerson(p,state)).join('');
+   document.querySelectorAll('[data-santa-roster-count], [data-santa-event-count]').forEach(node=>{
+    node.textContent=String(info.participants.length);
+   });
+   if(!state.memberView&&loadedSanta)loadedSanta.participants=info.participants;
+  }catch(err){
+   failures++;
+   // Polling failure never hides the existing list. Manual actions still work.
+   if(failures===3)console.warn('Santa roster refresh unavailable');
+  }finally{running=false;}
+ };
+ gameRosterTimer=setInterval(update,15000);
 }

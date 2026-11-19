@@ -113,3 +113,32 @@
 .game-chat-refresh{font-size:12px;margin-top:13px}
 .sr-only{position:absolute!important;width:1px;height:1px;padding:0;margin:-1px;overflow:hidden;clip:rect(0,0,0,0);white-space:nowrap;border:0}
 @media(max-width:580px){.game-chat-form{flex-direction:column}.game-chat-form button{width:100%}.game-chat-panel{padding:20px}.game-chat-messages{min-height:210px}}
+
+/* Compact scroll-snapped Santa wishes on both desktop and mobile. */
+.game-gifts-carousel{min-width:0;margin:14px 0 17px}
+.game-gifts-toolbar{display:flex;justify-content:space-between;align-items:center;gap:8px;margin:0 0 8px}
+.game-gifts-arrows{display:flex;gap:6px}
+.game-gifts-arrows .btn{width:35px;height:35px;min-height:35px;padding:7px;border-radius:11px}
+.game-gifts-track{display:flex;align-items:stretch;gap:12px;min-width:0;max-width:100%;overflow-x:auto;overscroll-behavior-inline:contain;scroll-snap-type:x mandatory;scroll-padding-inline:4px;padding:3px 3px 10px;scrollbar-width:thin}
+.game-gifts-track:focus-visible{outline:2px solid #6953ad;outline-offset:1px}
+.game-gifts-track .game-gift-card{flex:0 0 178px;width:178px;max-width:72vw;scroll-snap-align:start;border-radius:18px}
+.game-gifts-track .game-gift-card .wish-image{height:110px}
+.game-gifts-track .game-gift-card .wish-image svg{width:78px;height:78px}
+.game-gifts-track .game-gift-card .wish-content{padding:12px;gap:0}
+.game-gifts-track .game-gift-card .wish-content h3{font-size:13px;line-height:1.3;min-height:34px;display:-webkit-box;-webkit-line-clamp:2;-webkit-box-orient:vertical;overflow:hidden}
+.game-gifts-track .game-gift-card .wish-desc{font-size:11px;line-height:1.4;margin:8px 0 11px;min-height:29px;display:-webkit-box;-webkit-line-clamp:2;-webkit-box-orient:vertical;overflow:hidden}
+.game-gifts-track .game-gift-card .wish-price{font-size:12px;white-space:normal}
+.game-gifts-track .game-gift-card .wish-controls .btn{min-height:28px;width:28px;height:28px;padding:5px}
+.game-gifts-track .game-gift-card .wish-controls svg{width:14px;height:14px}
+.game-gifts-track .game-gift-store{font-size:11px;margin-top:8px}
+.recipient-wishes{max-width:none;width:100%;padding:14px;min-width:0}
+.recipient-wishes .game-gifts-track .game-gift-card{flex-basis:152px;width:152px}
+.recipient-wishes .game-gifts-track .game-gift-card .wish-image{height:94px}
+.recipient-wishes .game-gifts-track .game-gift-card .wish-content{padding:10px}
+@media(max-width:520px){
+ .game-gifts-track .game-gift-card{flex-basis:154px;width:154px}
+ .game-gifts-track .game-gift-card .wish-image{height:100px}
+ .game-gifts-track .game-gift-card .wish-content{padding:10px}
+ .game-gifts-arrows .btn{width:32px;height:32px;min-height:32px}
+}
+@media(prefers-reduced-motion:reduce){.game-gifts-track{scroll-behavior:auto}}
