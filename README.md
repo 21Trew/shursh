@@ -269,9 +269,7 @@ Production branch can trigger a deployment automatically
 над автоматически полученным. Фото копируется в стандартное хранилище пожеланий,
 поэтому карточка не зависит от внешней картинки после сохранения
 
-Поддерживаемые домены: ozon.ru, wildberries.ru, market.yandex.ru, bookvoed.ru,
-chitai-gorod.ru, labirint.ru, detmir.ru, dns-shop.ru, mvideo.ru,
-eldorado.ru, sportmaster.ru и их разрешённые поддомены
+Автозаполнение поддерживает только Ozon, Wildberries и Яндекс Маркет. Остальные ссылки можно сохранить в желании, но данные по ним автоматически не запрашиваются
 
 Источники: публичный HTML, Open Graph и JSON-LD Product/Offer.
 Это best-effort интеграция: магазины могут не отдавать цену и фото без
@@ -293,54 +291,24 @@ API-тест контроля доступа и Browser E2E автозаполн
 по пользовательским ссылкам в защищённом Preview
 
 
-### Free source adapters and licensed book feeds (November 2026)
+### Импорт из российских маркетплейсов
 
-Product identifiers are recognized without network access for Ozon,
-Wildberries (nmID), Yandex Market, Bookvoed, Chitai-gorod and Labirint.
-This does not imply public access to seller or marketplace JSON endpoints.
-For all other supported stores the existing JSON-LD/Open Graph HTML reader
-remains the fallback. A store's 307 redirect loop or access challenge is not
-bypassed; users can add the original link and complete their wish manually
+Импорт работает только для Ozon, Wildberries и Яндекс Маркета.
+Отдельный адаптер определяет площадку и ID товара из ссылки. При наличии
+локального разрешённого YML-каталога данные берутся из него; иначе используется
+только доступный публичный HTML (JSON-LD / Open Graph).
 
-For book-store pages that publicly include a valid ISBN, missing title or
-image metadata can be supplemented from Open Library's official read-only
-`/isbn/<ISBN>.json` edition API and Covers API. A checksum is required for
-ISBN-10 or ISBN-13 and we only accept identifiers labelled ISBN in the
-page. Open Library offers **bibliographic information only** - not a price
-for Bookvoed or any other seller. Do not populate a merchant price from an
-unrelated book source. Images are downloaded only from the pinned/validated
-allowlist, size-capped and then stored in existing user-controlled image data
+Каталог подключается через серверный путь
+`SHURSH_APPROVED_MARKETPLACE_CATALOG_FILE`. Он должен быть получен законно,
+с правами на использование товарных данных, цен и фотографий. При отсутствии
+каталога никаких скрытых/неофициальных запросов к API не выполняется.
 
-Optional partner catalogs:
-- `cloud/product_sources.py` parses a compact YML/XML catalog with
-  `<offer>`, `<url>`, `<name>`, `<price>`, `<currencyId>`,
-  `<picture>` and optional `<isbn>`
-- Installation requires **explicit, documented rights** for the use,
-  caching and redistribution of the catalog, prices and pictures
-- A trusted operator may install a small (at most 4 MB) approved XML file
-  in the deployment artifact and set the server-side environment variable
-  `SHURSH_APPROVED_BOOK_CATALOG_FILE` to its local path
-- Without a file and permission this adapter is **disabled**; no partner
-  URLs are requested and no credentials are used
-- Large XML feeds should be filtered **offline** into a permitted subset
-  rather than fetched on every wishlist import
-- The source URL embedded in each offer must resolve to an allowlisted
-  bookstore and a recognizable product ID; images are validated separately
-- No pricing is supplied from bibliographic APIs or made up by Shursh
+Для Ozon, Wildberries и Яндекс Маркета Seller API предназначены для
+авторизованных продавцов; они не являются общедоступной базой карточек
+любых пользователей. Сервер без учётной записи продавца может получить
+антибот-ответ, редирект или неполную HTML-карточку. Поэтому цена и фото
+могут оставаться пустыми. Приложение не выдумывает данные.
 
-Live diagnostics (GitHub-hosted runner, November 19, 2026):
-
-| Source | Title | Price | Image | Observed |
-| --- | --- | --- | --- | --- |
-| Ozon public page | No | No | No | Repeated 307 |
-| Wildberries public page | No | No | No | Store data unavailable |
-| Yandex Market public page | No | No | No | Generic landing page rejected |
-| Chitai-gorod public page | No | No | No | Store data unavailable |
-| Bookvoed public page | Yes | No | Yes | Partial HTML import |
-| Open Library official API | Yes | No | Cover ID | Official JSON success |
-| Google Books public query | No | No | No | HTTP error on runner |
-
-Use `PYTHONPATH=. python tools/free-source-probe.py` only for a deliberate
-new live test. It is not part of CI, preventing repeated network probes.
-CI unit tests mock network inputs; they do not assert that blocked marketplaces
-must suddenly provide unrestricted API access
+Импорт не обходит CAPTCHA, не отправляет браузерные cookie, не использует
+неофициальные JSON-эндпоинты и не сохраняет посторонние секреты.
+Отладочные пробы доступны вручную, не входят в обязательный CI.
