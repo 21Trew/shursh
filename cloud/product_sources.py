@@ -95,7 +95,7 @@ def parse_approved_yml(blob):
                 parts.password or parts.port not in (None, 443)):
             continue
         adapter = adapter_for(address)
-        if adapter["store"] not in BOOK_STORES | MARKETPLACE_STORES or not adapter["product_id"]:
+        if adapter["store"] not in MARKETPLACE_STORES or not adapter["product_id"]:
             continue
         name = (_tag_value(offer, "name") or _tag_value(offer, "model"))[:130]
         if not name:
