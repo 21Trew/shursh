@@ -460,7 +460,9 @@ function wishModal(edit=null){
    const bits=['название'];
    if(info.price!=null)bits.push('цену');
    if(info.image_data)bits.push('фото');
-   status.textContent='Найдено: '+bits.join(', ')+'! Проверь данные перед сохранением';
+   const sourceNote=info.source==='open_library'?' Источник - Open Library, цена магазина неизвестна':
+    info.source==='approved_partner_feed'?' Источник - партнёрский каталог':'';
+   status.textContent='Найдено: '+bits.join(', ')+'!'+sourceNote+' Проверь данные перед сохранением';
   }catch(err){
    if(form.isConnected&&number===requestNumber){
     status.textContent=err.message||'Не получилось прочитать товар. Можно заполнить вручную';
