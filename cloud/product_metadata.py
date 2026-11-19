@@ -109,7 +109,9 @@ def _request_public(url, domains, limit):
             con.request('GET', urlunsplit(('', '', parts.path or '/', parts.query, '')),
                         headers={'Host': host, 'Accept': 'text/html,image/*;q=0.8',
                                  'Accept-Encoding': 'identity',
-                                 'User-Agent': 'ShurshWishlistPreview/1.0',
+                                 'User-Agent': ('ShurshWishlist/0.1 (lvs.codelab@yandex.ru)'
+                                                if host.endswith('openlibrary.org')
+                                                else 'ShurshWishlistPreview/1.0'),
                                  'Connection': 'close'})
             resp = con.getresponse()
             if resp.status in (301, 302, 303, 307, 308):
