@@ -382,7 +382,7 @@ function wishModal(edit=null){
   content:
    field('Ссылка на магазин (необязательно)','shop_url','https://...', 'url',w.shop_url||'')+
    '<div class="shop-import-row"><button type="button" class="btn btn-soft btn-small" data-import-product>'+
-   ico('spark')+' Заполнить по ссылке</button><span class="shop-import-status" role="status" aria-live="polite">Ozon, Wildberries, Яндекс Маркет, Буквоед и другие</span></div>'+
+   ico('spark')+' Заполнить по ссылке</button><span class="shop-import-status" role="status" aria-live="polite">Ozon, Wildberries и Яндекс Маркет</span></div>'+
    '<div class="shop-import-image" hidden><img alt="Фото товара из магазина"><span>Фото товара добавится к желанию</span></div>'+
    field('Что хочется?','title','Например, керамическая чашка','text',w.title||'',true,'maxlength="130"')+
    textArea('Комментарий','description','Цвет, размер, пожелания или настроение',w.description||'')+
@@ -460,9 +460,11 @@ function wishModal(edit=null){
    const bits=['название'];
    if(info.price!=null)bits.push('цену');
    if(info.image_data)bits.push('фото');
-   const sourceNote=info.source==='open_library'?' Источник - Open Library, цена магазина неизвестна':
-    info.source==='approved_partner_feed'?' Источник - партнёрский каталог':'';
-   status.textContent='Найдено: '+bits.join(', ')+'!'+sourceNote+' Проверь данные перед сохранением';
+   const sourceNote=info.source==='approved_marketplace_feed'?' Источник — разрешённый каталог':'';
+   const missing=[];
+   if(info.price==null)missing.push('цену');
+   if(!info.image_data)missing.push('фото');
+   status.textContent='Найдено: '+bits.join(', ')+'.'+sourceNote+(missing.length?' Не удалось получить '+missing.join(' и ')+' — добавь вручную.':'')+' Проверь данные перед сохранением';
   }catch(err){
    if(form.isConnected&&number===requestNumber){
     status.textContent=err.message||'Не получилось прочитать товар. Можно заполнить вручную';
