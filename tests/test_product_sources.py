@@ -89,3 +89,15 @@ def test_no_product_id_no_network(monkeypatch):
     monkeypatch.setattr(pm,"_request_public",lambda *a:pytest.fail("No HTTP"))
     with pytest.raises(ApiError):
         pm.fetch_product_metadata("https://www.ozon.ru/")
+
+def test_approved_catalog_price_updates_when_file_changes(monkeypatch,tmp_path):
+    path=tmp_path/"refresh.xml"
+    path.write_bytes(YML)
+    monkeypatch.setenv("SHURSH_APPROVED_MARKETPLACE_CATALOG_FILE",str(path))
+    url=SAMPLES[0][0]
+    assert src.approved_marketplace_offer(url)["price"]=="1999.00"
+    import os
+    updated=YML.replace(b"1999.00",b"2000.00")
+    path.write_bytes(updated)
+    os.utime(path,ns=(path.stat().st_atime_ns,path.stat().st_mtime_ns+1000000000))
+    assert src.approved_marketplace_offer(url)["price"]=="2000.00"
