@@ -12,7 +12,6 @@ from werkzeug.exceptions import RequestEntityTooLarge
 
 from cloud import db
 from cloud.backend import CloudRequest, serialize
-from cloud.product_metadata import fetch_product_metadata
 from server import ApiError, LIMIT_BYTES
 
 ROOT = Path(__file__).resolve().parent
@@ -105,14 +104,6 @@ def api(route):
         # Auth's upstream HTTP request must not run inside a DB transaction:
         # retain transactional session writes, but release the rate limiter
         # socket before the external request.
-        if path == '/api/product-preview' and request.method == 'POST':
-            # Metadata is requested only for a signed-in wishlist owner
-            # Close DB connection before making outbound HTTPS requests
-            handler.throttled('product-preview', 12)
-            with db.transaction() as con:
-                handler.auth(con)
-            db.close_request_connection()
-            return response(fetch_product_metadata(handler.body().get('url')))
         if path in ('/api/register','/api/login') and request.method=='POST':
             prepared=handler.prepare_auth(path)
             if prepared is None:
