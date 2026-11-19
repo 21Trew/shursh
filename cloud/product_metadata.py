@@ -116,7 +116,12 @@ def _request_public(url, domains, limit):
             mime = (resp.getheader('Content-Type') or '').lower()
             body = resp.read(limit + 1)
             if len(body) > limit:
-                raise ApiError(422, 'Страница магазина слишком большая')
+                if domains == SHOP_DOMAINS:
+                    # Huge storefront pages are common. Metadata is usually
+                    # near the beginning; parse only a bounded HTML prefix
+                    body = body[:limit]
+                else:
+                    raise ApiError(422, 'Изображение слишком большое')
             return current, mime, body
         except ApiError:
             raise
@@ -206,6 +211,8 @@ def _price(value):
         elif ',' in text:
             left, right = text.rsplit(',', 1)
             text = left.replace(',', '') + ('.' + right if len(right) in (1, 2) else right)
+        elif '.' in text and re.fullmatch(r'\d{1,3}(?:\.\d{3})+', text):
+            text = text.replace('.', '')
     else:
         return None
     try:
