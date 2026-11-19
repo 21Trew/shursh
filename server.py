@@ -678,8 +678,8 @@ class Handler(BaseHTTPRequestHandler):
             part=con.execute('SELECT user_id FROM participants WHERE event_id=? AND id=?',
                              (eid,pid)).fetchone()
             if not part: raise ApiError(404,'Участник не найден')
-            if part['user_id'] is not None:
-                raise ApiError(409,'Для участника с аккаунтом личная ссылка не нужна')
+            if part['user_id']==user['id']:
+                raise ApiError(409,'Организатор уже имеет доступ к игре')
             if event['status']!='open':
                 raise ApiError(409,'После жеребьёвки ссылки не меняются')
             value=token()
