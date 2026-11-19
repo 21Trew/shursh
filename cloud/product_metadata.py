@@ -310,7 +310,7 @@ _GENERIC_STORE_TITLES = frozenset((
 
 def _generic_store_title(title):
     # Some storefronts return a landing page with the site logo, not a product
-    return re.sub(r'\\s+', ' ', title).strip().lower() in _GENERIC_STORE_TITLES
+    return re.sub(r'\s+', ' ', title).strip().lower() in _GENERIC_STORE_TITLES
 
 
 def fetch_product_metadata(value):
