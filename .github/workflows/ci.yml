@@ -25,6 +25,18 @@ jobs:
       - run: python -m pytest -q tests/test_api.py
       - run: python -m pytest -q tests/test_product_metadata.py tests/test_product_sources.py
 
+  official-api-availability:
+    if: github.event_name == 'pull_request' && github.head_ref == 'feat/supabase-mvp'
+    runs-on: ubuntu-latest
+    timeout-minutes: 3
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.13'
+      - name: One-shot public API diagnostics (no credentials)
+        run: python tools/official-api-probe.py
+
   frontend-syntax:
     runs-on: ubuntu-latest
     steps:
