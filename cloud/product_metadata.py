@@ -301,6 +301,18 @@ def _looks_like_challenge(title):
                for phrase in _BLOCKED_PAGE_TITLES)
 
 
+_GENERIC_STORE_TITLES = frozenset((
+    'яндекс', 'яндекс маркет', 'yandex market',
+    'ozon', 'ozon.ru', 'wildberries', 'wildberries.ru',
+    'библиотека буквоед', 'буквоед',
+))
+
+
+def _generic_store_title(title):
+    # Some storefronts return a landing page with the site logo, not a product
+    return re.sub(r'\\s+', ' ', title).strip().lower() in _GENERIC_STORE_TITLES
+
+
 def fetch_product_metadata(value):
     url = _target(value, SHOP_DOMAINS)
     final_url, mime, body = _request_public(url, SHOP_DOMAINS, HTML_LIMIT)
@@ -312,6 +324,8 @@ def fetch_product_metadata(value):
         raise ApiError(422, 'Магазин не передал название товара')
     if _looks_like_challenge(preview['title']):
         raise ApiError(422, 'Магазин ограничил доступ к странице товара. Заполни данные вручную')
+    if _generic_store_title(preview['title']):
+        raise ApiError(422, 'По ссылке открылась главная страница магазина, а не товар. Заполни данные вручную')
     picture = _image_data(preview.pop('image_url'), final_url)
     return {'title': preview['title'], 'price': preview['price'],
             'currency': preview['currency'], 'image_data': picture,
