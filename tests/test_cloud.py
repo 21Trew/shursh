@@ -705,6 +705,7 @@ def test_browser_santa_invites_draw_and_private_reveals(browser_http):
             owner.locator('#modal-form button[type="submit"]').click()
             expect(owner).to_have_url(re.compile(r'/santa/\d+$'))
             eid = owner.url.rsplit('/', 1)[-1]
+            assert owner.locator('.error-page').count()==0, owner.locator('.error-page p').all_inner_texts()
             invite = owner.locator('input[aria-label="Ссылка-приглашение"]').input_value()
             assert invite.startswith(browser_http + '/join/')
 
@@ -803,6 +804,7 @@ def test_browser_card_clicks_and_santa_settings(browser_http):
             owner.locator('#modal-form button[type="submit"]').click()
             expect(owner).to_have_url(re.compile(r'/santa/\d+'))
             eid=owner.url.rsplit('/',1)[-1]
+            assert owner.locator('.error-page').count()==0, owner.locator('.error-page p').all_inner_texts()
             invite=owner.locator('input[aria-label="Ссылка-приглашение"]').input_value()
             owner.goto(invite)
             expect(owner.locator('.invite-card')).to_contain_text('Ты уже участвуешь')
@@ -959,6 +961,7 @@ def test_browser_navigation_cache_invalidation_and_persistent_header(browser_htt
             page.locator('#fld-title').fill(santa)
             page.locator('#modal-form button[type="submit"]').click()
             expect(page).to_have_url(re.compile(r'/santa/\d+$'))
+            assert page.locator('.error-page').count()==0, page.locator('.error-page p').all_inner_texts()
             expect(page.locator('main h1')).to_contain_text(santa)
             assert sum('/my-wishes' in path for method,path in visited)==0,visited
             page.locator('header .nav [data-nav="/santas"]').click()
