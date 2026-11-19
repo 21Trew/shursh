@@ -135,16 +135,23 @@ def approved_book_offer(url):
     except (OSError, ValueError):
         return None
 
-def approved_marketplace_offer(url):
-    """Use only a local XML/YML catalog supplied with explicit reuse rights.
+@lru_cache(maxsize=8)
+def _marketplace_catalog(path, mtime_ns, size):
+    """Reparse only when the authorized local catalog changes."""
+    return parse_approved_yml(Path(path).read_bytes())
 
-    Disabled by default: no remote feed request or seller credential used.
-    """
+
+def approved_marketplace_offer(url):
+    """Use only local XML/YML supplied with explicit reuse rights."""
     path = os.environ.get("SHURSH_APPROVED_MARKETPLACE_CATALOG_FILE", "").strip()
     item = adapter_for(url)
     if not path or item["store"] not in MARKETPLACE_STORES or not item["product_id"]:
         return None
     try:
-        return _approved_catalog(path).get((item["store"], item["product_id"]))
+        stat = Path(path).stat()
+        if not 0 < stat.st_size <= MAX_FEED_BYTES:
+            return None
+        return _marketplace_catalog(path, stat.st_mtime_ns, stat.st_size).get(
+            (item["store"], item["product_id"]))
     except (OSError, ValueError):
         return None
