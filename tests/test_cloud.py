@@ -477,6 +477,9 @@ def test_browser_shop_link_autofill_and_uncluttered_header(browser_http):
             page.route('**/api/product-preview', marketplace_route)
             page.locator('button[data-open="wish"]').first.click()
             expect(page.locator('[data-import-product]')).to_be_visible()
+            assert page.locator('#fld-shop_url').evaluate(
+                "(input) => input.compareDocumentPosition(document.querySelector('#fld-title')) & Node.DOCUMENT_POSITION_FOLLOWING"
+            ), 'Shop URL should be the first form field'
             page.locator('#fld-shop_url').fill('https://www.ozon.ru/product/123')
             page.locator('[data-import-product]').click()
             expect(page.locator('#fld-title')).to_have_value('Кот и настольная игра')
