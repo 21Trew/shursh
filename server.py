@@ -465,7 +465,10 @@ class Handler(BaseHTTPRequestHandler):
 
     def add_game_wish(self,con,participant_id,data):
         if not self.santa_schema_ready(con):
-            raise ApiError(409,'Карточки подарков станут доступны после обновления игры')
+            title=req(data.get('title'),'Желание',130)
+            rec=con.execute('''INSERT INTO participant_wishes(participant_id,title,created_at)
+                           VALUES(?,?,?) RETURNING id''',(participant_id,title,now())).fetchone()
+            return {'id':rec['id']}
         if con.execute('SELECT count(*) AS n FROM participant_wishes WHERE participant_id=?',
                        (participant_id,)).fetchone()['n']>=40:
             raise ApiError(409,'Максимум 40 подарков для участника')
