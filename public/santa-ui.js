@@ -77,8 +77,9 @@ function gameGiftModal(edit=null){
     const data=readForm(form);
     delete data.image;
     const file=form.querySelector('#game-gift-photo')?.files?.[0];
-    data.image_data=file?await smallGamePhoto(file):
-      form.querySelector('#game-gift-remove-photo')?.checked?null:(gift.image_data||null);
+    if(file)data.image_data=await smallGamePhoto(file);
+    else if(form.querySelector('#game-gift-remove-photo')?.checked)data.image_data=null;
+    else if(!isEdit)data.image_data=null;
     const url=state.base+(state.base.startsWith('/api/santas/')?'/my-wishes':'/wishes')+(isEdit?'/'+gift.id:'');
     await api(url,{method:isEdit?'PATCH':'POST',body:data});
     notice(isEdit?'Подарок обновлён':'Подарок добавлен');

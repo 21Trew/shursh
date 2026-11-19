@@ -734,6 +734,7 @@ def test_browser_santa_invites_draw_and_private_reveals(browser_http):
                 guest.locator('#fld-unwanted').fill('Не нужен пластик')
                 guest.locator('#modal-form button[type="submit"]').click()
                 expect(guest.locator('.my-wishes-list')).to_contain_text('Подарок для ' + name)
+                expect(guest.locator('.my-wishes-list .game-gifts-track .game-gift-card')).to_have_count(1)
                 guest.locator('.game-gift-card .card-hitarea').first.click()
                 expect(guest.locator('.modal')).to_contain_text('Красный цвет, точная модель')
                 expect(guest.locator('.modal')).to_contain_text('Не нужен пластик')
@@ -743,8 +744,9 @@ def test_browser_santa_invites_draw_and_private_reveals(browser_http):
                 expect(guest.locator('.game-chat-messages')).to_contain_text('Привет от ' + name)
                 members.append((name, context, guest, token))
 
-            owner.reload()
-            expect(owner.locator('.person-row')).to_have_count(3)
+            # Roster polling updates the existing view; no page reload.
+            expect(owner.locator('.person-row')).to_have_count(3,timeout=27000)
+            assert owner.locator('.game-chat-panel').count()==1
             other = browser.new_context().new_page()
             other.goto(browser_http + '/')
             browser_login(other, 'other@example.test')
@@ -768,6 +770,7 @@ def test_browser_santa_invites_draw_and_private_reveals(browser_http):
                 assert 'receiver_name' not in str(state)
 
             first_name, _, first, first_token = members[0]
+            expect(first.locator('.panel h2',has_text='Кому ты даришь')).to_be_visible()
             first.locator('button[data-action="reveal"]').click()
             expect(first.locator('.secret-card .recipient')).to_be_visible()
             assert first.locator('.secret-card .recipient').inner_text() != first_name
@@ -1142,7 +1145,12 @@ def test_santa_gift_details_group_chat_and_anonymous_pair_chat(application):
     call(guest,'POST',f'/api/participant/{t}/messages/general',{'message':'x'*501},400)
     call(guest,'PATCH',f'/api/participant/{t}/wishes/{gift}',{
         'title':'Лампа','wanted':'Стекло','unwanted':'Пластик','image_data':PNG},200)
-    assert call(guest,'GET',f'/api/participant/{t}').json['wishes'][0]['title']=='Лампа'
+    edited=call(guest,'GET',f'/api/participant/{t}').json['wishes'][0]
+    assert edited['title']=='Лампа'
+    assert edited['image_data']==PNG
+    call(guest,'PATCH',f'/api/participant/{t}/wishes/{gift}',
+         {'title':'Лампа 2','wanted':'Тёплый свет'},200)
+    assert call(guest,'GET',f'/api/participant/{t}').json['wishes'][0]['image_data']==PNG
     call(owner,'POST',f'/api/santas/{eid}/draw',{},200)
     # Pair A -> assigned recipient, and ONLY that recipient reads it as an
     # anonymous Santa message; no recipient identity in the chat payload.

@@ -563,13 +563,17 @@ class Handler(BaseHTTPRequestHandler):
     def mutate_game_wish(self,con,pid,wid,method):
         if not self.santa_schema_ready(con):
             raise ApiError(409,'Карточки подарков пока недоступны')
-        wish=con.execute('SELECT id FROM participant_wishes WHERE participant_id=? AND id=?',
+        wish=con.execute('SELECT id,image_data FROM participant_wishes WHERE participant_id=? AND id=?',
                          (pid,wid)).fetchone()
         if not wish: raise ApiError(404,'Подарок не найден')
         if method=='DELETE':
             con.execute('DELETE FROM participant_wishes WHERE id=? AND participant_id=?',(wid,pid))
             return 200,{'ok':True},None
-        values=self.game_wish_payload(self.body())
+        data=self.body()
+        values=list(self.game_wish_payload(data))
+        # Editing text should not upload the unchanged photo again.
+        if 'image_data' not in data:
+            values[-1]=wish['image_data']
         con.execute('''UPDATE participant_wishes SET title=?,description=?,wanted=?,unwanted=?,
                      price_cents=?,currency=?,shop_url=?,image_data=?
                      WHERE id=? AND participant_id=?''',(*values,wid,pid))
