@@ -75,6 +75,13 @@ def test_json_ld_product_fields_and_price():
     assert result['image_url'] == 'https://img.bookvoed.ru/cover.jpg'
 
 
+def test_marketplace_price_thousands_separators():
+    assert pm._price('2.490') == '2490.00'
+    assert pm._price('1,299.50') == '1299.50'
+    assert pm._price('2490,50 ₽') == '2490.50'
+    assert pm._price('0') == '0.00'
+
+
 def test_open_graph_metadata_and_currency_filter():
     result = pm._data_from_html('''
       <meta property="og:title" content="Кружка с котом">
