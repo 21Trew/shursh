@@ -176,6 +176,10 @@ function setupSantaRoster(state){
    document.querySelectorAll('[data-santa-roster-count], [data-santa-event-count]').forEach(node=>{
     node.textContent=String(info.participants.length);
    });
+   // An organizer who opened the page alone must be able to draw as soon
+   // as the third participant arrives, without refreshing the page.
+   const draw=document.querySelector('button[data-action="draw"]');
+   if(draw&&info.status==='open')draw.disabled=info.participants.length<3;
    if(!state.memberView&&loadedSanta)loadedSanta.participants=info.participants;
   }catch(err){
    failures++;
