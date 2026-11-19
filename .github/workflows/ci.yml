@@ -25,11 +25,7 @@ jobs:
       - run: python -m pytest -q tests/test_api.py
       - run: python -m pytest -q tests/test_product_metadata.py tests/test_product_sources.py
 
-  official-api-availability:
-    if: github.event_name == 'pull_request' && github.head_ref == 'feat/supabase-mvp'
-    runs-on: ubuntu-latest
-    timeout-minutes: 3
-    steps:
+  steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-python@v5
         with:
@@ -61,11 +57,7 @@ jobs:
       - name: Check live public site without credentials
         run: node tools/release-smoke.mjs
 
-  one-time-official-api-probe:
-    if: github.event_name == 'pull_request' && github.head_ref == 'feat/supabase-mvp'
-    runs-on: ubuntu-latest
-    timeout-minutes: 3
-    steps:
+  steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-python@v5
         with:
