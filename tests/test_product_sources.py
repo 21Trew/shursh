@@ -24,7 +24,7 @@ def test_non_marketplace_rejected_without_network(monkeypatch,url):
     with pytest.raises(ApiError):
         pm.fetch_product_metadata(url)
 
-YML = b"""<yml_catalog><shop><offers>
+YML = """<yml_catalog><shop><offers>
 <offer><url>https://www.ozon.ru/product/lego-classic-30947723/</url>
 <name>LEGO Classic</name><price>1999.00</price><currencyId>RUB</currencyId>
 <picture>https://cdn1.ozone.ru/lego.jpg</picture></offer>
@@ -35,7 +35,7 @@ YML = b"""<yml_catalog><shop><offers>
 <name>Игра</name><price>1499</price><currencyId>RUB</currencyId>
 <picture>https://avatars.mds.yandex.net/image.jpg</picture></offer>
 <offer><url>https://www.bookvoed.ru/product/12345</url><name>Book</name></offer>
-</offers></shop></yml_catalog>"""
+</offers></shop></yml_catalog>""".encode("utf-8")
 
 def test_approved_feed_contains_all_three_marketplaces():
     rows=src.parse_approved_yml(YML)
