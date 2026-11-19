@@ -89,3 +89,27 @@
  .header-actions .btn-ghost{display:inline-flex;min-height:39px;padding:9px 13px;font-size:12px}
  .site-header .topbar{align-items:center}
 }
+
+/* Santa gift cards reuse the regular wishlist visual system. */
+.game-wishes-grid{display:grid;grid-template-columns:repeat(auto-fit,minmax(min(100%,185px),1fr));gap:14px;margin:18px 0}
+.game-wishes-grid .wish-card{min-width:0}
+.game-wishes-grid .wish-image{height:150px}
+.game-wishes-grid .wish-content{padding:15px}
+.game-wishes-grid .wish-desc{min-height:36px}
+.game-gift-store{margin-top:12px;font-size:12px}
+.game-gift-note{margin:15px 0;color:var(--ink);line-height:1.55}
+.game-gift-note strong{display:block;font-size:13px}
+.game-gift-note p{color:var(--muted);white-space:pre-wrap;overflow-wrap:anywhere}
+.game-chat-panel{margin-top:26px}
+.game-chat-tabs{display:flex;flex-wrap:wrap;gap:9px;margin:18px 0}
+.game-chat-tabs .active{background:var(--ink);color:white}
+.game-chat-messages{display:flex;flex-direction:column;align-items:flex-start;gap:11px;max-height:365px;min-height:160px;overflow:auto;background:#f9f7f1;border:1px solid var(--border);border-radius:18px;padding:18px}
+.chat-message{max-width:min(90%,530px);padding:10px 14px;border-radius:16px;background:#fff;border:1px solid var(--border)}
+.chat-message.chat-mine{align-self:flex-end;background:#e8e1f6;border-color:#d8cbee}
+.chat-message p{font-size:13px;white-space:pre-wrap;overflow-wrap:anywhere;line-height:1.5}
+.chat-meta{font-size:11px;font-weight:800;margin-bottom:4px;color:var(--muted)}
+.game-chat-form{display:flex;gap:10px;margin-top:14px;align-items:stretch}
+.game-chat-form .input{flex:1;min-width:0}
+.game-chat-refresh{font-size:12px;margin-top:13px}
+.sr-only{position:absolute!important;width:1px;height:1px;padding:0;margin:-1px;overflow:hidden;clip:rect(0,0,0,0);white-space:nowrap;border:0}
+@media(max-width:580px){.game-chat-form{flex-direction:column}.game-chat-form button{width:100%}.game-chat-panel{padding:20px}.game-chat-messages{min-height:210px}}
