@@ -61,3 +61,25 @@
 .shop-import-image img{width:58px;height:58px;object-fit:contain;background:white;border:1px solid #e7e7df;border-radius:11px}
 @media(max-width:480px){.shop-import-row{align-items:flex-start;flex-direction:column;gap:8px}.shop-import-status{width:100%}}
 @keyframes route-loading{from{background-position:100% 0}to{background-position:-100% 0}}
+
+/* Full-card hit areas preserve independent action buttons and external links. */
+.list-card,.dashboard-santa-card,.santa-list-card,.wish-card{position:relative}
+.card-hitarea{position:absolute;inset:0;z-index:1;display:block;border:0;border-radius:inherit;background:transparent;cursor:pointer;text-decoration:none;color:inherit}
+.card-hitarea:focus-visible{outline:3px solid #6953ad;outline-offset:-5px}
+.list-card :is(button,a):not(.card-hitarea),.dashboard-santa-card :is(button,a):not(.card-hitarea),
+.santa-list-card :is(button,a):not(.card-hitarea),.wish-card :is(button,a):not(.card-hitarea){position:relative;z-index:2}
+.list-card:hover,.dashboard-santa-card:hover,.santa-list-card:hover,.wish-card:hover{transform:translateY(-3px);box-shadow:var(--shadow)}
+.dashboard-santa-card,.santa-list-card,.wish-card{transition:transform .2s,box-shadow .2s}
+@media(prefers-reduced-motion:reduce){.list-card,.dashboard-santa-card,.santa-list-card,.wish-card{transition:none}}
+.panel-heading-actions{display:flex;align-items:center;justify-content:space-between;gap:12px;flex-wrap:wrap;margin-bottom:16px}
+.panel-heading-actions h2{margin:0}
+.person-actions{display:flex;gap:5px;align-items:center}
+.import-wish-choices{border:1px solid var(--border);border-radius:14px;padding:10px;max-height:260px;overflow:auto}
+.import-wish-choice{display:flex;align-items:center;gap:10px;padding:9px 8px;font-size:14px;cursor:pointer}
+.import-wish-choice+.import-wish-choice{border-top:1px solid var(--border)}
+.import-wish-choice input{accent-color:#6953ad;width:18px;height:18px;flex-shrink:0}
+.wish-detail-image,.wish-detail-art{width:100%;height:220px;object-fit:contain;border-radius:16px;background:#f8eee4}
+.wish-detail-art{display:grid;place-items:center}.wish-detail-art svg{max-height:180px}
+.wish-detail>p{color:#706974;margin:14px 0}
+.wish-detail-actions{display:flex;flex-wrap:wrap;gap:10px;margin-top:20px}
+@media(max-width:520px){.panel-heading-actions{align-items:flex-start}.panel-heading-actions .btn{min-height:36px}.wish-detail-image,.wish-detail-art{height:180px}}
