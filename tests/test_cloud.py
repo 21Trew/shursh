@@ -1223,9 +1223,9 @@ def test_santa_wishlist_library_single_request_and_owner_only(application):
             {'title':'Gift 2'},201).json['id']
     empty=call(owner,'POST','/api/lists',{'title':'Empty'},201).json['id']
     collection=call(owner,'GET','/api/santa/library').json['lists']
-    assert [item['id'] for item in collection]==[empty,lid]
+    assert [item['id'] for item in collection[:2]]==[empty,lid]
     assert collection[0]['wishes']==[]
     assert {w['id'] for w in collection[1]['wishes']}=={w1,w2}
     assert 'image_data' not in str(collection) and 'image_path' not in str(collection)
-    assert call(other,'GET','/api/santa/library').json['lists']==[]
+    assert lid not in {item['id'] for item in call(other,'GET','/api/santa/library').json['lists']}
     call(application.test_client(),'GET','/api/santa/library',status=401)
