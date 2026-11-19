@@ -719,8 +719,12 @@ def test_browser_santa_invites_draw_and_private_reveals(browser_http):
                 guest.locator('#join-form button[type="submit"]').click()
                 expect(guest).to_have_url(re.compile(r'/p/[A-Za-z0-9_-]+$'))
                 token = guest.url.rsplit('/', 1)[-1]
-                guest.locator('#participant-wish-form input[name="title"]').fill('Подарок для ' + name)
-                guest.locator('#participant-wish-form button[type="submit"]').click()
+                expect(guest.locator('#game-chat [data-chat-room="general"]')).to_be_visible()
+                guest.locator('button[data-action="add-game-gift"]').click()
+                guest.locator('#fld-title').fill('Подарок для ' + name)
+                guest.locator('#fld-wanted').fill('Красный цвет, точная модель')
+                guest.locator('#fld-unwanted').fill('Не нужен пластик')
+                guest.locator('#modal-form button[type="submit"]').click()
                 expect(guest.locator('.my-wishes-list')).to_contain_text('Подарок для ' + name)
                 members.append((name, context, guest, token))
 
