@@ -95,9 +95,9 @@ def test_open_graph_metadata_and_currency_filter():
 
 def test_image_safely_imported_to_existing_upload_format(monkeypatch):
     image = b'\x89PNG\r\n\x1a\n' + b'safe-image-bytes'
-    page = b'''<meta property="og:title" content="Настольная игра">
+    page = '''<meta property="og:title" content="Настольная игра">
       <meta property="og:image" content="https://cdn1.ozone.ru/image.png">
-      <meta property="product:price:amount" content="890">'''
+      <meta property="product:price:amount" content="890">'''.encode('utf-8')
     def fake_request(url, domains, limit):
         if url.endswith('.png'):
             return url, 'image/png', image
@@ -114,8 +114,8 @@ def test_image_from_untrusted_domain_is_not_fetched(monkeypatch):
     calls = []
     def fake_request(url, domains, limit):
         calls.append(url)
-        return url, 'text/html', b'''<meta property="og:title" content="Подарок">
-          <meta property="og:image" content="https://127.0.0.1/secret.png">'''
+        return url, 'text/html', '''<meta property="og:title" content="Подарок">
+          <meta property="og:image" content="https://127.0.0.1/secret.png">'''.encode('utf-8')
     monkeypatch.setattr(pm, '_request_public', fake_request)
     result = pm.fetch_product_metadata('https://www.ozon.ru/product/123')
     assert result['title'] == 'Подарок'
