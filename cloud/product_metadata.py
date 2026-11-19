@@ -295,8 +295,9 @@ _BLOCKED_PAGE_TITLES = (
 def _looks_like_challenge(title):
     # A generic HTML <title> from a challenge must never become a wish name
     normalized = re.sub(r'\s+', ' ', title).strip().lower()
-    return any(normalized == phrase or normalized.startswith(phrase + ' ') or
-               normalized.startswith(phrase + ' -') or normalized.startswith(phrase + ' |')
+    return any(normalized == phrase or
+               (normalized.startswith(phrase) and
+                normalized[len(phrase):len(phrase) + 1] in (' ', '.', ':', '-', '|', '!', '?'))
                for phrase in _BLOCKED_PAGE_TITLES)
 
 
