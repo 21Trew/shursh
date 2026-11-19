@@ -79,11 +79,12 @@ function gameGiftModal(edit=null){
 function setupGameChat(state){
  const root=document.querySelector('#game-chat');if(!root)return;
  if(gameChatTimer){clearInterval(gameChatTimer);gameChatTimer=null;}
- let room='general',loading=false;
+ let room='general',loading=false,pendingRefresh=false;
  const list=root.querySelector('.game-chat-messages');
  const apiRoom=()=>state.base+'/messages/'+room;
  const load=async()=>{
-  if(loading||!root.isConnected)return;
+  if(!root.isConnected)return;
+  if(loading){pendingRefresh=true;return;}
   loading=true;
   const requestedRoom=room;
   try{
@@ -95,7 +96,7 @@ function setupGameChat(state){
     '<p class="note">Сообщений пока нет. Начни разговор!</p>';
    list.scrollTop=list.scrollHeight;
   }catch(err){if(root.isConnected&&requestedRoom===room)list.innerHTML='<p class="note" role="alert">'+esc(err.message)+'</p>';}
-  finally{loading=false;}
+  finally{loading=false;if(pendingRefresh&&root.isConnected){pendingRefresh=false;load();}}
  };
  root.addEventListener('click',ev=>{
   const tab=ev.target.closest('[data-chat-room]');
