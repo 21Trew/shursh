@@ -1186,3 +1186,46 @@ def test_santa_legacy_database_feature_gate(application,monkeypatch):
     guest=call(application.test_client(),'GET',f'/api/participant/{participant}').json
     assert guest['rich_enabled'] is False
     assert len(guest['participants'])==2
+
+
+def test_live_santa_roster_is_private_and_updates_on_join(application):
+    owner=login(application)
+    outsider=login(application,'other@example.test')
+    eid=call(owner,'POST','/api/santas',{'title':'Realtime members'},201).json['id']
+    own_roster=f'/api/santas/{eid}/roster'
+    assert call(owner,'GET',own_roster).json['participants'][0]['is_organizer']==1
+    call(outsider,'GET',own_roster,status=404)
+    call(application.test_client(),'GET',own_roster,status=401)
+    invitation=call(owner,'GET',f'/api/santas/{eid}').json['event']['invite_key']
+    member=application.test_client()
+    key=call(member,'POST',f'/api/invites/{invitation}/join',
+             {'name':'Гость'},201).json['participant_token']
+    guest_roster=f'/api/participant/{key}/roster'
+    data=call(member,'GET',guest_roster).json
+    assert [x['name'] for x in data['participants']]==['Owner','Гость']
+    assert data['status']=='open'
+    assert not any(k in str(data) for k in ('access_hash','receiver_id','giver_id','email'))
+    call(member,'GET','/api/participant/invalid-key/roster',status=404)
+    call(member,'POST',f'/api/participant/{key}/wishes',
+         {'title':'Пазл'},201)
+    changed=call(owner,'GET',own_roster).json
+    assert changed['participants'][1]['wish_count']==1
+    assert changed['participants'][1]['is_organizer']==0
+
+
+def test_santa_wishlist_library_single_request_and_owner_only(application):
+    owner=login(application)
+    other=login(application,'other@example.test')
+    lid=call(owner,'POST','/api/lists',{'title':'Private library'},201).json['id']
+    w1=call(owner,'POST',f'/api/lists/{lid}/wishes',
+            {'title':'Gift 1'},201).json['id']
+    w2=call(owner,'POST',f'/api/lists/{lid}/wishes',
+            {'title':'Gift 2'},201).json['id']
+    empty=call(owner,'POST','/api/lists',{'title':'Empty'},201).json['id']
+    collection=call(owner,'GET','/api/santa/library').json['lists']
+    assert [item['id'] for item in collection]==[empty,lid]
+    assert collection[0]['wishes']==[]
+    assert {w['id'] for w in collection[1]['wishes']}=={w1,w2}
+    assert 'image_data' not in str(collection) and 'image_path' not in str(collection)
+    assert call(other,'GET','/api/santa/library').json['lists']==[]
+    call(application.test_client(),'GET','/api/santa/library',status=401)

@@ -435,6 +435,17 @@ class Handler(BaseHTTPRequestHandler):
             self._santa_feature_ready=ready
         return ready
 
+    @staticmethod
+    def santa_roster(con, eid):
+        """Member-visible projection. Never include contact info or draw pairs."""
+        return [dict(r) for r in con.execute('''SELECT p.id,p.name,
+            count(pw.id) AS wish_count,
+            CASE WHEN p.user_id=e.owner_id THEN 1 ELSE 0 END AS is_organizer
+            FROM participants p JOIN santa_events e ON e.id=p.event_id
+            LEFT JOIN participant_wishes pw ON pw.participant_id=p.id
+            WHERE p.event_id=?
+            GROUP BY p.id,p.name,p.user_id,e.owner_id ORDER BY p.id''',(eid,))]
+
     def game_wishes(self,con,participant_id):
         if not self.santa_schema_ready(con):
             return [dict(r)|{'description':'','wanted':'','unwanted':'','price_cents':None,
@@ -779,6 +790,25 @@ class Handler(BaseHTTPRequestHandler):
                 if rec['cancelled_at']: raise ApiError(409,'Бронь уже отменена')
                 con.execute('UPDATE reservations SET cancelled_at=? WHERE id=?',(now(),rec['id']))
                 return 200,{'ok':True},None
+        if method=='GET' and path=='/api/santa/library':
+            # One small response replaces sequential full-wishlist/image requests.
+            user=self.auth(con)
+            rows=con.execute('''SELECT l.id AS list_id,l.title AS list_title,
+                   w.id AS wish_id,w.title AS wish_title
+                   FROM wishlists l LEFT JOIN wishes w ON w.list_id=l.id
+                   WHERE l.owner_id=? ORDER BY l.id DESC,w.id DESC''',
+                   (user['id'],))
+            lists=[]
+            by_id={}
+            for r in rows:
+                lid=r['list_id']
+                if lid not in by_id:
+                    item={'id':lid,'title':r['list_title'],'wishes':[]}
+                    by_id[lid]=item
+                    lists.append(item)
+                if r['wish_id'] is not None:
+                    by_id[lid]['wishes'].append({'id':r['wish_id'],'title':r['wish_title']})
+            return 200,{'lists':lists},None
         if method=='GET' and path=='/api/santas':
             user=self.auth(con)
             return 200,{'events':[dict(r) for r in con.execute('''SELECT e.*,count(p.id) AS participant_count
@@ -802,6 +832,14 @@ class Handler(BaseHTTPRequestHandler):
             con.execute('INSERT INTO participants(event_id,user_id,name,created_at) VALUES(?,?,?,?)',
                         (eid,user['id'],user['name'],now()))
             return 201,{'id':eid},None
+        match=re.fullmatch(r'/api/santas/(\d+)/roster',path)
+        if match and method=='GET':
+            user=self.auth(con);eid=int(match.group(1))
+            game=con.execute('SELECT status FROM santa_events WHERE id=? AND owner_id=?',
+                             (eid,user['id'])).fetchone()
+            if not game: raise ApiError(404,'Игра не найдена')
+            return 200,{'participants':self.santa_roster(con,eid),
+                        'status':game['status']},None
         match=re.fullmatch(r'/api/santas/(\d+)',path)
         if match and method=='PATCH':
             user=self.auth(con);eid=int(match.group(1));data=self.body()
@@ -1010,6 +1048,14 @@ class Handler(BaseHTTPRequestHandler):
                          name,token_hash(value),now()))
             con.execute('COMMIT')
             return 201,{'participant_token':value},None
+        match=re.fullmatch(r'/api/participant/([A-Za-z0-9_\-]+)/roster',path)
+        if match and method=='GET':
+            member=con.execute('''SELECT p.event_id,e.status FROM participants p
+                JOIN santa_events e ON e.id=p.event_id WHERE p.access_hash=?''',
+                (token_hash(match.group(1)),)).fetchone()
+            if not member: raise ApiError(404,'Личная ссылка недействительна')
+            return 200,{'participants':self.santa_roster(con,member['event_id']),
+                        'status':member['status']},None
         match=re.fullmatch(r'/api/participant/([A-Za-z0-9_\-]+)',path)
         if match and method=='GET':
             # A personal bearer link grants membership view, not organizer powers.
