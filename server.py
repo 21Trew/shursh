@@ -419,8 +419,28 @@ class Handler(BaseHTTPRequestHandler):
         return image_store(data)
 
 
-    @staticmethod
-    def game_wishes(con, participant_id):
+    def santa_schema_ready(self,con):
+        """Read-only feature detection: shared hosted DB may not be migrated."""
+        if isinstance(con,sqlite3.Connection):
+            return True
+        ready=getattr(self,'_santa_feature_ready',None)
+        if ready is None:
+            row=con.execute("""SELECT (
+                EXISTS (SELECT 1 FROM information_schema.columns
+                  WHERE table_schema='public' AND table_name='participant_wishes'
+                  AND column_name='wanted')
+                AND to_regclass('public.santa_messages') IS NOT NULL
+              ) AS ready""").fetchone()
+            ready=bool(row['ready'])
+            self._santa_feature_ready=ready
+        return ready
+
+    def game_wishes(self,con,participant_id):
+        if not self.santa_schema_ready(con):
+            return [dict(r)|{'description':'','wanted':'','unwanted':'','price_cents':None,
+                    'currency':'RUB','shop_url':None,'image_data':None}
+                    for r in con.execute('''SELECT id,title FROM participant_wishes
+                        WHERE participant_id=? ORDER BY id DESC''',(participant_id,))]
         return [dict(r) for r in con.execute('''SELECT id,title,description,wanted,unwanted,
             price_cents,currency,shop_url,image_data FROM participant_wishes
             WHERE participant_id=? ORDER BY id DESC''',(participant_id,))]
@@ -444,6 +464,8 @@ class Handler(BaseHTTPRequestHandler):
         return (title,description,wanted,unwanted,price,currency,url,picture)
 
     def add_game_wish(self,con,participant_id,data):
+        if not self.santa_schema_ready(con):
+            raise ApiError(409,'Карточки подарков станут доступны после обновления игры')
         if con.execute('SELECT count(*) AS n FROM participant_wishes WHERE participant_id=?',
                        (participant_id,)).fetchone()['n']>=40:
             raise ApiError(409,'Максимум 40 подарков для участника')
@@ -505,21 +527,28 @@ class Handler(BaseHTTPRequestHandler):
             'SELECT title FROM participant_wishes WHERE participant_id=?',(participant_id,))}
         if len(rows)+len(existing)>80:
             raise ApiError(409,'Слишком много подарков')
+        compatible=not self.santa_schema_ready(con)
         added=0
         for row in rows:
             title=row['title'].strip()
             if title.casefold() in existing: continue
             if len(existing)>=40: break
-            image=self.game_wish_from_library(con,row,list_id)
-            con.execute('''INSERT INTO participant_wishes(
-                 participant_id,title,description,wanted,unwanted,price_cents,
-                 currency,shop_url,image_data,created_at) VALUES(?,?,?,?,?,?,?,?,?,?)''',
-                 (participant_id,title,row['description'] or '','','',row['price_cents'],
-                  row['currency'],row['shop_url'],image,now()))
+            if compatible:
+                con.execute('INSERT INTO participant_wishes(participant_id,title,created_at) VALUES(?,?,?)',
+                            (participant_id,title,now()))
+            else:
+                image=self.game_wish_from_library(con,row,list_id)
+                con.execute('''INSERT INTO participant_wishes(
+                     participant_id,title,description,wanted,unwanted,price_cents,
+                     currency,shop_url,image_data,created_at) VALUES(?,?,?,?,?,?,?,?,?,?)''',
+                     (participant_id,title,row['description'] or '','','',row['price_cents'],
+                      row['currency'],row['shop_url'],image,now()))
             existing.add(title.casefold());added+=1
         return {'added':added,'skipped':len(rows)-added,'snapshot':True}
 
     def mutate_game_wish(self,con,pid,wid,method):
+        if not self.santa_schema_ready(con):
+            raise ApiError(409,'Карточки подарков пока недоступны')
         wish=con.execute('SELECT id FROM participant_wishes WHERE participant_id=? AND id=?',
                          (pid,wid)).fetchone()
         if not wish: raise ApiError(404,'Подарок не найден')
@@ -545,6 +574,8 @@ class Handler(BaseHTTPRequestHandler):
         return pair['giver_id']
 
     def chat_messages(self,con,eid,pid,room,method):
+        if not self.santa_schema_ready(con):
+            raise ApiError(409,'Чаты появятся после обновления игры')
         # Every route resolves its authenticated owner or private participant
         # capability BEFORE reaching this function. Admin is not a moderator
         # with unlimited access to other pairs.
@@ -858,11 +889,10 @@ class Handler(BaseHTTPRequestHandler):
             mine=None
             if my_part and event['status']=='drawn':
                 mine=self.assignment_view(con,eid,my_part['id'])
-            my_wishes=[dict(r) for r in con.execute(
-                'SELECT id,title,description,wanted,unwanted,price_cents,currency,shop_url,image_data FROM participant_wishes WHERE participant_id=? ORDER BY id DESC',
-                (my_part['id'],))] if my_part else []
+            my_wishes=self.game_wishes(con,my_part['id']) if my_part else []
             return 200,{'event':dict(event),'participants':participants,'exclusions':excluded,
-                        'my_assignment':mine,'my_wishes':my_wishes},None
+                        'my_assignment':mine,'my_wishes':my_wishes,
+                        'rich_enabled':self.santa_schema_ready(con)},None
         match=re.fullmatch(r'/api/santas/(\d+)/my-wishes',path)
         if match and method=='GET':
             user=self.auth(con);eid=int(match.group(1))
@@ -870,8 +900,7 @@ class Handler(BaseHTTPRequestHandler):
                              WHERE e.id=? AND e.owner_id=? AND p.user_id=?''',
                              (eid,user['id'],user['id'])).fetchone()
             if not part: raise ApiError(404,'Участник не найден')
-            return 200,{'wishes':[dict(r) for r in con.execute(
-                'SELECT id,title,description,wanted,unwanted,price_cents,currency,shop_url,image_data FROM participant_wishes WHERE participant_id=? ORDER BY id DESC',(part['id'],))]},None
+            return 200,{'wishes':self.game_wishes(con,part['id'])},None
         # Organizer may only read/write their own three chat rooms.
         match=re.fullmatch(r'/api/santas/(\d+)/messages/(general|to-recipient|from-santa)',path)
         if match and method in ('GET','POST'):
@@ -999,10 +1028,11 @@ class Handler(BaseHTTPRequestHandler):
             public_event=dict(event)
             if public_event['status']!='open':
                 public_event.pop('invite_key')
-            wishes=[dict(r) for r in con.execute('SELECT id,title,description,wanted,unwanted,price_cents,currency,shop_url,image_data FROM participant_wishes WHERE participant_id=? ORDER BY id DESC',(part['id'],))]
+            wishes=self.game_wishes(con,part['id'])
             receiver=self.assignment_view(con,part['event_id'],part['id']) if part['status']=='drawn' else None
             return 200,{'participant':dict(part),'event':public_event,
-                        'participants':participants,'wishes':wishes,'assignment':receiver},None
+                        'participants':participants,'wishes':wishes,'assignment':receiver,
+                        'rich_enabled':self.santa_schema_ready(con)},None
         match=re.fullmatch(r'/api/participant/([A-Za-z0-9_\-]+)/wishes',path)
         if match and method=='POST':
             part=con.execute('SELECT id FROM participants WHERE access_hash=?',
