@@ -460,11 +460,11 @@ function wishModal(edit=null){
    const bits=['название'];
    if(info.price!=null)bits.push('цену');
    if(info.image_data)bits.push('фото');
-   const sourceNote=info.source==='approved_marketplace_feed'?' Источник — разрешённый каталог':'';
+   const sourceNote=info.source==='approved_marketplace_feed'?' Источник - разрешённый каталог':'';
    const missing=[];
    if(info.price==null)missing.push('цену');
    if(!info.image_data)missing.push('фото');
-   status.textContent='Найдено: '+bits.join(', ')+'.'+sourceNote+(missing.length?' Не удалось получить '+missing.join(' и ')+' — добавь вручную.':'')+' Проверь данные перед сохранением';
+   status.textContent='Найдено: '+bits.join(', ')+'. '+sourceNote+(missing.length?' Не удалось получить '+missing.join(' и ')+' - добавь вручную':'')+' Проверь данные перед сохранением';
   }catch(err){
    if(form.isConnected&&number===requestNumber){
     status.textContent=err.message||'Не получилось прочитать товар. Можно заполнить вручную';
