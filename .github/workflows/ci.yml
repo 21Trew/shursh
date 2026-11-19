@@ -49,6 +49,18 @@ jobs:
       - name: Check live public site without credentials
         run: node tools/release-smoke.mjs
 
+  one-time-official-api-probe:
+    if: github.event_name == 'pull_request' && github.head_ref == 'feat/supabase-mvp'
+    runs-on: ubuntu-latest
+    timeout-minutes: 3
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.13'
+      - name: Check documented public API reachability without credentials
+        run: python tools/official-api-probe.py
+
   postgres-integration:
     runs-on: ubuntu-latest
     services:
