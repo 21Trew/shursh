@@ -244,6 +244,66 @@ def test_santa_atomic_draw_and_isolation(application):
     assert game['my_wishes']==[]
 
 
+def test_cloud_santa_management_and_wishlist_import(application):
+    """PostgreSQL checks: owner isolation, personal invitations and no self-join."""
+    owner=login(application)
+    other=login(application,'other@example.test')
+    eid=call(owner,'POST','/api/santas',{'title':'Вечеринка'},201).json['id']
+    game=call(owner,'GET',f'/api/santas/{eid}').json
+    invite=game['event']['invite_key']
+    assert call(owner,'GET',f'/api/invites/{invite}').json['already_joined'] is True
+    assert call(other,'GET',f'/api/invites/{invite}').json['already_joined'] is False
+    call(owner,'POST',f'/api/invites/{invite}/join',{'name':'Подменённое имя'},409)
+    call(owner,'POST',f'/api/santas/{eid}/participants',{'name':'Owner'},409)
+    call(other,'POST',f'/api/santas/{eid}/participants',{'name':'Guest'},404)
+
+    created=call(owner,'POST',f'/api/santas/{eid}/participants',
+                 {'name':'Игрок 1'},201).json
+    original=created['participant_token']
+    assert call(application.test_client(),'GET',f'/api/participant/{original}').json['participant']['name']=='Игрок 1'
+    call(owner,'POST',f'/api/santas/{eid}/participants',{'name':'ИГРОК 1'},409)
+    call(application.test_client(),'POST',f'/api/invites/{invite}/join',
+         {'name':'игрок 1'},409)
+    new=call(owner,'POST',f'/api/santas/{eid}/participants/{created["id"]}/new-link',
+             {},200).json['participant_token']
+    call(application.test_client(),'GET',f'/api/participant/{original}',status=404)
+    assert call(application.test_client(),'GET',f'/api/participant/{new}').json['participant']['name']=='Игрок 1'
+
+    call(owner,'PATCH',f'/api/santas/{eid}',
+         {'exchange_date':'2027-01-14','budget':2000})
+    call(other,'PATCH',f'/api/santas/{eid}',{'budget':4000},404)
+    call(owner,'PATCH',f'/api/santas/{eid}',{'exchange_date':'2027-02-30'},400)
+    updated=call(owner,'GET',f'/api/santas/{eid}').json['event']
+    assert updated['exchange_date']=='2027-01-14'
+    assert updated['budget_cents']==200000
+
+    list_id=call(owner,'POST','/api/lists',{'title':'Подарки участника'},201).json['id']
+    a=call(owner,'POST',f'/api/lists/{list_id}/wishes',
+           {'title':'Подарок из моего списка'},201).json['id']
+    b=call(owner,'POST',f'/api/lists/{list_id}/wishes',
+           {'title':'Ещё один подарок'},201).json['id']
+    import_api=f'/api/santas/{eid}/my-wishes/import'
+    r=call(owner,'POST',import_api,
+           {'list_id':list_id,'wish_ids':[a,b]}).json
+    assert r['added']==2 and r['snapshot'] is True
+    assert call(owner,'POST',import_api,{'list_id':list_id}).json['added']==0
+    call(owner,'POST',import_api,{'list_id':list_id,'wish_ids':[123456789]},400)
+    call(other,'POST',import_api,{'list_id':list_id},404)
+    assert len(call(owner,'GET',f'/api/santas/{eid}').json['my_wishes'])==2
+    call(application.test_client(),'POST',f'/api/participant/{new}/wishes/import',
+         {'list_id':list_id},401)
+    r=call(owner,'POST',f'/api/participant/{new}/wishes/import',
+           {'list_id':list_id,'wish_ids':[a]}).json
+    assert r['added']==1
+    assert call(application.test_client(),'GET',f'/api/participant/{new}').json['wishes'][0]['title']=='Подарок из моего списка'
+
+    call(owner,'POST',f'/api/santas/{eid}/participants',{'name':'Игрок 2'},201)
+    call(owner,'POST',f'/api/santas/{eid}/draw',{},200)
+    call(owner,'POST',f'/api/santas/{eid}/participants',{'name':'Поздний'},409)
+    call(owner,'PATCH',f'/api/santas/{eid}',{'budget':2500},200)
+    assert call(owner,'GET',f'/api/santas/{eid}').json['event']['budget_cents']==250000
+
+
 def test_permissions_and_rollback(application):
     from cloud import db
     dsn=os.environ['SHURSH_DATABASE_URL']
