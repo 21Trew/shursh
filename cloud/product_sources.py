@@ -77,7 +77,7 @@ def parse_approved_yml(blob):
     """
     if not isinstance(blob, bytes) or not 0 < len(blob) <= MAX_FEED_BYTES:
         raise ValueError("Approved catalog size outside limits")
-    lowered = blob[:2000].lower()
+    lowered = blob.lower()
     if b"<!doctype" in lowered or b"<!entity" in lowered:
         raise ValueError("Document type and entity declarations are not allowed")
     try:
@@ -90,7 +90,8 @@ def parse_approved_yml(blob):
             continue
         address = _tag_value(offer, "url")
         parts = urlsplit(address)
-        if parts.scheme != "https" or not parts.hostname or parts.username or parts.password:
+        if (parts.scheme != "https" or not parts.hostname or parts.username or
+                parts.password or parts.port not in (None, 443)):
             continue
         adapter = adapter_for(address)
         if adapter["store"] not in BOOK_STORES or not adapter["product_id"]:
