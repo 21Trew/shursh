@@ -24,6 +24,7 @@ def test_only_allowlisted_https_product_pages(url):
 @pytest.mark.parametrize('url', [
     'https://www.ozon.ru/product/test',
     'https://www.wildberries.ru/catalog/123/detail.aspx',
+    'https://www.wb.ru/catalog/123/detail.aspx',
     'https://market.yandex.ru/card/example/1',
     'https://www.bookvoed.ru/product/test',
     'https://www.chitai-gorod.ru/product/1',
