@@ -132,7 +132,7 @@ async function api(path,opts={}){
    credentials:'same-origin',body:opts.body?JSON.stringify(opts.body):undefined});
   const data=await response.json().catch(()=>({error:'Не удалось прочитать ответ сервера'}));
   if(!response.ok)throw new Error(data.error||'Произошла ошибка');
-  if(method!=='GET')invalidateOwnerDataForMutation(path);
+  if(method!=='GET' && path!=='/api/product-preview')invalidateOwnerDataForMutation(path);
   return data;
  })();
  if(cached){
@@ -372,8 +372,130 @@ function loginModal(mode='login'){
 }
 function listModal(edit=null){if(!currentUser){loginModal('register');return;}
  const selected=edit||{};modal({title:edit?'Настройки вишлиста':'Новый вишлист',subtitle:edit?'Меняй оформление и доступ, когда захочешь':'Как назовём твою маленькую коллекцию желаний?',content:`${field('Название','title','Например, День рождения, ура!','text',selected.title||'',true,'maxlength="90"')}${textArea('Пара слов о списке','description','Что важно знать дарителям?',selected.description||'')}<div class="form-grid">${selectField('Повод','occasion',['Просто так','День рождения','Годовщина','Новоселье','Свадьба','Новый год','Другое'].map(v=>[v,v]),selected.occasion||'День рождения')}${selectField('Оформление','theme',[['peach','Персиковое'],['lilac','Лавандовое'],['mint','Мятное'],['yellow','Солнечное']],selected.theme||'peach')}</div>${selectField('Доступ к списку','visibility',[['link','По ссылке'],['private','Только мне']],selected.visibility||'link')}`,submitLabel:edit?'Сохранить':'Создать список',onSubmit:async form=>{const payload=readForm(form);if(edit){await api(`/api/lists/${edit.id}`,{method:'PATCH',body:payload});notice('Настройки сохранены');await render();}else{const r=await api('/api/lists',{method:'POST',body:payload});notice('Список создан!');nav(`/list/${r.id}`);}}});}
-function wishModal(edit=null){if(!currentUser||!loadedList){notice('Сначала открой список',true);return;}
- const w=edit||{};modal({title:edit?'Редактировать желание':'Добавить желание',subtitle:'Можно добавить конкретную вещь или просто идею. Ссылка на магазин необязательна',content:`${field('Что хочется?','title','Например, керамическая чашка','text',w.title||'',true,'maxlength="130"')}${textArea('Комментарий','description','Цвет, размер, пожелания или настроение',w.description||'')}<div class="form-grid">${field('Ориентировочная цена','price','Например, 2500','number',w.price_cents!=null?w.price_cents/100:'',false,'min="0" step="0.01"')}${selectField('Валюта','currency',[['RUB','₽ Рубли'],['EUR','€ Евро'],['USD','$ Доллары']],w.currency||'RUB')}</div><div class="form-grid">${selectField('Тип','kind',[['item','Конкретный подарок'],['experience','Идея / впечатление']],w.kind||'item')}${selectField('Приоритет','priority',[['nice','Буду рада'],['love','Очень хочу!']],w.priority||'nice')}</div>${field('Ссылка на магазин (необязательно)','shop_url','https://...', 'url',w.shop_url||'')}<div class="field"><label for="wish-file">Фотография (необязательно)</label><div class="file-picker"><input id="wish-file" name="image" type="file" accept="image/png,image/jpeg,image/webp"><div class="field-hint">JPG, PNG или WEBP до 2 МБ. Без фото покажем иллюстрацию</div></div></div>`,submitLabel:edit?'Сохранить':'Добавить в список',onSubmit:async form=>{const data=readForm(form);delete data.image;const file=form.elements.image.files[0];if(file){if(file.size>2_000_000)throw new Error('Изображение должно быть меньше 2 МБ');data.image_data=await fileToData(file)}if(edit){await api(`/api/wishes/${edit.id}`,{method:'PATCH',body:data});notice('Желание обновлено');}else{await api(`/api/lists/${loadedList.list.id}/wishes`,{method:'POST',body:data});notice('Желание добавлено!');}await render();}});}
+function wishModal(edit=null){
+ if(!currentUser||!loadedList){notice('Сначала открой список',true);return;}
+ const w=edit||{};
+ let importedImageData=null;
+ modal({
+  title:edit?'Редактировать желание':'Добавить желание',
+  subtitle:'Можно добавить конкретную вещь или просто идею. Ссылка на магазин необязательна',
+  content:
+   field('Что хочется?','title','Например, керамическая чашка','text',w.title||'',true,'maxlength="130"')+
+   textArea('Комментарий','description','Цвет, размер, пожелания или настроение',w.description||'')+
+   '<div class="form-grid">'+
+   field('Ориентировочная цена','price','Например, 2500','number',w.price_cents!=null?w.price_cents/100:'',false,'min="0" step="0.01"')+
+   selectField('Валюта','currency',[['RUB','₽ Рубли'],['EUR','€ Евро'],['USD','$ Доллары']],w.currency||'RUB')+
+   '</div><div class="form-grid">'+
+   selectField('Тип','kind',[['item','Конкретный подарок'],['experience','Идея / впечатление']],w.kind||'item')+
+   selectField('Приоритет','priority',[['nice','Буду рада'],['love','Очень хочу!']],w.priority||'nice')+
+   '</div>'+
+   field('Ссылка на магазин (необязательно)','shop_url','https://...', 'url',w.shop_url||'')+
+   '<div class="shop-import-row"><button type="button" class="btn btn-soft btn-small" data-import-product>'+
+   ico('spark')+' Заполнить по ссылке</button><span class="shop-import-status" role="status" aria-live="polite">Ozon, Wildberries, Яндекс Маркет, Буквоед и другие</span></div>'+
+   '<div class="shop-import-image" hidden><img alt="Фото товара из магазина"><span>Фото товара добавится к желанию</span></div>'+
+   '<div class="field"><label for="wish-file">Фотография (необязательно)</label>'+
+   '<div class="file-picker"><input id="wish-file" name="image" type="file" accept="image/png,image/jpeg,image/webp">'+
+   '<div class="field-hint">JPG, PNG или WEBP до 2 МБ. Без фото покажем иллюстрацию</div></div></div>',
+  submitLabel:edit?'Сохранить':'Добавить в список',
+  onSubmit:async form=>{
+   const data=readForm(form);
+   delete data.image;
+   const file=form.elements.image.files[0];
+   if(file){
+    if(file.size>2_000_000)throw new Error('Изображение должно быть меньше 2 МБ');
+    data.image_data=await fileToData(file);
+   }else if(importedImageData){
+    data.image_data=importedImageData;
+   }
+   if(edit){
+    await api('/api/wishes/'+edit.id,{method:'PATCH',body:data});
+    notice('Желание обновлено');
+   }else{
+    await api('/api/lists/'+loadedList.list.id+'/wishes',{method:'POST',body:data});
+    notice('Желание добавлено!');
+   }
+   await render();
+  }
+ });
+ const form=modalRoot.querySelector('#modal-form');
+ const link=form.elements.shop_url;
+ const button=form.querySelector('[data-import-product]');
+ const status=form.querySelector('.shop-import-status');
+ const preview=form.querySelector('.shop-import-image');
+ let debounceTimer,requestNumber=0,importedFrom='';
+ const titleField=form.elements.title,priceField=form.elements.price;
+ for(const input of [titleField,priceField]){
+  input.addEventListener('input',()=>{input.dataset.manuallyEdited='yes'});
+ }
+ function setImage(src){
+  preview.hidden=!src;
+  if(src)preview.querySelector('img').src=src;
+  else preview.querySelector('img').removeAttribute('src');
+ }
+ async function importFromLink(force=false){
+  const url=link.value.trim();
+  if(!url.startsWith('https://')){
+   if(force)status.textContent='Вставь ссылку HTTPS на страницу товара';
+   return;
+  }
+  const number=++requestNumber;
+  button.disabled=true;
+  status.textContent='Ищем название, цену и фото...';
+  try{
+   if(isPreview)throw new Error('Автозаполнение доступно на сайте с сервером');
+   const info=await api('/api/product-preview',{method:'POST',body:{url}});
+   if(!form.isConnected||number!==requestNumber||link.value.trim()!==url)return;
+   if(info.title&&(force||(!titleField.value.trim()&&titleField.dataset.manuallyEdited!=='yes'))){
+    titleField.value=info.title;
+   }
+   if(info.price!=null&&(force||(!priceField.value&&priceField.dataset.manuallyEdited!=='yes'))){
+    priceField.value=info.price;
+    form.elements.currency.value=info.currency||'RUB';
+   }
+   if(info.image_data&&!form.elements.image.files.length){
+    importedImageData=info.image_data;
+    importedFrom=url;
+    setImage(importedImageData);
+   }
+   const bits=['название'];
+   if(info.price!=null)bits.push('цену');
+   if(info.image_data)bits.push('фото');
+   status.textContent='Найдено: '+bits.join(', ')+'! Проверь данные перед сохранением';
+  }catch(err){
+   if(form.isConnected&&number===requestNumber){
+    status.textContent=err.message||'Не получилось прочитать товар. Можно заполнить вручную';
+   }
+  }finally{
+   if(form.isConnected&&number===requestNumber)button.disabled=false;
+  }
+ }
+ function scheduleImport(){
+  requestNumber++;
+  button.disabled=false;
+  clearTimeout(debounceTimer);
+  if(importedFrom!==link.value.trim()){
+   importedImageData=null;importedFrom='';
+   setImage(null);
+  }
+  if(link.value.trim().startsWith('https://')&&!titleField.value.trim()){
+   debounceTimer=setTimeout(()=>importFromLink(false),700);
+  }
+ }
+ link.addEventListener('input',scheduleImport);
+ link.addEventListener('change',()=>{
+  if(!titleField.value.trim()){
+   clearTimeout(debounceTimer);
+   importFromLink(false);
+  }
+ });
+ button.addEventListener('click',()=>{
+  clearTimeout(debounceTimer);
+  importFromLink(true);
+ });
+ form.elements.image.addEventListener('change',()=>{
+  if(form.elements.image.files.length){importedImageData=null;setImage(null)}
+ });
+}
 function fileToData(file){return new Promise((resolve,reject)=>{const r=new FileReader();r.onload=()=>resolve(r.result);r.onerror=()=>reject(new Error('Не получилось прочитать файл'));r.readAsDataURL(file)});}
 function santaModal(){if(!currentUser){loginModal('register');return;}modal({title:'Создать Тайного Санту',subtitle:'Праздничный заговор начинается здесь. Ты автоматически станешь первым участником',content:`${field('Название игры','title','Например, Санта в нашем офисе','text','',true,'maxlength="100"')}${textArea('Описание','description','Кого зовём и что задумали?')}<div class="form-grid">${field('Дата обмена','exchange_date','','date')}${field('Бюджет','budget','Например, 2500','number','','','min="0" step="0.01"')}</div>${selectField('Валюта','currency',[['RUB','₽ Рубли'],['EUR','€ Евро'],['USD','$ Доллары']],'RUB')}${textArea('Дополнительные правила','rules','Что стоит учесть каждому?')}`,submitLabel:'Создать игру',onSubmit:async form=>{const r=await api('/api/santas',{method:'POST',body:readForm(form)});notice('Игра создана! Зови участников');nav(`/santa/${r.id}`);}});}
 function reserveModal(id,key){modal({title:'Забронировать подарок',subtitle:'Владелец списка не узнает, что ты выбрал. Сохрани приватную ссылку для отмены',content:`${field('Как тебя зовут?','guest_name','Например, Маша','text','',true,'maxlength="50"')}`,submitLabel:'Забронировать',onSubmit:async form=>{const r=await api(`/api/public/${key}/reserve/${id}`,{method:'POST',body:readForm(form)});nav(`/r/${r.manage_token}`);notice('Подарок за тобой!');}});}
