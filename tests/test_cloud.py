@@ -382,6 +382,29 @@ def browser_login(page, email='owner@example.test'):
 
 
 
+def test_product_preview_requires_login_and_preserves_wish_data(application, monkeypatch):
+    import importlib
+    cloud_app = importlib.import_module('app')
+    calls = []
+    def fake_preview(url):
+        calls.append(url)
+        return {'title':'Книга для подарка', 'price':'890.00', 'currency':'RUB',
+                'image_data': None, 'shop_url':url}
+    monkeypatch.setattr(cloud_app, 'fetch_product_metadata', fake_preview)
+    url = 'https://www.bookvoed.ru/product/test-123'
+    anonymous = application.test_client()
+    call(anonymous, 'POST', '/api/product-preview', {'url':url}, 401)
+    assert calls == []
+    user = login(application)
+    result = call(user, 'POST', '/api/product-preview', {'url':url}).json
+    assert result['title'] == 'Книга для подарка'
+    assert result['price'] == '890.00'
+    assert calls == [url]
+    assert result['image_data'] is None
+    # Preview is not a write. It should not create wishes or lists
+    assert isinstance(call(user, 'GET', '/api/lists').json['lists'], list)
+
+
 def test_static_product_copy_avoids_sentence_final_periods():
     """All shipped Russian UI copy follows Shursh punctuation; user data is untouched."""
     from pathlib import Path
@@ -415,6 +438,58 @@ def test_site_text_uses_only_short_hyphens_and_calm_confirmation_card():
     assert 'background:#e9f4ec' in block
 
 
+
+
+@pytest.mark.browser
+def test_browser_shop_link_autofill_and_uncluttered_header(browser_http):
+    import json
+    from playwright.sync_api import sync_playwright, expect
+    with sync_playwright() as play:
+        browser = play.chromium.launch(headless=True, args=['--no-sandbox'])
+        try:
+            page = browser.new_page(viewport={'width':1280,'height':850})
+            page.set_default_timeout(15000)
+            page.goto(browser_http+'/')
+            expect(page.locator('main h1')).to_be_visible()
+            expect(page.locator('a[href="mailto:lvs.codelab@yandex.ru"]')).to_have_text('L-code')
+            assert page.get_by_text('Никаких лишних шагов').count() == 0
+            assert page.locator('header button[data-open="list"]').count() == 0
+            browser_login(page)
+            assert page.locator('header button[data-nav="/lists"]').count() == 0
+            assert page.locator('button[data-action="refresh-owner"]').count() == 0
+
+            page.locator('main button[data-open="list"]').first.click()
+            page.locator('#fld-title').fill('Импорт товаров')
+            page.locator('#modal-form button[type="submit"]').click()
+            expect(page.locator('main h1')).to_contain_text('Импорт товаров')
+
+            image = ('data:image/png;base64,'
+                     'iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwC'
+                     'AAAAC0lEQVR42mP8/x8AAusB9aer6aQAAAAASUVORK5CYII=')
+            def marketplace_route(route):
+                assert route.request.method == 'POST'
+                route.fulfill(status=200, content_type='application/json',
+                              body=json.dumps({'title':'Кот и настольная игра',
+                                               'price':'1299.00',
+                                               'currency':'RUB',
+                                               'image_data':image,
+                                               'shop_url':'https://www.ozon.ru/product/123'}))
+            page.route('**/api/product-preview', marketplace_route)
+            page.locator('button[data-open="wish"]').first.click()
+            expect(page.locator('[data-import-product]')).to_be_visible()
+            page.locator('#fld-shop_url').fill('https://www.ozon.ru/product/123')
+            page.locator('[data-import-product]').click()
+            expect(page.locator('#fld-title')).to_have_value('Кот и настольная игра')
+            expect(page.locator('#fld-price')).to_have_value('1299.00')
+            expect(page.locator('.shop-import-image')).to_be_visible()
+            expect(page.locator('.shop-import-status')).to_contain_text('Найдено')
+            page.locator('#modal-form button[type="submit"]').click()
+            expect(page.locator('.wish-card h3').filter(has_text='Кот и настольная игра')).to_be_visible()
+            expect(page.locator('.wish-card img')).to_be_visible()
+            page.set_viewport_size({'width':390,'height':844})
+            assert page.evaluate('document.documentElement.scrollWidth <= innerWidth + 2'), 'mobile overflow'
+        finally:
+            browser.close()
 
 
 @pytest.mark.browser
