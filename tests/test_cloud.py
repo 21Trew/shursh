@@ -66,6 +66,13 @@ def make_list(c):
     key=call(c,'GET',f'/api/lists/{lid}').json['list']['share_key']
     return lid,wid,key
 
+def test_game_ui_script_is_served_by_flask(application):
+    result=application.test_client().get('/santa-ui.js')
+    assert result.status_code==200
+    assert b'gameGiftModal' in result.data
+    assert result.headers.get('X-Content-Type-Options')=='nosniff'
+
+
 @pytest.mark.performance
 def test_authenticated_api_latency_baseline(application):
     """Disposable CI PostgreSQL only; not a hosted Vercel/Supabase benchmark."""
@@ -727,6 +734,13 @@ def test_browser_santa_invites_draw_and_private_reveals(browser_http):
                 guest.locator('#fld-unwanted').fill('Не нужен пластик')
                 guest.locator('#modal-form button[type="submit"]').click()
                 expect(guest.locator('.my-wishes-list')).to_contain_text('Подарок для ' + name)
+                guest.locator('.game-gift-card .card-hitarea').first.click()
+                expect(guest.locator('.modal')).to_contain_text('Красный цвет, точная модель')
+                expect(guest.locator('.modal')).to_contain_text('Не нужен пластик')
+                guest.locator('.modal-close').click()
+                guest.locator('#game-chat-input').fill('Привет от ' + name)
+                guest.locator('#game-chat-form button[type="submit"]').click()
+                expect(guest.locator('.game-chat-messages')).to_contain_text('Привет от ' + name)
                 members.append((name, context, guest, token))
 
             owner.reload()
