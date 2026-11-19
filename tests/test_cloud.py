@@ -391,7 +391,7 @@ def test_product_preview_requires_login_and_preserves_wish_data(application, mon
         return {'title':'Книга для подарка', 'price':'890.00', 'currency':'RUB',
                 'image_data': None, 'shop_url':url}
     monkeypatch.setattr(cloud_app, 'fetch_product_metadata', fake_preview)
-    url = 'https://www.bookvoed.ru/product/test-123'
+    url = 'https://www.ozon.ru/product/lego-classic-30947723/'
     anonymous = application.test_client()
     call(anonymous, 'POST', '/api/product-preview', {'url':url}, 401)
     assert calls == []
