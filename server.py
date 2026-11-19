@@ -821,14 +821,29 @@ class Handler(BaseHTTPRequestHandler):
             return 201,{'participant_token':value},None
         match=re.fullmatch(r'/api/participant/([A-Za-z0-9_\-]+)',path)
         if match and method=='GET':
+            # A personal bearer link grants membership view, not organizer powers.
             part=con.execute('''SELECT p.id,p.name,p.event_id, e.title,e.description,e.exchange_date,e.budget_cents,
                         e.currency,e.rules,e.status FROM participants p
                         JOIN santa_events e ON e.id=p.event_id WHERE p.access_hash=?''',
                         (token_hash(match.group(1)),)).fetchone()
             if not part: raise ApiError(404,'Личная ссылка недействительна')
+            event=con.execute('''SELECT id,title,description,exchange_date,budget_cents,currency,rules,status,invite_key
+                            FROM santa_events WHERE id=?''',(part['event_id'],)).fetchone()
+            # A safe roster projection: never expose emails, user IDs, personal
+            # access tokens, exclusions, draw pairings or another person's wishes.
+            participants=[dict(r) for r in con.execute('''SELECT p.id,p.name,count(pw.id) AS wish_count,
+                         CASE WHEN p.user_id=e.owner_id THEN 1 ELSE 0 END AS is_organizer
+                         FROM participants p JOIN santa_events e ON e.id=p.event_id
+                         LEFT JOIN participant_wishes pw ON pw.participant_id=p.id
+                         WHERE p.event_id=? GROUP BY p.id,p.name,p.user_id,e.owner_id
+                         ORDER BY p.id''',(part['event_id'],))]
+            public_event=dict(event)
+            if public_event['status']!='open':
+                public_event.pop('invite_key')
             wishes=[dict(r) for r in con.execute('SELECT id,title FROM participant_wishes WHERE participant_id=? ORDER BY id DESC',(part['id'],))]
             receiver=self.assignment_view(con,part['event_id'],part['id']) if part['status']=='drawn' else None
-            return 200,{'participant':dict(part),'wishes':wishes,'assignment':receiver},None
+            return 200,{'participant':dict(part),'event':public_event,
+                        'participants':participants,'wishes':wishes,'assignment':receiver},None
         match=re.fullmatch(r'/api/participant/([A-Za-z0-9_\-]+)/wishes',path)
         if match and method=='POST':
             data=self.body();title=req(data.get('title'),'Желание',130)
