@@ -392,6 +392,53 @@ class Handler(BaseHTTPRequestHandler):
     def store_image(self, con, list_id, data):
         return image_store(data)
 
+
+    def import_wishlist_wishes(self, con, user, participant_id, data):
+        """Copy only a verified account owner's wishlist titles into the game.
+
+        This is an explicit snapshot, never a live link to private wishlists.
+        The buyer sees only titles through the existing assignment projection.
+        """
+        try:
+            list_id = int(data.get('list_id'))
+        except (TypeError, ValueError, OverflowError):
+            raise ApiError(400, 'Выбери свой вишлист') from None
+        lst = con.execute('SELECT id FROM wishlists WHERE id=? AND owner_id=?',
+                          (list_id, user['id'])).fetchone()
+        if not lst:
+            raise ApiError(404, 'Вишлист не найден')
+        rows = [dict(r) for r in con.execute(
+            'SELECT id,title FROM wishes WHERE list_id=? ORDER BY id', (list_id,))]
+        chosen = data.get('wish_ids')
+        if chosen is not None:
+            if not isinstance(chosen, list) or len(chosen) > 100:
+                raise ApiError(400, 'Выбери до 100 подарков')
+            try:
+                ids = [int(value) for value in chosen]
+            except (TypeError, ValueError, OverflowError):
+                raise ApiError(400, 'Неверный список подарков') from None
+            if len(set(ids)) != len(ids) or any(i <= 0 for i in ids):
+                raise ApiError(400, 'Неверный список подарков')
+            allowed = {r['id']: r for r in rows}
+            if any(i not in allowed for i in ids):
+                raise ApiError(400, 'Подарок не принадлежит выбранному вишлисту')
+            rows = [allowed[i] for i in ids]
+        if len(rows) > 100:
+            raise ApiError(400, 'Можно добавить не больше 100 подарков за раз')
+        existing = {r['title'].strip().casefold() for r in con.execute(
+            'SELECT title FROM participant_wishes WHERE participant_id=?', (participant_id,))}
+        added = 0
+        for row in rows:
+            title = row['title'].strip()
+            if title.casefold() in existing:
+                continue
+            con.execute(
+                'INSERT INTO participant_wishes(participant_id,title,created_at) VALUES(?,?,?)',
+                (participant_id, title, now()))
+            existing.add(title.casefold())
+            added += 1
+        return {'added': added, 'skipped': len(rows)-added, 'snapshot': True}
+
     def handle_api(self,method,path,con):
         user = self.user(con)
         if method == 'GET' and path == '/api/me':
@@ -579,6 +626,83 @@ class Handler(BaseHTTPRequestHandler):
                         (eid,user['id'],user['name'],now()))
             return 201,{'id':eid},None
         match=re.fullmatch(r'/api/santas/(\d+)',path)
+        if match and method=='PATCH':
+            user=self.auth(con);eid=int(match.group(1));data=self.body()
+            event=con.execute('SELECT * FROM santa_events WHERE id=? AND owner_id=?',
+                              (eid,user['id'])).fetchone()
+            if not event: raise ApiError(404,'Игра не найдена')
+            updates={}
+            if 'exchange_date' in data:
+                value=data['exchange_date']
+                if value in ('',None):
+                    updates['exchange_date']=None
+                elif isinstance(value,str):
+                    try:
+                        parsed=datetime.strptime(value,'%Y-%m-%d').date()
+                        if parsed.isoformat()!=value: raise ValueError()
+                    except ValueError:
+                        raise ApiError(400,'Неверная дата') from None
+                    updates['exchange_date']=value
+                else:
+                    raise ApiError(400,'Неверная дата')
+            if 'budget' in data:
+                updates['budget_cents']=amount(data['budget'])
+            if not updates: raise ApiError(400,'Нет изменений')
+            con.execute('UPDATE santa_events SET '+', '.join(k+'=?' for k in updates)+
+                        ' WHERE id=?',(*updates.values(),eid))
+            return 200,{'ok':True},None
+        match=re.fullmatch(r'/api/santas/(\d+)/participants',path)
+        if match and method=='POST':
+            user=self.auth(con);eid=int(match.group(1));data=self.body()
+            name=req(data.get('name'),'Имя участника',50)
+            event=con.execute('SELECT status FROM santa_events WHERE id=? AND owner_id=?',
+                              (eid,user['id'])).fetchone()
+            if not event: raise ApiError(404,'Игра не найдена')
+            if event['status']!='open': raise ApiError(409,'Состав игры уже заморожен')
+            current=[dict(r) for r in con.execute(
+                'SELECT name FROM participants WHERE event_id=?',(eid,))]
+            if len(current)>=12: raise ApiError(409,'В игре уже 12 участников - максимум')
+            if any(p['name'].strip().casefold()==name.casefold() for p in current):
+                raise ApiError(409,'Участник с таким именем уже в игре')
+            value=token()
+            result=con.execute('''INSERT INTO participants(event_id,name,access_hash,created_at)
+                     VALUES(?,?,?,?) RETURNING id''',
+                     (eid,name,token_hash(value),now()))
+            return 201,{'id':result.fetchone()['id'],'participant_token':value},None
+        match=re.fullmatch(r'/api/santas/(\d+)/participants/(\d+)/new-link',path)
+        if match and method=='POST':
+            user=self.auth(con);eid,pid=map(int,match.groups())
+            event=con.execute('SELECT status FROM santa_events WHERE id=? AND owner_id=?',
+                              (eid,user['id'])).fetchone()
+            if not event: raise ApiError(404,'Игра не найдена')
+            part=con.execute('SELECT user_id FROM participants WHERE event_id=? AND id=?',
+                             (eid,pid)).fetchone()
+            if not part: raise ApiError(404,'Участник не найден')
+            if part['user_id'] is not None:
+                raise ApiError(409,'Для участника с аккаунтом личная ссылка не нужна')
+            if event['status']!='open':
+                raise ApiError(409,'После жеребьёвки ссылки не меняются')
+            value=token()
+            con.execute('UPDATE participants SET access_hash=? WHERE id=? AND event_id=?',
+                        (token_hash(value),pid,eid))
+            return 200,{'participant_token':value},None
+        match=re.fullmatch(r'/api/santas/(\d+)/my-wishes/import',path)
+        if match and method=='POST':
+            user=self.auth(con);eid=int(match.group(1));data=self.body()
+            participant=con.execute('''SELECT p.id FROM participants p
+                JOIN santa_events e ON e.id=p.event_id
+                WHERE e.id=? AND e.owner_id=? AND p.user_id=?''',
+                (eid,user['id'],user['id'])).fetchone()
+            if not participant: raise ApiError(404,'Место участника не найдено')
+            return 200,self.import_wishlist_wishes(con,user,participant['id'],data),None
+        match=re.fullmatch(r'/api/participant/([A-Za-z0-9_\-]+)/wishes/import',path)
+        if match and method=='POST':
+            user=self.auth(con);data=self.body()
+            participant=con.execute('SELECT id FROM participants WHERE access_hash=?',
+                                    (token_hash(match.group(1)),)).fetchone()
+            if not participant: raise ApiError(404,'Личная ссылка недействительна')
+            return 200,self.import_wishlist_wishes(con,user,participant['id'],data),None
+        match=re.fullmatch(r'/api/santas/(\d+)',path)
         if match and method=='GET':
             user=self.auth(con);eid=int(match.group(1))
             event=con.execute('SELECT * FROM santa_events WHERE id=? AND owner_id=?',(eid,user['id'])).fetchone()
@@ -668,7 +792,11 @@ class Handler(BaseHTTPRequestHandler):
                         (SELECT count(*) FROM participants WHERE event_id=e.id) AS participant_count
                         FROM santa_events e WHERE invite_key=?''',(match.group(1),)).fetchone()
             if not event: raise ApiError(404,'Приглашение не найдено')
-            return 200,{'event':dict(event)},None
+            logged=self.user(con)
+            joined=bool(logged and con.execute(
+                'SELECT 1 FROM participants WHERE event_id=(SELECT id FROM santa_events WHERE invite_key=?) AND user_id=?',
+                (match.group(1),logged['id'])).fetchone())
+            return 200,{'event':dict(event),'already_joined':joined},None
         match=re.fullmatch(r'/api/invites/([A-Za-z0-9_\-]+)/join',path)
         if match and method=='POST':
             self.throttled('join',20)
@@ -677,11 +805,18 @@ class Handler(BaseHTTPRequestHandler):
             event=con.execute('SELECT * FROM santa_events WHERE invite_key=?',(match.group(1),)).fetchone()
             if not event: raise ApiError(404,'Приглашение не найдено')
             if event['status']!='open': raise ApiError(409,'Жеребьёвка уже прошла. Присоединиться нельзя')
-            count=con.execute('SELECT count(*) n FROM participants WHERE event_id=?',(event['id'],)).fetchone()['n']
-            if count>=12: raise ApiError(409,'В игре уже 12 участников - максимум для MVP')
+            signed_in=self.user(con)
+            participants=[dict(r) for r in con.execute(
+                'SELECT name,user_id FROM participants WHERE event_id=?',(event['id'],))]
+            if len(participants)>=12: raise ApiError(409,'В игре уже 12 участников - максимум для MVP')
+            if signed_in and any(p['user_id']==signed_in['id'] for p in participants):
+                raise ApiError(409,'Ты уже участвуешь в этой игре')
+            if any(p['name'].strip().casefold()==name.casefold() for p in participants):
+                raise ApiError(409,'Участник с таким именем уже в игре')
             value=token()
-            con.execute('INSERT INTO participants(event_id,name,access_hash,created_at) VALUES(?,?,?,?)',
-                        (event['id'],name,token_hash(value),now()))
+            con.execute('INSERT INTO participants(event_id,user_id,name,access_hash,created_at) VALUES(?,?,?,?,?)',
+                        (event['id'],signed_in['id'] if signed_in else None,
+                         name,token_hash(value),now()))
             con.execute('COMMIT')
             return 201,{'participant_token':value},None
         match=re.fullmatch(r'/api/participant/([A-Za-z0-9_\-]+)',path)
