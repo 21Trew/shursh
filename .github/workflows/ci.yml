@@ -59,6 +59,8 @@ jobs:
         with:
           python-version: '3.13'
       - name: Probe real public shop pages, without bypassing anti-bot controls
+        env:
+          PYTHONPATH: .
         run: python tools/marketplace-live-smoke.py
 
   postgres-integration:
