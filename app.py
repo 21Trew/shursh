@@ -60,7 +60,7 @@ def security_headers(result):
     # Static UI assets are public and identical for every user. Reusing them
     # avoids repeated downloads on reload; HTML, APIs and capability URLs
     # must always remain private and uncached.
-    if request.path in ('/app.js','/styles.css','/favicon.svg'):
+    if request.path in ('/app.js','/santa-ui.js','/styles.css','/favicon.svg'):
         result.headers['Cache-Control'] = 'public, max-age=300, must-revalidate'
     else:
         result.headers['Cache-Control'] = 'no-store'
@@ -153,7 +153,7 @@ def image(filename):
 @app.get('/')
 @app.get('/<path:route>')
 def frontend(route=''):
-    if route in ('app.js','styles.css','favicon.svg'):
+    if route in ('app.js','santa-ui.js','styles.css','favicon.svg'):
         return send_from_directory(ROOT/'public',route)
     # Serve only known app routes; never include the simulator or repository files.
     if route in ('','index.html','lists','santas') or re.fullmatch(r'(?:list|santa)/[0-9]{1,16}|(?:w|r|join|p)/[A-Za-z0-9_-]{1,128}',route):
