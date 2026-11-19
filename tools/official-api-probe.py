@@ -32,7 +32,21 @@ def probe(name, address, kind):
             result["result"] = "oversized_response"
         elif kind == "book":
             entry = json.loads(raw)
-            result.update(title=bool(entry.get("title")), photo=bool(entry.get("covers")),
+            covers = entry.get("covers") if isinstance(entry, dict) else None
+            verified_photo = False
+            if isinstance(covers, list) and covers and type(covers[0]) is int:
+                cover_url = ("https://covers.openlibrary.org/b/id/" +
+                             str(covers[0]) + "-M.jpg?default=false")
+                image_req = Request(cover_url, headers={
+                    "User-Agent": "ShurshWishlist/0.1 (lvs.codelab@yandex.ru)"})
+                try:
+                    with urlopen(image_req, timeout=8) as image:
+                        verified_photo = (image.status == 200 and
+                                          image.headers.get("Content-Type", "").startswith("image/") and
+                                          image.read(3) == b"\\xff\\xd8\\xff")
+                except (HTTPError, URLError, OSError, TimeoutError):
+                    verified_photo = False
+            result.update(title=bool(entry.get("title")), photo=verified_photo,
                           result="book_metadata_only")
         elif kind == "google":
             entry = json.loads(raw)
