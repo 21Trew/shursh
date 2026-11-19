@@ -157,3 +157,27 @@ def test_antibot_challenge_never_becomes_wishlist_title(monkeypatch, challenge):
 def test_legitimate_product_title_not_marked_as_challenge():
     assert pm._looks_like_challenge('Кот в сапогах. Подарочное издание') is False
     assert pm._looks_like_challenge('  JUST A   MOMENT  ') is True
+
+
+@pytest.mark.parametrize('title', [
+    'Яндекс', 'Яндекс Маркет', 'Ozon', 'Wildberries', 'Буквоед',
+])
+def test_store_landing_page_is_not_a_product(monkeypatch, title):
+    calls = []
+    def fake_request(url, domains, limit):
+        calls.append(url)
+        html = ('<head><title>' + title + '</title>'
+                '<meta property="og:image" content="https://avatars.yandex.net/logo.png"></head>')
+        return url, 'text/html', html.encode('utf-8')
+    monkeypatch.setattr(pm, '_request_public', fake_request)
+    with pytest.raises(ApiError) as error:
+        pm.fetch_product_metadata('https://market.yandex.ru/card/123')
+    assert error.value.status == 422
+    # Store's logo must not be added to a new wish
+    assert len(calls) == 1
+
+
+def test_normal_product_title_survives_generic_store_filter():
+    assert not pm._generic_store_title('Яндекс Станция Мини с Алисой')
+    assert not pm._generic_store_title('LEGO Classic 10696')
+    assert pm._generic_store_title('  ЯНДЕКС   МАРКЕТ  ')
