@@ -17,12 +17,12 @@ MAX_FEED_BYTES = 4_000_000
 # These adapters recognize stable customer-facing item identifiers.
 # They do not assert that a public catalog API exists for the platform
 _STORE_PATTERNS = (
-    ("ozon", re.compile(r"(?:^|\.)ozon\.ru$", re.I), re.compile(r"/product/(?:[^/?]*?-)?(\d{5,})(?:/|$)", re.I)),
-    ("wildberries", re.compile(r"(?:^|\.)wildberries\.ru$|(?:^|\.)wb\.ru$", re.I), re.compile(r"/catalog/(\d{4,})/detail\.aspx", re.I)),
+    ("ozon", re.compile(r"(?:[a-z0-9-]+\.)*ozon\.ru$", re.I), re.compile(r"/product/(?:[^/?]*?-)?(\d{5,})(?:/|$)", re.I)),
+    ("wildberries", re.compile(r"(?:[a-z0-9-]+\.)*wildberries\.ru$|(?:[a-z0-9-]+\.)*wb\.ru$", re.I), re.compile(r"/catalog/(\d{4,})/detail\.aspx", re.I)),
     ("yandex-market", re.compile(r"^market\.yandex\.ru$", re.I), re.compile(r"/(?:card|product--[^/]+|product)/[^?#]*/(\d{5,})(?:/|$)", re.I)),
-    ("bookvoed", re.compile(r"(?:^|\.)bookvoed\.ru$", re.I), re.compile(r"/product/(?:[^/?]*?-)?(\d{3,})(?:/|$)", re.I)),
-    ("chitai-gorod", re.compile(r"(?:^|\.)chitai-gorod\.ru$", re.I), re.compile(r"/product/(?:[^/?]*?-)?(\d{3,})(?:/|$)", re.I)),
-    ("labirint", re.compile(r"(?:^|\.)labirint\.ru$", re.I), re.compile(r"/books/(\d{3,})(?:/|$)", re.I)),
+    ("bookvoed", re.compile(r"(?:[a-z0-9-]+\.)*bookvoed\.ru$", re.I), re.compile(r"/product/(?:[^/?]*?-)?(\d{3,})(?:/|$)", re.I)),
+    ("chitai-gorod", re.compile(r"(?:[a-z0-9-]+\.)*chitai-gorod\.ru$", re.I), re.compile(r"/product/(?:[^/?]*?-)?(\d{3,})(?:/|$)", re.I)),
+    ("labirint", re.compile(r"(?:[a-z0-9-]+\.)*labirint\.ru$", re.I), re.compile(r"/books/(\d{3,})(?:/|$)", re.I)),
 )
 
 
