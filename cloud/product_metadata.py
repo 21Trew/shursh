@@ -282,6 +282,24 @@ def _image_data(url, base):
         return None
 
 
+_BLOCKED_PAGE_TITLES = (
+    'access denied', 'access to this page has been denied',
+    'just a moment', 'attention required', 'captcha',
+    'robot check', 'are you a human', 'service unavailable',
+    'доступ запрещен', 'доступ запрещён', 'проверка браузера',
+    'проверка безопасности', 'подтвердите, что вы не робот',
+    'подтвердите, что вы человек',
+)
+
+
+def _looks_like_challenge(title):
+    # A generic HTML <title> from a challenge must never become a wish name
+    normalized = re.sub(r'\\s+', ' ', title).strip().lower()
+    return any(normalized == phrase or normalized.startswith(phrase + ' ') or
+               normalized.startswith(phrase + ' -') or normalized.startswith(phrase + ' |')
+               for phrase in _BLOCKED_PAGE_TITLES)
+
+
 def fetch_product_metadata(value):
     url = _target(value, SHOP_DOMAINS)
     final_url, mime, body = _request_public(url, SHOP_DOMAINS, HTML_LIMIT)
@@ -291,6 +309,8 @@ def fetch_product_metadata(value):
     preview = _data_from_html(body.decode(encoding, errors='replace'))
     if not preview['title']:
         raise ApiError(422, 'Магазин не передал название товара')
+    if _looks_like_challenge(preview['title']):
+        raise ApiError(422, 'Магазин ограничил доступ к странице товара. Заполни данные вручную')
     picture = _image_data(preview.pop('image_url'), final_url)
     return {'title': preview['title'], 'price': preview['price'],
             'currency': preview['currency'], 'image_data': picture,
