@@ -83,3 +83,9 @@
 .wish-detail>p{color:#706974;margin:14px 0}
 .wish-detail-actions{display:flex;flex-wrap:wrap;gap:10px;margin-top:20px}
 @media(max-width:520px){.panel-heading-actions{align-items:flex-start}.panel-heading-actions .btn{min-height:36px}.wish-detail-image,.wish-detail-art{height:180px}}
+
+/* Mobile/tablet: never hide account access behind a breakpoint. */
+@media(max-width:920px){
+ .header-actions .btn-ghost{display:inline-flex;min-height:39px;padding:9px 13px;font-size:12px}
+ .site-header .topbar{align-items:center}
+}
