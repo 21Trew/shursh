@@ -1086,3 +1086,63 @@ def test_font_loading_observation(browser_http):
                 'resources':fonts['resources']},ensure_ascii=False))
         finally:
             browser.close()
+
+
+def test_santa_gift_details_group_chat_and_anonymous_pair_chat(application):
+    """Isolated CI PostgreSQL: private gifts/chats require membership, pairs stay anonymous."""
+    owner=login(application)
+    outsider=login(application,'other@example.test')
+    eid=call(owner,'POST','/api/santas',{'title':'Чаты и пожелания'},201).json['id']
+    event=call(owner,'GET',f'/api/santas/{eid}').json['event']
+    guest=application.test_client()
+    tokens={}
+    for name in ('Альфа','Бета'):
+        tokens[name]=call(guest,'POST',f'/api/invites/{event["invite_key"]}/join',
+                          {'name':name},201).json['participant_token']
+    t=tokens['Альфа']
+    gift=call(guest,'POST',f'/api/participant/{t}/wishes',{
+        'title':'Умная лампа','wanted':'Тёплый свет','unwanted':'Без цветных вспышек',
+        'description':'Для чтения','price':'1250','currency':'RUB',
+        'shop_url':'https://example.com/lamp','image_data':PNG},201).json['id']
+    saved=call(guest,'GET',f'/api/participant/{t}').json
+    assert saved['wishes'][0]['wanted']=='Тёплый свет'
+    assert saved['wishes'][0]['unwanted']=='Без цветных вспышек'
+    assert saved['wishes'][0]['price_cents']==125000
+    assert saved['wishes'][0]['image_data']==PNG
+    assert 'Умная лампа' not in str(call(guest,'GET',f'/api/participant/{tokens["Бета"]}').json)
+    assert 'Умная лампа' not in str(call(owner,'GET',f'/api/santas/{eid}').json)
+    call(guest,'PATCH',f'/api/participant/{tokens["Бета"]}/wishes/{gift}',
+         {'title':'Подмена'},404)
+    call(outsider,'GET',f'/api/santas/{eid}/messages/general',status=404)
+    call(guest,'GET',f'/api/participant/no-such-key/messages/general',status=404)
+    call(guest,'GET',f'/api/participant/{t}/messages/to-recipient',status=409)
+    call(guest,'POST',f'/api/participant/{t}/messages/general',
+         {'message':'Всем привет!'},201)
+    visible=call(guest,'GET',f'/api/participant/{tokens["Бета"]}/messages/general').json
+    assert visible['messages'][-1]['message']=='Всем привет!'
+    assert visible['messages'][-1]['author']=='Альфа'
+    assert 'sender_id' not in str(visible) and 'pair_giver_id' not in str(visible)
+    call(guest,'POST',f'/api/participant/{t}/messages/general',{'message':'x'*501},400)
+    call(guest,'PATCH',f'/api/participant/{t}/wishes/{gift}',{
+        'title':'Лампа','wanted':'Стекло','unwanted':'Пластик','image_data':PNG},200)
+    assert call(guest,'GET',f'/api/participant/{t}').json['wishes'][0]['title']=='Лампа'
+    call(owner,'POST',f'/api/santas/{eid}/draw',{},200)
+    # Pair A -> assigned recipient, and ONLY that recipient reads it as an
+    # anonymous Santa message; no recipient identity in the chat payload.
+    assigned=call(guest,'POST',f'/api/participant/{t}/reveal',{}).json['assignment']
+    assert assigned['revealed']
+    call(guest,'POST',f'/api/participant/{t}/messages/to-recipient',
+         {'message':'Какой цвет подойдёт?'},201)
+    recipient=assigned['receiver_name']
+    if recipient=='Owner':
+        received=call(owner,'GET',f'/api/santas/{eid}/messages/from-santa').json
+    else:
+        received=call(guest,'GET',
+                      f'/api/participant/{tokens[recipient]}/messages/from-santa').json
+    assert received['messages'][-1]['author']=='Тайный даритель'
+    assert received['messages'][-1]['message']=='Какой цвет подойдёт?'
+    assert 'sender_id' not in str(received)
+    assert 'giver_id' not in str(received)
+    call(guest,'DELETE',f'/api/participant/{tokens["Бета"]}/wishes/{gift}',status=404)
+    call(guest,'DELETE',f'/api/participant/{t}/wishes/{gift}')
+    assert call(guest,'GET',f'/api/participant/{t}').json['wishes']==[]
