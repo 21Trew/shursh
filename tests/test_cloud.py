@@ -382,27 +382,19 @@ def browser_login(page, email='owner@example.test'):
 
 
 
-def test_product_preview_requires_login_and_preserves_wish_data(application, monkeypatch):
-    import importlib
-    cloud_app = importlib.import_module('app')
-    calls = []
-    def fake_preview(url):
-        calls.append(url)
-        return {'title':'Книга для подарка', 'price':'890.00', 'currency':'RUB',
-                'image_data': None, 'shop_url':url}
-    monkeypatch.setattr(cloud_app, 'fetch_product_metadata', fake_preview)
+def test_product_preview_is_disabled_in_manual_link_release(application, monkeypatch):
+    from cloud import product_metadata as importer
+    monkeypatch.setattr(importer, '_request_public',
+                        lambda *args: pytest.fail('Disabled scraper must never fetch'))
     url = 'https://www.ozon.ru/product/lego-classic-30947723/'
     anonymous = application.test_client()
-    call(anonymous, 'POST', '/api/product-preview', {'url':url}, 401)
-    assert calls == []
+    response = anonymous.post('/api/product-preview', json={'url': url})
+    assert response.status_code == 404
     user = login(application)
-    result = call(user, 'POST', '/api/product-preview', {'url':url}).json
-    assert result['title'] == 'Книга для подарка'
-    assert result['price'] == '890.00'
-    assert calls == [url]
-    assert result['image_data'] is None
-    # Preview is not a write. It should not create wishes or lists
+    response = user.post('/api/product-preview', json={'url': url})
+    assert response.status_code == 404
     assert isinstance(call(user, 'GET', '/api/lists').json['lists'], list)
+
 
 
 def test_static_product_copy_avoids_sentence_final_periods():
@@ -441,63 +433,64 @@ def test_site_text_uses_only_short_hyphens_and_calm_confirmation_card():
 
 
 @pytest.mark.browser
-def test_browser_shop_link_autofill_and_uncluttered_header(browser_http):
-    import json
+def test_browser_manual_product_link_and_uncluttered_header(browser_http):
     from playwright.sync_api import sync_playwright, expect
     with sync_playwright() as play:
         browser = play.chromium.launch(headless=True, args=['--no-sandbox'])
         try:
-            page = browser.new_page(viewport={'width':1280,'height':850})
+            page = browser.new_page(viewport={'width': 1280, 'height': 850})
             page.set_default_timeout(15000)
-            page.goto(browser_http+'/')
+            intercepted = []
+            def intercept_import(route):
+                intercepted.append(route.request.url)
+                route.abort()
+            page.route('**/api/product-preview', intercept_import)
+            page.goto(browser_http + '/')
             expect(page.locator('main h1')).to_be_visible()
-            expect(page.locator('a[href="mailto:lvs.codelab@yandex.ru"]')).to_have_text('L-code')
-            assert page.get_by_text('Никаких лишних шагов').count() == 0
             assert page.locator('header button[data-open="list"]').count() == 0
             browser_login(page)
             assert page.locator('header button[data-nav="/lists"]').count() == 0
             assert page.locator('button[data-action="refresh-owner"]').count() == 0
 
             page.locator('main button[data-open="list"]').first.click()
-            page.locator('#fld-title').fill('Импорт товаров')
+            page.locator('#fld-title').fill('Ручные ссылки')
             page.locator('#modal-form button[type="submit"]').click()
-            expect(page.locator('main h1')).to_contain_text('Импорт товаров')
+            expect(page.locator('main h1')).to_contain_text('Ручные ссылки')
 
-            image = ('data:image/png;base64,'
-                     'iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwC'
-                     'AAAAC0lEQVR42mP8/x8AAusB9aer6aQAAAAASUVORK5CYII=')
-            def marketplace_route(route):
-                assert route.request.method == 'POST'
-                route.fulfill(status=200, content_type='application/json',
-                              body=json.dumps({'title':'Кот и настольная игра',
-                                               'price':'1299.00',
-                                               'currency':'RUB',
-                                               'image_data':image,
-                                               'shop_url':'https://www.ozon.ru/product/123'}))
-            page.route('**/api/product-preview', marketplace_route)
+            url = 'https://www.ozon.ru/product/lego-classic-30947723/'
             page.locator('button[data-open="wish"]').first.click()
-            expect(page.locator('[data-import-product]')).to_be_visible()
+            expect(page.locator('[data-import-product]')).to_have_count(0)
             assert page.locator('#fld-shop_url').evaluate(
                 "(input) => input.compareDocumentPosition(document.querySelector('#fld-title')) & Node.DOCUMENT_POSITION_FOLLOWING"
-            ), 'Shop URL should be the first form field'
-            page.locator('#fld-shop_url').fill('https://www.ozon.ru/product/123')
-            page.locator('[data-import-product]').click()
-            expect(page.locator('#fld-title')).to_have_value('Кот и настольная игра')
-            expect(page.locator('#fld-price')).to_have_value('1299.00')
-            expect(page.locator('.shop-import-image')).to_be_visible()
-            expect(page.locator('.shop-import-status')).to_contain_text('Найдено')
+            ), 'Shop URL must be before the title field'
+            page.locator('#fld-shop_url').fill(url)
+            page.wait_for_timeout(950)
+            expect(page.locator('#fld-title')).to_have_value('')
+            expect(page.locator('#fld-price')).to_have_value('')
+            page.locator('#fld-title').fill('Кот и настольная игра')
+            page.locator('#fld-price').fill('1299')
+            # A manually uploaded image must still work without a scraper.
+            from base64 import b64decode
+            photo = b64decode('iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mP8/x8AAusB9aer6aQAAAAASUVORK5CYII=')
+            page.locator('#wish-file').set_input_files({
+                'name': 'gift.png', 'mimeType': 'image/png', 'buffer': photo,
+            })
             page.locator('#modal-form button[type="submit"]').click()
-            expect(page.locator('.wish-card h3').filter(has_text='Кот и настольная игра')).to_be_visible()
-            expect(page.locator('.wish-card img')).to_be_visible()
-            # Paste into an empty wish should work without pressing the import button
-            page.locator('button[data-open="wish"]').first.click()
-            page.locator('#fld-shop_url').fill('https://www.ozon.ru/product/123')
-            expect(page.locator('#fld-title')).to_have_value('Кот и настольная игра')
+            card = page.locator('.wish-card').filter(has_text='Кот и настольная игра')
+            expect(card).to_be_visible()
+            expect(card.locator('img')).to_be_visible()
+            expect(card.locator('a[href]')).to_have_attribute('href', url)
+            assert intercepted == [], 'Pasting product links must not trigger parsing'
+
+            card.locator('button[data-action="edit-wish"]').click()
+            expect(page.locator('#fld-shop_url')).to_have_value(url)
+            expect(page.locator('#fld-price')).to_have_value('1299')
             page.locator('.modal-close').click()
-            page.set_viewport_size({'width':390,'height':844})
+            page.set_viewport_size({'width': 390, 'height': 844})
             assert page.evaluate('document.documentElement.scrollWidth <= innerWidth + 2'), 'mobile overflow'
         finally:
             browser.close()
+
 
 
 @pytest.mark.browser
