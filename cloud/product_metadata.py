@@ -19,13 +19,13 @@ from urllib.parse import urljoin, urlsplit, urlunsplit
 from server import ApiError
 
 SHOP_DOMAINS = (
-    'ozon.ru', 'wildberries.ru', 'market.yandex.ru', 'bookvoed.ru',
+    'ozon.ru', 'wildberries.ru', 'wb.ru', 'market.yandex.ru', 'bookvoed.ru',
     'chitai-gorod.ru', 'labirint.ru', 'detmir.ru', 'dns-shop.ru',
     'mvideo.ru', 'eldorado.ru', 'sportmaster.ru',
 )
 # Product pictures are normally served by separate CDN domains
 IMAGE_DOMAINS = (
-    'ozon.ru', 'ozone.ru', 'ozonusercontent.com', 'wildberries.ru',
+    'ozon.ru', 'ozone.ru', 'ozonusercontent.com', 'wildberries.ru', 'wb.ru',
     'wbstatic.net', 'wbbasket.ru', 'yandex.ru', 'yandex.net',
     'yastatic.net', 'bookvoed.ru', 'book24.ru', 'chitai-gorod.ru',
     'img-gorod.ru', 'labirint.ru', 'detmir.ru', 'dns-shop.ru',
