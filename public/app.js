@@ -380,6 +380,10 @@ function wishModal(edit=null){
   title:edit?'Редактировать желание':'Добавить желание',
   subtitle:'Можно добавить конкретную вещь или просто идею. Ссылка на магазин необязательна',
   content:
+   field('Ссылка на магазин (необязательно)','shop_url','https://...', 'url',w.shop_url||'')+
+   '<div class="shop-import-row"><button type="button" class="btn btn-soft btn-small" data-import-product>'+
+   ico('spark')+' Заполнить по ссылке</button><span class="shop-import-status" role="status" aria-live="polite">Ozon, Wildberries, Яндекс Маркет, Буквоед и другие</span></div>'+
+   '<div class="shop-import-image" hidden><img alt="Фото товара из магазина"><span>Фото товара добавится к желанию</span></div>'+
    field('Что хочется?','title','Например, керамическая чашка','text',w.title||'',true,'maxlength="130"')+
    textArea('Комментарий','description','Цвет, размер, пожелания или настроение',w.description||'')+
    '<div class="form-grid">'+
@@ -389,10 +393,6 @@ function wishModal(edit=null){
    selectField('Тип','kind',[['item','Конкретный подарок'],['experience','Идея / впечатление']],w.kind||'item')+
    selectField('Приоритет','priority',[['nice','Буду рада'],['love','Очень хочу!']],w.priority||'nice')+
    '</div>'+
-   field('Ссылка на магазин (необязательно)','shop_url','https://...', 'url',w.shop_url||'')+
-   '<div class="shop-import-row"><button type="button" class="btn btn-soft btn-small" data-import-product>'+
-   ico('spark')+' Заполнить по ссылке</button><span class="shop-import-status" role="status" aria-live="polite">Ozon, Wildberries, Яндекс Маркет, Буквоед и другие</span></div>'+
-   '<div class="shop-import-image" hidden><img alt="Фото товара из магазина"><span>Фото товара добавится к желанию</span></div>'+
    '<div class="field"><label for="wish-file">Фотография (необязательно)</label>'+
    '<div class="file-picker"><input id="wish-file" name="image" type="file" accept="image/png,image/jpeg,image/webp">'+
    '<div class="field-hint">JPG, PNG или WEBP до 2 МБ. Без фото покажем иллюстрацию</div></div></div>',
