@@ -1,8 +1,8 @@
-"""One-shot public availability check of official seller and bibliographic APIs.
+"""Manual anonymous reachability checks: official Russian seller/partner APIs.
 
-Run only on explicit diagnostics. No API keys, cookies, bypasses, retries,
-user-provided URLs, or response bodies printed. HTTP statuses describe the
-unauthenticated request from the runner, not general API availability.
+These APIs are for authorized sellers. 401/403 show access restrictions;
+405 may indicate the wrong HTTP method. No credentials, retries, bypass or
+personal contacts. Results are network-specific, not a claim of free public API.
 """
 import json
 from time import monotonic
@@ -10,61 +10,29 @@ from urllib.error import HTTPError, URLError
 from urllib.request import Request, urlopen
 
 ENDPOINTS = (
-    ("ozon_seller", "https://api-seller.ozon.ru/v1/seller/info", "seller"),
-    ("wildberries_seller", "https://common-api.wildberries.ru/api/v1/seller-info", "seller"),
-    ("yandex_market_partner", "https://api.partner.market.yandex.ru/v2/campaigns", "seller"),
-    ("open_library_isbn", "https://openlibrary.org/isbn/9780140328721.json", "book"),
-    ("google_books_isbn", "https://www.googleapis.com/books/v1/volumes?q=isbn%3A9780140328721&maxResults=1", "google"),
+    ("Ozon Seller", "https://api-seller.ozon.ru/v3/product/info/list", "POST"),
+    ("Wildberries Seller", "https://common-api.wildberries.ru/api/v1/seller-info", "GET"),
+    ("Yandex Market Partner", "https://api.partner.market.yandex.ru/v2/campaigns", "GET"),
 )
 
-def probe(name, address, kind):
-    started = monotonic()
-    result = {"source": name, "title": False, "price": False, "photo": False}
+def probe(name, url, method):
+    started=monotonic()
+    result={"api":name, "title":False, "price":False, "photo":False}
     try:
-        request = Request(address, headers={
-            "User-Agent": "ShurshProductImporter/1.0",
-            "Accept": "application/json",
-        })
-        with urlopen(request, timeout=8) as response:
-            result["http"] = response.status
-            raw = response.read(120001)
-        if len(raw) > 120000:
-            result["result"] = "oversized_response"
-        elif kind == "book":
-            entry = json.loads(raw)
-            covers = entry.get("covers") if isinstance(entry, dict) else None
-            verified_photo = False
-            if isinstance(covers, list) and covers and type(covers[0]) is int:
-                cover_url = ("https://covers.openlibrary.org/b/id/" +
-                             str(covers[0]) + "-M.jpg?default=false")
-                image_req = Request(cover_url, headers={
-                    "User-Agent": "ShurshWishlist/0.1 (lvs.codelab@yandex.ru)"})
-                try:
-                    with urlopen(image_req, timeout=8) as image:
-                        verified_photo = (image.status == 200 and
-                                          image.headers.get("Content-Type", "").startswith("image/") and
-                                          image.read(3) == bytes((0xff, 0xd8, 0xff)))
-                except (HTTPError, URLError, OSError, TimeoutError):
-                    verified_photo = False
-            result.update(title=bool(entry.get("title")), photo=verified_photo,
-                          result="book_metadata_only")
-        elif kind == "google":
-            entry = json.loads(raw)
-            volumes = entry.get("items") or []
-            info = volumes[0].get("volumeInfo", {}) if volumes else {}
-            result.update(title=bool(info.get("title")),
-                          photo=bool(info.get("imageLinks")),
-                          result="book_metadata_only")
-        else:
-            result["result"] = "unexpected_public_response"
+        req=Request(url,method=method,data=b"{}" if method=="POST" else None,
+                    headers={"User-Agent":"ShurshProductImporter/1.0",
+                             "Accept":"application/json",
+                             "Content-Type":"application/json"})
+        with urlopen(req,timeout=8) as response:
+            result.update(http=response.status,status="anonymous_response")
+            response.read(2048)
     except HTTPError as exc:
-        result.update(http=exc.code, result="http_rejected")
-    except (URLError, OSError, TimeoutError, ValueError, TypeError) as exc:
-        result.update(result="transport_or_parse_failure", error=type(exc).__name__)
-    result["seconds"] = round(monotonic() - started, 2)
+        result.update(http=exc.code,status="rejected")
+    except (URLError,OSError,TimeoutError,ValueError) as exc:
+        result.update(status="network_error",error=type(exc).__name__)
+    result["seconds"]=round(monotonic()-started,2)
     return result
 
-if __name__ == "__main__":
-    for name, url, kind in ENDPOINTS:
-        print("OFFICIAL_API_PROBE " + json.dumps(probe(name, url, kind),
-                                                   ensure_ascii=False), flush=True)
+if __name__=="__main__":
+    for name,url,method in ENDPOINTS:
+        print("OFFICIAL_API_PROBE "+json.dumps(probe(name,url,method),ensure_ascii=False),flush=True)
