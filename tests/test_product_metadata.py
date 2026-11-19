@@ -138,3 +138,22 @@ def test_blocked_store_returns_useful_error(monkeypatch):
     with pytest.raises(ApiError) as error:
         pm.fetch_product_metadata('https://www.wildberries.ru/catalog/123/detail.aspx')
     assert error.value.status == 422
+
+
+@pytest.mark.parametrize('challenge', [
+    'Just a moment...', 'Access Denied', 'Captcha',
+    'Проверка безопасности', 'Подтвердите, что вы не робот',
+])
+def test_antibot_challenge_never_becomes_wishlist_title(monkeypatch, challenge):
+    def fake_request(url, domains, limit):
+        page = ('<html><head><title>' + challenge + '</title></head></html>').encode('utf-8')
+        return url, 'text/html', page
+    monkeypatch.setattr(pm, '_request_public', fake_request)
+    with pytest.raises(ApiError) as error:
+        pm.fetch_product_metadata('https://www.ozon.ru/product/123')
+    assert error.value.status == 422
+
+
+def test_legitimate_product_title_not_marked_as_challenge():
+    assert pm._looks_like_challenge('Кот в сапогах. Подарочное издание') is False
+    assert pm._looks_like_challenge('  JUST A   MOMENT  ') is True
