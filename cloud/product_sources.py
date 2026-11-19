@@ -12,6 +12,7 @@ from urllib.parse import urlsplit
 from xml.etree import ElementTree
 
 BOOK_STORES = frozenset(("bookvoed", "chitai-gorod", "labirint"))
+MARKETPLACE_STORES = frozenset(("ozon", "wildberries", "yandex-market"))
 MAX_FEED_BYTES = 4_000_000
 
 # These adapters recognize stable customer-facing item identifiers.
@@ -94,7 +95,7 @@ def parse_approved_yml(blob):
                 parts.password or parts.port not in (None, 443)):
             continue
         adapter = adapter_for(address)
-        if adapter["store"] not in BOOK_STORES or not adapter["product_id"]:
+        if adapter["store"] not in BOOK_STORES | MARKETPLACE_STORES or not adapter["product_id"]:
             continue
         name = (_tag_value(offer, "name") or _tag_value(offer, "model"))[:130]
         if not name:
@@ -131,5 +132,19 @@ def approved_book_offer(url):
         return None
     try:
         return _approved_catalog(path).get((adapter["store"], adapter["product_id"]))
+    except (OSError, ValueError):
+        return None
+
+def approved_marketplace_offer(url):
+    """Use only a local XML/YML catalog supplied with explicit reuse rights.
+
+    Disabled by default: no remote feed request or seller credential used.
+    """
+    path = os.environ.get("SHURSH_APPROVED_MARKETPLACE_CATALOG_FILE", "").strip()
+    item = adapter_for(url)
+    if not path or item["store"] not in MARKETPLACE_STORES or not item["product_id"]:
+        return None
+    try:
+        return _approved_catalog(path).get((item["store"], item["product_id"]))
     except (OSError, ValueError):
         return None
