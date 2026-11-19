@@ -35,7 +35,7 @@ def test_isbn_checksum_and_marked_extraction_only():
     assert src.isbn_from_text("ISBN: 9785042061876") is None
 
 
-YML = b"""<?xml version="1.0" encoding="utf-8"?>
+YML = """<?xml version="1.0" encoding="utf-8"?>
 <yml_catalog date="2026-11-19"><shop><offers>
 <offer id="a"><url>https://www.bookvoed.ru/product/literatura-8713602</url>
 <name>Литература</name><price>599.00</price><currencyId>RUR</currencyId>
@@ -44,7 +44,7 @@ YML = b"""<?xml version="1.0" encoding="utf-8"?>
 <offer id="b"><url>https://www.chitai-gorod.ru/product/literatura-3109366</url>
 <name>Книга</name><price>799</price><currencyId>RUB</currencyId></offer>
 <offer id="evil"><url>https://localhost/private</url><name>Private</name><price>123</price></offer>
-</offers></shop></yml_catalog>"""
+</offers></shop></yml_catalog>""".encode("utf-8")
 
 
 def test_approved_xml_parses_only_store_items_with_verified_prices():
