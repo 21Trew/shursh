@@ -489,6 +489,11 @@ def test_browser_shop_link_autofill_and_uncluttered_header(browser_http):
             page.locator('#modal-form button[type="submit"]').click()
             expect(page.locator('.wish-card h3').filter(has_text='Кот и настольная игра')).to_be_visible()
             expect(page.locator('.wish-card img')).to_be_visible()
+            # Paste into an empty wish should work without pressing the import button
+            page.locator('button[data-open="wish"]').first.click()
+            page.locator('#fld-shop_url').fill('https://www.ozon.ru/product/123')
+            expect(page.locator('#fld-title')).to_have_value('Кот и настольная игра')
+            page.locator('.modal-close').click()
             page.set_viewport_size({'width':390,'height':844})
             assert page.evaluate('document.documentElement.scrollWidth <= innerWidth + 2'), 'mobile overflow'
         finally:
