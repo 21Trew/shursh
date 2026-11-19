@@ -43,7 +43,7 @@ def probe(name, address, kind):
                     with urlopen(image_req, timeout=8) as image:
                         verified_photo = (image.status == 200 and
                                           image.headers.get("Content-Type", "").startswith("image/") and
-                                          image.read(3) == b"\\xff\\xd8\\xff")
+                                          image.read(3) == bytes((0xff, 0xd8, 0xff)))
                 except (HTTPError, URLError, OSError, TimeoutError):
                     verified_photo = False
             result.update(title=bool(entry.get("title")), photo=verified_photo,
