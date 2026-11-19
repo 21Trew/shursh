@@ -1,3 +1,13 @@
+-- This migration only adds columns and one table, never deletes user data.
+-- A locked-down, in-database rollback snapshot protects pre-existing
+-- participant wishes during the rollout (NOT a replacement for an offsite backup).
+CREATE SCHEMA IF NOT EXISTS shursh_recovery;
+REVOKE ALL ON SCHEMA shursh_recovery FROM PUBLIC, anon, authenticated, shursh_backend;
+CREATE TABLE shursh_recovery.participant_wishes_before_santa_v2 AS
+  SELECT * FROM public.participant_wishes;
+REVOKE ALL ON TABLE shursh_recovery.participant_wishes_before_santa_v2
+  FROM PUBLIC, anon, authenticated, shursh_backend;
+
 -- Add richer wishes and private, server-authorized Santa chats.
 -- Data migration is additive; apply only through an approved DB release.
 ALTER TABLE public.participant_wishes
