@@ -17,6 +17,10 @@ import ssl
 from urllib.parse import urljoin, urlsplit, urlunsplit
 
 from server import ApiError
+from cloud.product_sources import (BOOK_STORES, adapter_for, approved_book_offer,
+                                   isbn_from_text, valid_isbn)
+from functools import lru_cache
+import time
 
 SHOP_DOMAINS = (
     'ozon.ru', 'wildberries.ru', 'wb.ru', 'market.yandex.ru', 'bookvoed.ru',
@@ -29,8 +33,10 @@ IMAGE_DOMAINS = (
     'wbstatic.net', 'wbbasket.ru', 'yandex.ru', 'yandex.net',
     'yastatic.net', 'bookvoed.ru', 'book24.ru', 'chitai-gorod.ru',
     'img-gorod.ru', 'labirint.ru', 'detmir.ru', 'dns-shop.ru',
-    'mvideo.ru', 'eldorado.ru', 'sportmaster.ru',
+    'mvideo.ru', 'eldorado.ru', 'sportmaster.ru', 'covers.openlibrary.org',
 )
+OPEN_LIBRARY_DOMAINS = ('openlibrary.org',)
+OPEN_LIBRARY_LIMIT = 96_000
 HTML_LIMIT = 500_000
 IMAGE_LIMIT = 1_750_000
 MAX_REDIRECTS = 2
@@ -313,20 +319,81 @@ def _generic_store_title(title):
     return re.sub(r'\s+', ' ', title).strip().lower() in _GENERIC_STORE_TITLES
 
 
+@lru_cache(maxsize=256)
+def _book_edition(isbn, epoch_day):
+    """Official public book metadata API. No merchant prices, no scraping"""
+    if not valid_isbn(isbn):
+        return None
+    try:
+        address = 'https://openlibrary.org/isbn/' + isbn + '.json'
+        _, mime, body = _request_public(address, OPEN_LIBRARY_DOMAINS, OPEN_LIBRARY_LIMIT)
+        if mime and 'json' not in mime:
+            return None
+        entry = json.loads(body)
+        if not isinstance(entry, dict) or not isinstance(entry.get('title'), str):
+            return None
+        covers = entry.get('covers')
+        cover_id = covers[0] if isinstance(covers, list) and covers else None
+        image = ('https://covers.openlibrary.org/b/id/' + str(cover_id) +
+                 '-M.jpg?default=false') if type(cover_id) is int and 0 < cover_id < 1_000_000_000 else None
+        return {"title": re.sub(r'\s+', ' ', entry['title']).strip()[:130],
+                "image_url": image, "price": None, "currency": "RUB"}
+    except (ApiError, ValueError, TypeError, OSError):
+        return None
+
+
+def _finish_preview(data, final_url, store, source):
+    picture = _image_data(data.pop('image_url', None), final_url)
+    if not data.get('title'):
+        raise ApiError(422, 'Не удалось получить название товара')
+    return {'title': data['title'], 'price': data.get('price'),
+            'currency': 'RUB', 'image_data': picture, 'shop_url': final_url,
+            'source': source, 'store': store}
+
+
 def fetch_product_metadata(value):
+    """Store-specific ID adapter, optional licensed feed, then public metadata
+
+    Never invent a price; an ISBN may yield edition information but not store stock
+    """
     url = _target(value, SHOP_DOMAINS)
+    adapter = adapter_for(url)
+    store = adapter['store']
+    if store in BOOK_STORES:
+        approved = approved_book_offer(url)
+        if approved:
+            data = dict(approved)
+            isbn = data.pop('isbn', None)
+            if not data.get('image_url') and isbn:
+                edition = _book_edition(isbn, int(time.time()) // 86400)
+                if edition:
+                    data['image_url'] = edition.get('image_url')
+            return _finish_preview(data, url, store, 'approved_partner_feed')
+
+    # No unofficial marketplace JSON endpoints. If the public product page
+    # rejects requests, preserve a clear error and require manual data entry
     final_url, mime, body = _request_public(url, SHOP_DOMAINS, HTML_LIMIT)
     if mime and 'text/html' not in mime and 'application/xhtml+xml' not in mime:
         raise ApiError(422, 'По ссылке не нашлась страница товара')
     encoding = 'cp1251' if 'windows-1251' in mime else 'utf-8'
-    preview = _data_from_html(body.decode(encoding, errors='replace'))
-    if not preview['title']:
-        raise ApiError(422, 'Магазин не передал название товара')
+    page = body.decode(encoding, errors='replace')
+    preview = _data_from_html(page)
     if _looks_like_challenge(preview['title']):
         raise ApiError(422, 'Магазин ограничил доступ к странице товара. Заполни данные вручную')
     if _generic_store_title(preview['title']):
         raise ApiError(422, 'По ссылке открылась главная страница магазина, а не товар. Заполни данные вручную')
-    picture = _image_data(preview.pop('image_url'), final_url)
-    return {'title': preview['title'], 'price': preview['price'],
-            'currency': preview['currency'], 'image_data': picture,
-            'shop_url': final_url}
+
+    source = 'public_product_page'
+    if store in BOOK_STORES and (not preview['title'] or not preview['image_url']):
+        isbn = isbn_from_text(page) or isbn_from_text(final_url)
+        if isbn:
+            edition = _book_edition(isbn, int(time.time()) // 86400)
+            if edition:
+                if not preview['title']:
+                    preview['title'] = edition['title']
+                    source = 'open_library'
+                if not preview['image_url']:
+                    preview['image_url'] = edition['image_url']
+    if not preview['title']:
+        raise ApiError(422, 'Магазин не передал название товара')
+    return _finish_preview(preview, final_url, store, source)
