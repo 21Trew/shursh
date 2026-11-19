@@ -1163,3 +1163,26 @@ def test_santa_gift_details_group_chat_and_anonymous_pair_chat(application):
     call(guest,'DELETE',f'/api/participant/{tokens["Бета"]}/wishes/{gift}',status=404)
     call(guest,'DELETE',f'/api/participant/{t}/wishes/{gift}')
     assert call(guest,'GET',f'/api/participant/{t}').json['wishes']==[]
+
+
+def test_santa_legacy_database_feature_gate(application,monkeypatch):
+    """A missing migration must never make existing game pages fail with 503."""
+    from cloud.backend import CloudRequest
+    owner=login(application)
+    eid=call(owner,'POST','/api/santas',{'title':'Старая схема'},201).json['id']
+    monkeypatch.setattr(CloudRequest,'santa_schema_ready',lambda self,con:False)
+    data=call(owner,'GET',f'/api/santas/{eid}').json
+    assert data['rich_enabled'] is False
+    assert data['participants'][0]['name']=='Owner'
+    created=call(owner,'POST',f'/api/santas/{eid}/my-wishes',{'title':'Простой подарок'},201)
+    assert created.json['id']>0
+    game=call(owner,'GET',f'/api/santas/{eid}').json
+    assert game['my_wishes'][0]['title']=='Простой подарок'
+    assert game['my_wishes'][0]['wanted']==''
+    call(owner,'GET',f'/api/santas/{eid}/messages/general',status=409)
+    invite=game['event']['invite_key']
+    participant=call(application.test_client(),'POST',f'/api/invites/{invite}/join',
+                     {'name':'Гость'},201).json['participant_token']
+    guest=call(application.test_client(),'GET',f'/api/participant/{participant}').json
+    assert guest['rich_enabled'] is False
+    assert len(guest['participants'])==2
