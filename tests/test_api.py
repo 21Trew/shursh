@@ -159,3 +159,143 @@ def test_concurrent_draw_idempotent(server,owner):
     assert all(code==200 for code,_ in outcomes),outcomes
     assert sum(not obj['already_drawn'] for _,obj in outcomes)==1,outcomes
     assert owner.get(server+f'/api/santas/{eid}').json()['event']['status']=='drawn'
+
+
+def test_santa_organizer_can_add_players_and_prevent_self_join(server,owner):
+    game=owner.post(server+'/api/santas',json={'title':'Без дублей'})
+    assert game.status_code==201
+    eid=game.json()['id']
+    key=owner.get(server+f'/api/santas/{eid}').json()['event']['invite_key']
+    assert owner.get(server+f'/api/invites/{key}').json()['already_joined'] is True
+    assert owner.post(server+f'/api/invites/{key}/join',
+                      json={'name':'Совсем другое имя'}).status_code==409
+    assert owner.post(server+f'/api/santas/{eid}/participants',
+                      json={'name':'Саша'}).status_code==409
+
+    added=owner.post(server+f'/api/santas/{eid}/participants',json={'name':'Маша'})
+    assert added.status_code==201, added.text
+    token=added.json()['participant_token']
+    assert requests.get(server+f'/api/participant/{token}').status_code==200
+    assert owner.post(server+f'/api/santas/{eid}/participants',
+                      json={'name':'  МАША  '}).status_code==409
+    assert requests.post(server+f'/api/invites/{key}/join',
+                         json={'name':'маша'}).status_code==409
+    assert owner.get(server+f'/api/santas/{eid}').json()['participants'][-1]['name']=='Маша'
+
+    pid=added.json()['id']
+    changed=owner.post(server+f'/api/santas/{eid}/participants/{pid}/new-link',json={})
+    assert changed.status_code==200,changed.text
+    assert requests.get(server+f'/api/participant/{token}').status_code==404
+    assert requests.get(server+f'/api/participant/{changed.json()["participant_token"]}').status_code==200
+    assert requests.post(server+f'/api/santas/{eid}/participants',
+                         json={'name':'Нарушитель'}).status_code==401
+
+
+def test_santa_edit_budget_date_and_freeze_participants(server,owner):
+    r=owner.post(server+'/api/santas',json={'title':'Меняем планы','budget':1500})
+    eid=r.json()['id']
+    update=owner.patch(server+f'/api/santas/{eid}',
+                       json={'budget':2500,'exchange_date':'2027-01-15'})
+    assert update.status_code==200,update.text
+    event=owner.get(server+f'/api/santas/{eid}').json()['event']
+    assert event['budget_cents']==250000
+    assert event['exchange_date']=='2027-01-15'
+    assert owner.patch(server+f'/api/santas/{eid}',
+                       json={'exchange_date':'2027-02-30'}).status_code==400
+    assert owner.patch(server+f'/api/santas/{eid}',json={'title':'Что угодно'}).status_code==400
+    assert owner.patch(server+f'/api/santas/{eid}',
+                       json={'budget':-10}).status_code==400
+    for name in ('Гость А','Гость Б'):
+        assert owner.post(server+f'/api/santas/{eid}/participants',
+                          json={'name':name}).status_code==201
+    assert owner.post(server+f'/api/santas/{eid}/draw',json={}).status_code==200
+    assert owner.post(server+f'/api/santas/{eid}/participants',
+                      json={'name':'Поздний'}).status_code==409
+    assert owner.patch(server+f'/api/santas/{eid}',
+                       json={'budget':2900,'exchange_date':'2027-01-20'}).status_code==200
+    event=owner.get(server+f'/api/santas/{eid}').json()['event']
+    assert event['budget_cents']==290000
+    assert event['exchange_date']=='2027-01-20'
+    assert event['status']=='drawn'
+
+
+def test_import_only_owned_wishlist_items_into_santa(server,owner):
+    l=owner.post(server+'/api/lists',json={'title':'Подарки для Санты'})
+    lid=l.json()['id']
+    a=owner.post(server+f'/api/lists/{lid}/wishes',json={'title':'Тёплый плед'})
+    b=owner.post(server+f'/api/lists/{lid}/wishes',json={'title':'Настольная игра'})
+    assert a.status_code==201 and b.status_code==201
+    ids=[a.json()['id'],b.json()['id']]
+    e=owner.post(server+'/api/santas',json={'title':'Санта с подарками'}).json()['id']
+    path=server+f'/api/santas/{e}/my-wishes/import'
+    result=owner.post(path,json={'list_id':lid,'wish_ids':ids})
+    assert result.status_code==200,result.text
+    assert result.json()['added']==2
+    assert result.json()['snapshot'] is True
+    assert owner.post(path,json={'list_id':lid}).json()['added']==0
+    wishes=owner.get(server+f'/api/santas/{e}').json()['my_wishes']
+    assert {w['title'] for w in wishes}=={'Тёплый плед','Настольная игра'}
+    assert owner.post(path,json={'list_id':lid,'wish_ids':[999999]}).status_code==400
+    assert owner.post(path,json={'list_id':lid,'wish_ids':[ids[0],ids[0]]}).status_code==400
+
+    event=owner.get(server+f'/api/santas/{e}').json()['event']
+    guest=requests.Session()
+    join=guest.post(server+f'/api/invites/{event["invite_key"]}/join',json={'name':'Гость'})
+    assert join.status_code==201
+    token=join.json()['participant_token']
+    assert guest.post(server+f'/api/participant/{token}/wishes/import',
+                      json={'list_id':lid,'wish_ids':ids}).status_code==401
+    assert owner.post(server+f'/api/participant/{token}/wishes/import',
+                      json={'list_id':lid,'wish_ids':[ids[0]]}).status_code==200
+    own=guest.get(server+f'/api/participant/{token}').json()['wishes']
+    assert len(own)==1 and own[0]['title']=='Тёплый плед'
+    assert owner.get(server+f'/api/lists/{lid}').json()['wishes'][0]['title'] in {'Тёплый плед','Настольная игра'}
+
+
+def test_santa_game_gift_cards_and_anonymous_chats(server,owner):
+    """SQLite parity: member gifts, general room, hidden pair identities."""
+    eid=owner.post(server+'/api/santas',json={'title':'Новый праздничный чат'}).json()['id']
+    key=owner.get(server+f'/api/santas/{eid}').json()['event']['invite_key']
+    users={}
+    for name in ('Первый','Второй'):
+        session=requests.Session()
+        response=session.post(server+f'/api/invites/{key}/join',json={'name':name})
+        assert response.status_code==201,response.text
+        users[name]=(session,response.json()['participant_token'])
+    one,t1=users['Первый']
+    two,t2=users['Второй']
+    create=one.post(server+f'/api/participant/{t1}/wishes',json={
+        'title':'Подарок','wanted':'Стекло','unwanted':'Не пластик',
+        'price':1000,'currency':'RUB','shop_url':'https://example.com/gift'})
+    assert create.status_code==201,create.text
+    wid=create.json()['id']
+    gift=one.get(server+f'/api/participant/{t1}').json()['wishes'][0]
+    assert gift['title']=='Подарок' and gift['wanted']=='Стекло'
+    assert gift['unwanted']=='Не пластик' and gift['price_cents']==100000
+    assert 'Подарок' not in str(two.get(server+f'/api/participant/{t2}').json())
+    assert two.patch(server+f'/api/participant/{t2}/wishes/{wid}',json={'title':'Грязный'}).status_code==404
+    change=one.patch(server+f'/api/participant/{t1}/wishes/{wid}',json={
+        'title':'Подарок 2','wanted':'Большой','unwanted':'Без батареек'})
+    assert change.status_code==200,change.text
+    assert one.get(server+f'/api/participant/{t1}').json()['wishes'][0]['wanted']=='Большой'
+    assert one.get(server+f'/api/participant/{t1}/messages/to-recipient').status_code==409
+    assert one.post(server+f'/api/participant/{t1}/messages/general',json={'message':'Привет всем!'}).status_code==201
+    general=two.get(server+f'/api/participant/{t2}/messages/general').json()
+    assert general['messages'][0]['author']=='Первый'
+    assert general['messages'][0]['message']=='Привет всем!'
+    assert 'sender_id' not in str(general)
+    assert requests.get(server+f'/api/participant/bad-token/messages/general').status_code==404
+    assert owner.post(server+f'/api/santas/{eid}/draw',json={}).status_code==200
+    name=one.post(server+f'/api/participant/{t1}/reveal',json={}).json()['assignment']['receiver_name']
+    sent=one.post(server+f'/api/participant/{t1}/messages/to-recipient',json={'message':'Это тайный подарок'})
+    assert sent.status_code==201,sent.text
+    if name=='Саша':
+        inbox=owner.get(server+f'/api/santas/{eid}/messages/from-santa')
+    else:
+        inbox=users[name][0].get(server+f'/api/participant/{users[name][1]}/messages/from-santa')
+    assert inbox.status_code==200
+    message=inbox.json()['messages'][-1]
+    assert message['author']=='Тайный даритель' and not message['mine']
+    assert 'sender_id' not in message
+    assert two.delete(server+f'/api/participant/{t2}/wishes/{wid}').status_code==404
+    assert one.delete(server+f'/api/participant/{t1}/wishes/{wid}').status_code==200

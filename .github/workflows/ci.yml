@@ -1,7 +1,9 @@
 name: Tests
 
 on:
+  # Feature branches with an open PR should not run the same suite twice.
   push:
+    branches: [main]
   pull_request:
 
 permissions:
@@ -18,9 +20,11 @@ jobs:
       - uses: actions/setup-python@v5
         with:
           python-version: ${{ matrix.python-version }}
-      - run: python -m pip install -r requirements-dev.txt
+      - run: python -m pip install -r requirements.txt -r requirements-dev.txt
       - run: python -m py_compile server.py
       - run: python -m pytest -q tests/test_api.py
+      - run: python -m pytest -q tests/test_preview_isolation.py
+      - run: python -m pytest -q tests/test_product_metadata.py tests/test_product_sources.py
 
   frontend-syntax:
     runs-on: ubuntu-latest
@@ -30,4 +34,78 @@ jobs:
         with:
           node-version: '22'
       - run: node --check public/app.js
+      - run: node --check public/santa-ui.js
       - run: node --check public/preview-store.js
+      - run: node --check tools/perf-browser.js
+      - run: node --check tools/release-smoke.mjs
+
+  public-release-smoke:
+    if: github.event_name == 'pull_request' && github.head_ref == 'feat/supabase-mvp'
+    runs-on: ubuntu-latest
+    timeout-minutes: 3
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+      - name: Check live public site without credentials
+        run: node tools/release-smoke.mjs
+
+  postgres-integration:
+    runs-on: ubuntu-latest
+    services:
+      postgres:
+        image: postgres:17
+        env:
+          POSTGRES_USER: postgres
+          POSTGRES_PASSWORD: ci-only-password
+          POSTGRES_DB: shursh_ci
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd "pg_isready -U postgres -d shursh_ci"
+          --health-interval 5s
+          --health-timeout 5s
+          --health-retries 15
+    env:
+      SHURSH_DATABASE_URL: postgresql://postgres:ci-only-password@127.0.0.1:5432/shursh_ci
+      SHURSH_RATE_SECRET: ci-only-rate-secret
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.13'
+      - run: python -m pip install -r requirements.txt -r requirements-dev.txt
+      - run: python -m compileall -q app.py cloud server.py tests/test_cloud.py
+      - name: PostgreSQL integration + reproducible authenticated API timings
+        run: python -m pytest -q -s tests/test_cloud.py -m "not browser and not fontperf"
+
+  browser-e2e:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 18
+    services:
+      postgres:
+        image: postgres:17
+        env:
+          POSTGRES_USER: postgres
+          POSTGRES_PASSWORD: ci-only-password
+          POSTGRES_DB: shursh_ci
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd "pg_isready -U postgres -d shursh_ci"
+          --health-interval 5s
+          --health-timeout 5s
+          --health-retries 15
+    env:
+      SHURSH_DATABASE_URL: postgresql://postgres:ci-only-password@127.0.0.1:5432/shursh_ci
+      SHURSH_RATE_SECRET: ci-only-rate-secret
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.13'
+      - run: python -m pip install -r requirements.txt -r requirements-dev.txt playwright==1.56.0
+      - run: python -m playwright install --with-deps chromium
+      - name: Browser E2E + font loading measurements
+        run: python -m pytest -q -s tests/test_cloud.py -m browser
