@@ -44,7 +44,8 @@ function getLink(path){return isPreview?location.href.split('#')[0]+'#'+path:loc
 /* Owner-only tabs preserve their live DOM between navigations.
    Capability/bearer URLs are deliberately excluded. */
 const ownerTabViews=new Map();
-const OWNER_VIEW_TTL=10*60*1000;
+// Kept until an explicitly relevant mutation or the authenticated session ends.
+const OWNER_VIEW_TTL=Number.POSITIVE_INFINITY;
 const OWNER_VIEW_LIMIT=6;
 let renderedOwnerTab=null;
 function ownerTab(path){return !!currentUser&&['/','/lists','/santas','/friends','/profile','/notifications'].includes(path);}
@@ -62,7 +63,7 @@ function rememberOwnerTab(){
 function restoreOwnerTab(path){
  if(!ownerTab(path))return false;
  const saved=ownerTabViews.get(path);
- if(!saved||saved.expires<=Date.now()){ownerTabViews.delete(path);return false;}
+ if(!saved){ownerTabViews.delete(path);return false;}
  const view=app.querySelector('#page-view');if(!view)return false;
  ownerTabViews.delete(path);view.replaceChildren(saved.node);
  view.removeAttribute('aria-busy');app.classList.remove('route-loading');
@@ -70,7 +71,11 @@ function restoreOwnerTab(path){
   const href=link.dataset.nav;link.classList.toggle('active',href===path);
  });
  const bell=app.querySelector('.header-bell');if(bell)bell.classList.toggle('active',path==='/notifications');
- renderedOwnerTab=path;return true;
+ renderedOwnerTab=path;
+ const refreshPath=ownerApiForTab(path);
+ const stale=refreshPath&&ownerDataCache.get(refreshPath);
+ if(stale&&stale.expires<=Date.now())void revalidateOwnerRead(refreshPath,stale);
+ return true;
 }
 
 function nav(path,{force=false}={}){
@@ -87,20 +92,29 @@ function nav(path,{force=false}={}){
 // Cache only authenticated owner data in RAM, never public bearer-link data.
 const ownerDataCache=new Map();
 let ownerCacheVersion=0;
-function ownerCacheTTL(path){return /^\/api\/(?:santas|lists)\/\d+/.test(path)?15000:45000;}
+function ownerCacheTTL(path){return /^\/api\/(?:santas|lists)\/\d+/.test(path)?30000:45000;}
 function cacheableOwnerRead(path){
- return !!currentUser&&(/^\/api\/(?:lists|santas|dashboard)$/.test(path)||
+ return !!currentUser&&(/^\/api\/(?:lists|santas|dashboard|friends|notifications)$/.test(path)||
+  path==='/api/profile/me'||
   /^\/api\/(?:lists|santas)\/\d+$/.test(path));
 }
-function clearOwnerDataCache(){ownerCacheVersion++;ownerDataCache.clear();clearOwnerTabViews();}
+function clearOwnerDataCache(){
+ ownerCacheVersion++;ownerDataCache.clear();clearOwnerTabViews();ownerRevalidating.clear();
+ ownerWarmupIdentity=null;ownerWarmupReady=false;ownerWarmupPromise=null;
+}
 function invalidateOwnerDataForMutation(path){
  // A social write may change one section, but must not discard unrelated views.
  const isFriendWrite=/^\/api\/friends\//.test(path);
  const isNotificationWrite=/^\/api\/notifications\/\d+\/read$/.test(path);
  const isAccountWrite=path==='/api/profile/me'||/^\/api\/account\/(?:email|password)$/.test(path);
  if(isFriendWrite||isNotificationWrite||isAccountWrite){
-  const tabs=isFriendWrite?['/friends']:isNotificationWrite?['/notifications']:['/profile'];
+  const tabs=isFriendWrite?['/friends','/notifications']:isNotificationWrite?['/notifications']:['/profile'];
   clearOwnerTabViews(tabs);
+  for(const endpoint of isFriendWrite?['/api/friends','/api/notifications']:
+    isNotificationWrite?['/api/notifications']:['/api/profile/me']){
+   ownerDataCache.delete(endpoint);
+  }
+  ownerCacheVersion++;
   if(tabs.includes(renderedOwnerTab))renderedOwnerTab=null;
   return;
  }
@@ -115,6 +129,7 @@ function invalidateOwnerDataForMutation(path){
   /^\/api\/participant\/[^/]+\/(?:wishes|claim)$/.test(path) ||
   /^\/api\/invites\/[^/]+\/join$/.test(path);
  if(!listMutation&&!santaMutation){clearOwnerDataCache();return;}
+ ownerCacheVersion++;
  const invalidTabs=['/'].concat(listMutation?['/lists']:[]).concat(santaMutation?['/santas']:[]);
  clearOwnerTabViews(invalidTabs);
  // The currently displayed page can be stale too: never put it back in RAM
@@ -135,14 +150,66 @@ function seedOwnerCache(path,value){
 }
 function cachedOwnerValue(path){
  const entry=ownerDataCache.get(path);
- return entry&&entry.expires>Date.now()&&Object.hasOwn(entry,'value')?entry.value:null;
+ return entry&&Object.hasOwn(entry,'value')?entry.value:null;
+}
+function ownerApiForTab(path){
+ return ({'/':'/api/dashboard','/lists':'/api/lists','/santas':'/api/santas',
+  '/friends':'/api/friends','/profile':'/api/profile/me',
+  '/notifications':'/api/notifications'})[path]||null;
+}
+const ownerRevalidating=new Map();
+function revalidateOwnerRead(path,entry){
+ if(!currentUser||isPreview||!entry||ownerDataCache.get(path)!==entry)return Promise.resolve();
+ if(ownerRevalidating.has(path))return ownerRevalidating.get(path);
+ const version=ownerCacheVersion,identity=currentUser.id;
+ const job=(async()=>{
+  try{
+   const response=await fetch(path,{credentials:'same-origin',headers:{Accept:'application/json'}});
+   if(!response.ok)return;
+   const value=await response.json();
+   if(version!==ownerCacheVersion||currentUser?.id!==identity||ownerDataCache.get(path)!==entry)return;
+   const changed=JSON.stringify(value)!==JSON.stringify(entry.value);
+   seedOwnerCache(path,value);
+   if(changed){
+    const tab=Object.keys({'/':'/api/dashboard','/lists':'/api/lists',
+     '/santas':'/api/santas','/friends':'/api/friends','/profile':'/api/profile/me',
+     '/notifications':'/api/notifications'}).find(tab=>ownerApiForTab(tab)===path);
+    if(tab){
+     clearOwnerTabViews([tab]);
+     if(renderedOwnerTab===tab)renderedOwnerTab=null;
+    }
+   }
+  }catch{
+   // A network outage must not destroy a previously rendered private page.
+  }
+ })();
+ ownerRevalidating.set(path,job);
+ void job.finally(()=>{if(ownerRevalidating.get(path)===job)ownerRevalidating.delete(path);});
+ return job;
+}
+let ownerWarmupIdentity=null,ownerWarmupReady=false,ownerWarmupPromise=null;
+function scheduleOwnerWarmup(){
+ if(isPreview||!currentUser||ownerWarmupIdentity===currentUser.id)return;
+ const identity=currentUser.id;
+ ownerWarmupIdentity=identity;ownerWarmupReady=false;
+ // Do not block the first paint. The initial dashboard already seeds lists/Santa.
+ setTimeout(()=>{
+  if(currentUser?.id!==identity)return;
+  ownerWarmupPromise=Promise.allSettled(
+   ['/api/friends','/api/profile/me','/api/notifications'].map(path=>api(path))
+  ).finally(()=>{if(currentUser?.id===identity)ownerWarmupReady=true;});
+ },0);
 }
 async function api(path,opts={}){
  if(isPreview)return window.previewApi(path,opts);
  const method=opts.method||'GET',cached=method==='GET'&&cacheableOwnerRead(path);
  if(cached){
   const entry=ownerDataCache.get(path);
-  if(entry&&entry.expires>Date.now())return entry.promise||entry.value;
+  if(entry?.promise)return entry.promise;
+  if(entry&&Object.hasOwn(entry,'value')){
+   if(entry.expires<=Date.now())void revalidateOwnerRead(path,entry);
+   return entry.value;
+  }
  }
  const version=ownerCacheVersion;
  const request=(async()=>{
@@ -370,7 +437,10 @@ function shell(body){
   closeUiSelect();view.innerHTML=body;enhanceSelects(view);view.removeAttribute('aria-busy');app.classList.remove('route-loading');
  renderedOwnerTab=ownerTab(currentPath())?currentPath():null;
  document.title='Шурш! - вишлисты и Тайный Санта';
- if(currentUser&&!isPreview&&typeof socialRefreshBadge==='function')void socialRefreshBadge();
+ if(currentUser&&!isPreview){
+  if(typeof socialRefreshBadge==='function')void socialRefreshBadge();
+  scheduleOwnerWarmup();
+ }
 }
 
 function dashboardContent(data){
@@ -883,7 +953,10 @@ async function render(){const marker=++lastRenderToken;try{
   if(currentUser){if(!cachedOwnerValue('/api/dashboard'))dashboardLoading();await dashboardPage(marker);}else home();
   return;
  }
- if(!((path==='/lists'&&cachedOwnerValue('/api/lists')) || (path==='/santas'&&cachedOwnerValue('/api/santas'))))loading();
+ const routeApi=ownerApiForTab(path)||
+  (/^\/santa\/\d+$/.test(path)?'/api/santas/'+path.split('/')[2]:
+   /^\/list\/\d+$/.test(path)?'/api/lists/'+path.split('/')[2]:null);
+ if(!routeApi||!cachedOwnerValue(routeApi))loading();
  if(path==='/friends')await socialFriendsPage(marker);else if(path==='/profile')await socialOwnProfilePage(marker);else if(/^\/users\/[0-9a-fA-F-]{36}$/.test(path))await socialProfilePage(path.split('/')[2],marker);else if(path==='/notifications')await socialNotificationsPage(marker);else if(path==='/admin')await socialAdminPage(marker);else if(path==='/lists')await listsPage();else if(/^\/list\/\d+$/.test(path))await ownerListPage(path.split('/')[2]);else if(/^\/w\/[A-Za-z0-9_-]+$/.test(path))await publicListPage(path.split('/')[2]);else if(/^\/r\/[A-Za-z0-9_-]+$/.test(path))await reservationPage(path.split('/')[2]);else if(path==='/santas')await santasPage();else if(path==='/admin/feedback')await adminFeedbackPage();else if(/^\/santa\/\d+$/.test(path))await santaAdminPage(path.split('/')[2]);else if(/^\/join\/[A-Za-z0-9_-]+$/.test(path))await invitePage(path.split('/')[2]);else if(/^\/p\/[A-Za-z0-9_-]+$/.test(path))await participantPage(path.split('/')[2]);else errorView(new Error('Похоже, такой страницы ещё нет'),'Страница потерялась');
  }catch(err){if(marker===lastRenderToken)errorView(err,err.message?.includes('404')?'Не найдена':'Страница не загрузилась');}}
 document.addEventListener('click',async ev=>{

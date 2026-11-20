@@ -147,7 +147,7 @@ async function socialNotificationsPage(marker=lastRenderToken){
    (!n.read_at?'<button class="btn btn-soft btn-small" data-social-action="read-notification" data-id="'+n.id+'">Прочитано</button>':'')+
    '</div>').join(''):'<p class="note">Пока всё спокойно. Как только появятся новости, они будут здесь</p>')+
   '</section></main>');
- socialRefreshBadge(true);
+ socialRefreshBadge();
 }
 async function socialAdminPage(marker=lastRenderToken){
  if(!currentUser?.is_admin){errorView(new Error('Доступ только администратору'));return;}

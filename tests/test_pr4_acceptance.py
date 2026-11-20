@@ -121,6 +121,7 @@ def test_pr4_six_tabs_dom_http_timings_and_all_viewports(browser_http):
                 browser_login(page)
                 expect(page.locator(".dashboard-page")).to_be_visible()
                 expect(page.locator("header .header-bell")).to_be_visible()
+                page.wait_for_function("() => typeof ownerWarmupReady !== 'undefined' && ownerWarmupReady && !socialUnreadBusy",timeout=15000)
                 page.evaluate("""() => {
                     window.__pr4Header = document.querySelector("header");
                     window.__pr4Footer = document.querySelector("footer");
@@ -303,6 +304,42 @@ def test_pr4_santa_illustration_and_panels(browser_http):
             expect(page.locator(".santa-list-card")).to_have_count(1)
             expect(page.locator(".santa-list-card .sparkle-deco svg")).to_have_count(1)
             assert "✳" not in page.locator(".santa-list-card").first.inner_text()
+            assert page.evaluate("document.documentElement.scrollWidth <= innerWidth + 2")
+        finally:
+            browser.close()
+
+
+@pytest.mark.browser
+def test_pr4_prefetch_makes_first_visits_and_hour_old_tabs_nonblocking(browser_http):
+    '''Authenticated root prefetches all six owner tabs, and restores them offline.'''
+    from playwright.sync_api import sync_playwright, expect
+    with sync_playwright() as play:
+        browser=play.chromium.launch(headless=True,args=["--no-sandbox"])
+        try:
+            page=browser.new_page(viewport={"width":390,"height":844},
+                                  reduced_motion="reduce")
+            page.goto(browser_http+"/")
+            browser_login(page)
+            page.wait_for_function("() => typeof ownerWarmupReady !== 'undefined' && ownerWarmupReady && !socialUnreadBusy",timeout=15000)
+            traffic=[]
+            page.on("request", lambda request: traffic.append(request.url)
+                    if "/api/" in request.url else None)
+            # All first visits are in-memory, including social routes which
+            # previously blocked on three separate HTTP requests.
+            for path,heading,selector in ROUTES[1:]:
+                page.locator(selector).click()
+                expect(page.locator("#page-view main h1").first).to_contain_text(heading)
+                expect(page.locator(".route-skeleton")).to_have_count(0)
+            assert not traffic, ("Prefetched first visits unexpectedly fetched", traffic)
+            page.context.set_offline(True)
+            page.evaluate("() => { window.__pr4Clock=Date.now; Date.now=()=>window.__pr4Clock()+60*60*1000; }")
+            # One hour later (> previous 10min DOM cache and 45s API TTL)
+            # the app must still work offline with its intact DOM trees.
+            for path,heading,selector in ROUTES:
+                page.locator(selector).click()
+                expect(page.locator("#page-view main h1").first).to_contain_text(heading)
+                expect(page.locator(".route-skeleton")).to_have_count(0)
+                expect(page.locator(".error-page")).to_have_count(0)
             assert page.evaluate("document.documentElement.scrollWidth <= innerWidth + 2")
         finally:
             browser.close()

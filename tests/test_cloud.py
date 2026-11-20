@@ -1695,6 +1695,7 @@ def test_browser_social_tabs_cache_notification_bell_and_mobile_heading(browser_
             expect(page.locator('header .header-bell')).to_be_visible()
             expect(page.locator('header .nav [data-nav="/notifications"]')).to_have_count(0)
             assert page.evaluate('document.documentElement.scrollWidth<=innerWidth+2')
+            page.wait_for_function("() => typeof ownerWarmupReady !== 'undefined' && ownerWarmupReady && !socialUnreadBusy",timeout=15000)
             requests=[]
             page.on('request',lambda r: requests.append(r.url.split('?')[0])
                     if '/api/friends' in r.url or '/api/profile/me' in r.url else None)
@@ -1709,7 +1710,7 @@ def test_browser_social_tabs_cache_notification_bell_and_mobile_heading(browser_
             expect(page.locator('main h1')).to_have_text('Уведомления')
             page.locator('header [data-nav="/friends"]').click()
             expect(page.locator('main')).to_have_attribute('data-same-node','friends')
-            assert sum('/api/friends' in u for u in requests)==1,requests
+            assert sum('/api/friends' in u for u in requests)==0,requests
             assert page.evaluate('document.documentElement.scrollWidth<=innerWidth+2')
         finally:
             browser.close()
