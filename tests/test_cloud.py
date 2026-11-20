@@ -428,7 +428,7 @@ def browser_login(page, email='owner@example.test'):
     page.on('request',lambda r: sent.append('sent') if r.url.endswith('/api/login') and r.method=='POST' else None)
     try:
         with page.expect_response(lambda r: r.url.endswith('/api/login') and r.request.method == 'POST', timeout=20000) as result:
-            page.locator('#modal-form button[type="submit"]').click()
+            page.locator('#modal-form button[type="submit"], .modal-fixed-footer button[type="submit"]').click()
         response=result.value
     except PlaywrightTimeout as exc:
         fields=page.evaluate("""() => [...document.querySelectorAll('#modal-form input')].map(el=>({
@@ -438,7 +438,7 @@ def browser_login(page, email='owner@example.test'):
           tooShort:el.validity.tooShort, tooLong:el.validity.tooLong,
           badInput:el.validity.badInput, customError:el.validity.customError
         }))""")
-        disabled=page.locator('#modal-form button[type="submit"]').is_disabled() if page.locator('#modal-form button[type="submit"]').count() else None
+        disabled=page.locator('#modal-form button[type="submit"], .modal-fixed-footer button[type="submit"]').is_disabled() if page.locator('#modal-form button[type="submit"], .modal-fixed-footer button[type="submit"]').count() else None
         raise AssertionError(f'Login timed out: request_sent={bool(sent)}, field_constraints={fields}, submit_disabled={disabled}') from exc
     assert response.status==200, (
         f'Login HTTP {response.status}; '
@@ -524,7 +524,7 @@ def test_browser_manual_product_link_and_uncluttered_header(browser_http):
             expect(page.locator('#fld-name')).to_be_visible()
             expect(page.locator('#fld-email')).to_be_visible()
             expect(page.locator('#fld-message')).to_be_visible()
-            expect(page.locator('#modal-form button[type="submit"]')).to_contain_text('Отправить')
+            expect(page.locator('#modal-form button[type="submit"], .modal-fixed-footer button[type="submit"]')).to_contain_text('Отправить')
             page.locator('.modal-close').click()
             assert page.locator('.footer a[href^="mailto:"]').count() == 0
             assert page.locator('header button[data-open="list"]').count() == 0
@@ -534,7 +534,7 @@ def test_browser_manual_product_link_and_uncluttered_header(browser_http):
 
             page.locator('main button[data-open="list"]').first.click()
             page.locator('#fld-title').fill('Ручные ссылки')
-            page.locator('#modal-form button[type="submit"]').click()
+            page.locator('#modal-form button[type="submit"], .modal-fixed-footer button[type="submit"]').click()
             expect(page.locator('main h1')).to_contain_text('Ручные ссылки')
 
             url = 'https://www.ozon.ru/product/lego-classic-30947723/'
@@ -568,7 +568,7 @@ def test_browser_manual_product_link_and_uncluttered_header(browser_http):
             page.locator('#wish-file').set_input_files({
                 'name': 'gift.png', 'mimeType': 'image/png', 'buffer': photo,
             })
-            page.locator('#modal-form button[type="submit"]').click()
+            page.locator('#modal-form button[type="submit"], .modal-fixed-footer button[type="submit"]').click()
             card = page.locator('.wish-card').filter(has_text='Кот и настольная игра')
             expect(card).to_be_visible()
             expect(card.locator('img')).to_be_visible()
@@ -615,7 +615,7 @@ def test_browser_register_wishlist_reservation_and_isolation(browser_http):
             assert page.locator('#fld-password').get_attribute('type')=='password'
             page.locator('[data-password-visibility]').click()
             page.locator('#fld-password').fill('valid-password')
-            page.locator('#modal-form button[type="submit"]').click()
+            page.locator('#modal-form button[type="submit"], .modal-fixed-footer button[type="submit"]').click()
             expect(page.get_by_role('dialog')).to_contain_text('Проверь почту')
             expect(page.locator('.auth-confirm-card')).to_be_visible()
             expect(page.locator('.auth-confirm-card .auth-confirm-symbol .icon')).to_be_visible()
@@ -653,14 +653,14 @@ def test_browser_register_wishlist_reservation_and_isolation(browser_http):
 
             page.locator('main button[data-open="list"]').first.click()
             page.locator('#fld-title').fill(title)
-            page.locator('#modal-form button[type="submit"]').click()
+            page.locator('#modal-form button[type="submit"], .modal-fixed-footer button[type="submit"]').click()
             expect(page).to_have_url(re.compile(r'/list/\d+$'))
             lid = page.url.rsplit('/', 1)[-1]
             expect(page.locator('main h1')).to_have_text(title)
 
             page.locator('button[data-open="wish"]').first.click()
             page.locator('#fld-title').fill(wish)
-            page.locator('#modal-form button[type="submit"]').click()
+            page.locator('#modal-form button[type="submit"], .modal-fixed-footer button[type="submit"]').click()
             expect(page.locator('.wishlist-grid')).to_contain_text(wish)
             share = page.locator('button[data-action="copy"][data-url*="/w/"]').get_attribute('data-url')
             assert share.startswith(browser_http + '/w/')
@@ -675,7 +675,7 @@ def test_browser_register_wishlist_reservation_and_isolation(browser_http):
             assert guest.evaluate('document.documentElement.scrollWidth <= window.innerWidth + 2'), 'Mobile horizontal overflow'
             guest.locator('button[data-action="reserve"]').click()
             guest.locator('#fld-guest_name').fill('Друг с телефона')
-            guest.locator('#modal-form button[type="submit"]').click()
+            guest.locator('#modal-form button[type="submit"], .modal-fixed-footer button[type="submit"]').click()
             expect(guest).to_have_url(re.compile(r'/r/[A-Za-z0-9_-]+$'))
             expect(guest.locator('main h1')).to_contain_text('Подарок ждёт')
 
@@ -703,14 +703,14 @@ def test_browser_register_wishlist_reservation_and_isolation(browser_http):
             assert not any(l['id']==int(lid) for l in other_summary['lists'])
 
             guest.locator('button[data-action="cancel-reservation"]').click()
-            guest.locator('#modal-form button[type="submit"]').click()
+            guest.locator('#modal-form button[type="submit"], .modal-fixed-footer button[type="submit"]').click()
             expect(guest.locator('main h1')).to_contain_text('Бронь отменена')
             watcher.reload()
             expect(watcher.locator('button[data-action="reserve"]')).to_be_enabled()
 
             page.locator('button[data-action="edit-list"]').click()
             page.locator('#fld-visibility').select_option('private')
-            page.locator('#modal-form button[type="submit"]').click()
+            page.locator('#modal-form button[type="submit"], .modal-fixed-footer button[type="submit"]').click()
             expect(page.locator('.alert')).to_contain_text('Список приватный')
             assert guest.evaluate('''async k => (await fetch('/api/public/' + k)).status''', key) == 404
             guest.goto(share)
@@ -733,7 +733,7 @@ def test_browser_santa_invites_draw_and_private_reveals(browser_http):
             browser_login(owner)
             owner.locator('main button[data-open="santa"]').first.click()
             owner.locator('#fld-title').fill(title)
-            owner.locator('#modal-form button[type="submit"]').click()
+            owner.locator('#modal-form button[type="submit"], .modal-fixed-footer button[type="submit"]').click()
             expect(owner).to_have_url(re.compile(r'/santa/\d+$'))
             eid = owner.url.rsplit('/', 1)[-1]
             assert owner.locator('.error-page').count()==0, owner.locator('.error-page p').all_inner_texts()
@@ -757,7 +757,7 @@ def test_browser_santa_invites_draw_and_private_reveals(browser_http):
                 guest.locator('#santa-preferences-form button[type="submit"]').click()
                 guest.locator('button[data-action="add-game-gift"]').click()
                 guest.locator('#fld-title').fill('Подарок для ' + name)
-                guest.locator('#modal-form button[type="submit"]').click()
+                guest.locator('#modal-form button[type="submit"], .modal-fixed-footer button[type="submit"]').click()
                 expect(guest.locator('.my-wishes-list')).to_contain_text('Подарок для ' + name)
                 expect(guest.locator('.my-wishes-list .game-gifts-track .game-gift-card')).to_have_count(1)
                 guest.locator('.game-gift-card .card-hitarea').first.click()
@@ -783,7 +783,7 @@ def test_browser_santa_invites_draw_and_private_reveals(browser_http):
                 assert state['assignment'] is None
                 assert 'receiver_name' not in str(state)
             owner.locator('button[data-action="draw"]').click()
-            owner.locator('#modal-form button[type="submit"]').click()
+            owner.locator('#modal-form button[type="submit"], .modal-fixed-footer button[type="submit"]').click()
             expect(owner.locator('button[data-action="reveal"]')).to_be_visible()
             assert owner.locator('.secret-card .recipient').count() == 0
 
@@ -824,11 +824,11 @@ def test_browser_card_clicks_and_santa_settings(browser_http):
             browser_login(owner)
             owner.locator('main button[data-open="list"]').first.click()
             owner.locator('#fld-title').fill('Подарки для игры')
-            owner.locator('#modal-form button[type="submit"]').click()
+            owner.locator('#modal-form button[type="submit"], .modal-fixed-footer button[type="submit"]').click()
             expect(owner).to_have_url(re.compile(r'/list/\d+'))
             owner.locator('button[data-open="wish"]').first.click()
             owner.locator('#fld-title').fill('Настольная игра')
-            owner.locator('#modal-form button[type="submit"]').click()
+            owner.locator('#modal-form button[type="submit"], .modal-fixed-footer button[type="submit"]').click()
             owner.locator('.wish-card .card-hitarea').click(position={'x':35,'y':35})
             expect(owner.locator('.modal h2')).to_have_text('Настольная игра')
             owner.locator('.wish-detail-actions [data-action="edit-wish"]').click()
@@ -843,7 +843,7 @@ def test_browser_card_clicks_and_santa_settings(browser_http):
             owner.locator('header .nav [data-nav="/"]').click()
             owner.locator('main button[data-open="santa"]').first.click()
             owner.locator('#fld-title').fill('Санта без дублей')
-            owner.locator('#modal-form button[type="submit"]').click()
+            owner.locator('#modal-form button[type="submit"], .modal-fixed-footer button[type="submit"]').click()
             expect(owner).to_have_url(re.compile(r'/santa/\d+'))
             eid=owner.url.rsplit('/',1)[-1]
             assert owner.locator('.error-page').count()==0, owner.locator('.error-page p').all_inner_texts()
@@ -856,18 +856,18 @@ def test_browser_card_clicks_and_santa_settings(browser_http):
             owner.locator('button[data-action="edit-santa"]').click()
             owner.locator('#fld-budget').fill('2450')
             owner.locator('#fld-exchange_date').fill('2027-02-12')
-            owner.locator('#modal-form button[type="submit"]').click()
+            owner.locator('#modal-form button[type="submit"], .modal-fixed-footer button[type="submit"]').click()
             expect(owner.locator('.details-box')).to_contain_text('2 450')
             owner.locator('button[data-action="add-player"]').click()
             owner.locator('#fld-name').fill('Аня')
-            owner.locator('#modal-form button[type="submit"]').click()
+            owner.locator('#modal-form button[type="submit"], .modal-fixed-footer button[type="submit"]').click()
             expect(owner.locator('.modal h2')).to_have_text('Личная ссылка участника')
             participant_link=owner.locator('input[aria-label="Личная ссылка участника"]').input_value()
             owner.locator('.modal-close').click()
             expect(owner.locator('.person-row')).to_have_count(2)
             owner.locator('button[data-action="import-own-wishes"]').first.click()
             expect(owner.locator('[name="wish_ids"]:checked')).to_have_count(1)
-            owner.locator('#modal-form button[type="submit"]').click()
+            owner.locator('#modal-form button[type="submit"], .modal-fixed-footer button[type="submit"]').click()
             expect(owner.locator('.my-wishes-list')).to_contain_text('Настольная игра')
 
             owner.locator('header .nav [data-nav="/"]').click()
@@ -885,14 +885,14 @@ def test_browser_card_clicks_and_santa_settings(browser_http):
             expect(other.locator('header button[data-action="logout"]')).to_be_visible()
             other.locator('main button[data-open="list"]').first.click()
             other.locator('#fld-title').fill('Другой список')
-            other.locator('#modal-form button[type="submit"]').click()
+            other.locator('#modal-form button[type="submit"], .modal-fixed-footer button[type="submit"]').click()
             other.locator('button[data-open="wish"]').first.click()
             other.locator('#fld-title').fill('Тёплый шарф')
-            other.locator('#modal-form button[type="submit"]').click()
+            other.locator('#modal-form button[type="submit"], .modal-fixed-footer button[type="submit"]').click()
             other.goto(participant_link)
             other.locator('button[data-action="import-own-wishes"]').click()
             expect(other.locator('[name="wish_ids"]:checked')).to_have_count(1)
-            other.locator('#modal-form button[type="submit"]').click()
+            other.locator('#modal-form button[type="submit"], .modal-fixed-footer button[type="submit"]').click()
             expect(other.locator('.my-wishes-list')).to_contain_text('Тёплый шарф')
             assert other.evaluate('document.documentElement.scrollWidth <= innerWidth + 2')
         finally:
@@ -991,7 +991,7 @@ def test_browser_navigation_cache_invalidation_and_persistent_header(browser_htt
             title='No redraw '+uuid4().hex[:7]
             page.locator('main button[data-open="list"]').first.click()
             page.locator('#fld-title').fill(title)
-            page.locator('#modal-form button[type="submit"]').click()
+            page.locator('#modal-form button[type="submit"], .modal-fixed-footer button[type="submit"]').click()
             expect(page).to_have_url(re.compile(r'/list/\d+$'))
             page.locator('header .nav [data-nav="/lists"]').click()
             expect(page.locator('main')).to_contain_text(title)
@@ -1001,7 +1001,7 @@ def test_browser_navigation_cache_invalidation_and_persistent_header(browser_htt
             santa='No redraw game '+uuid4().hex[:7]
             page.locator('main button[data-open="santa"]').first.click()
             page.locator('#fld-title').fill(santa)
-            page.locator('#modal-form button[type="submit"]').click()
+            page.locator('#modal-form button[type="submit"], .modal-fixed-footer button[type="submit"]').click()
             expect(page).to_have_url(re.compile(r'/santa/\d+$'))
             assert page.locator('.error-page').count()==0, page.locator('.error-page p').all_inner_texts()
             expect(page.locator('main h1')).to_contain_text(santa)
@@ -1053,7 +1053,7 @@ def test_owner_tab_navigation_reuses_data_and_dom(browser_http):
             assert not any('/api/lists' in url or '/api/santas' in url for url in requests), requests
             page.locator('main button[data-open="list"]').first.click()
             page.locator('#fld-title').fill('Cache invalidation integration')
-            page.locator('#modal-form button[type="submit"]').click()
+            page.locator('#modal-form button[type="submit"], .modal-fixed-footer button[type="submit"]').click()
             expect(page).to_have_url(re.compile(r'/list/[0-9]+$'))
             page.locator('header .nav [data-nav="/lists"]').click()
             expect(page.locator('main')).to_contain_text('Cache invalidation integration')
@@ -1400,7 +1400,7 @@ def test_browser_confirmation_callback_and_recovery(browser_http,monkeypatch):
             assert expired.evaluate('location.hash')==''
             expired.locator('[data-open="resend"]').click()
             expired.locator('#fld-email').fill('owner@example.test')
-            expired.locator('#modal-form button[type="submit"]').click()
+            expired.locator('#modal-form button[type="submit"], .modal-fixed-footer button[type="submit"]').click()
             expect(expired.get_by_role('dialog')).to_contain_text('Проверь почту')
         finally:
             browser.close()
