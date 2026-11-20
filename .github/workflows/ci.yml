@@ -109,3 +109,11 @@ jobs:
       - run: python -m playwright install --with-deps chromium
       - name: Browser E2E + font loading measurements
         run: python -m pytest -q -s tests/test_cloud.py tests/test_pr4_acceptance.py -m browser
+      - name: Upload sanitized PR4 browser acceptance screenshots and metrics
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: pr4-six-tab-ui-acceptance
+          path: artifacts/pr4-ui/
+          if-no-files-found: warn
+          retention-days: 7
