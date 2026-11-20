@@ -1010,7 +1010,8 @@ def test_browser_navigation_cache_invalidation_and_persistent_header(browser_htt
             page.set_default_timeout(15000)
             page.goto(browser_http+'/')
             browser_login(page)
-            expect(page.locator('.dashboard-metrics')).to_be_visible()
+            expect(page.locator('.dashboard-metrics')).to_have_count(0)
+            expect(page.locator('header .header-bell')).to_be_visible()
             page.evaluate('window.__stableHeader = document.querySelector(".site-header")')
             page.evaluate('window.__stableFooter = document.querySelector("footer")')
             visited=[]
@@ -1575,3 +1576,136 @@ def test_social_game_invitation_member_permissions_and_admin(application,monkeyp
     new_login=login(application)
     assert new_login.get('/api/me',base_url=BASE).json['user']['is_admin'] is True
     assert new_login.post('/api/logout',base_url=BASE,json={}).status_code==200
+
+
+def test_profile_identity_emoji_handles_friend_cancel_and_privacy(application):
+    """All personal edits are owner-scoped; email must never leak to others."""
+    from cloud import db
+    owner=login(application)
+    friend=login(application,'other@example.test')
+    owner_id=str(IDS['owner@example.test'])
+    friend_id=str(IDS['other@example.test'])
+    with psycopg.connect(os.environ['SHURSH_DATABASE_URL']) as con:
+        con.execute('DELETE FROM public.friendships WHERE user_low=%s AND user_high=%s',
+                    (IDS['owner@example.test'], IDS['other@example.test']))
+    mine=call(owner,'GET','/api/profile/me').json
+    assert mine['profile']['email']=='owner@example.test'
+    assert mine['profile']['avatar_emoji']=='🎁'
+    assert isinstance(mine['lists'],list)
+    updated=call(owner,'PATCH','/api/profile/me',{
+        'name':'Owner Profile','handle':'Owner_2026','avatar_emoji':'🐱',
+        'city':'Санкт-Петербург','bio':'Люблю настольные игры',
+        'discoverable':True}).json['profile']
+    assert updated['handle']=='owner_2026'
+    assert updated['avatar_emoji']=='🐱'
+    assert updated['city']=='Санкт-Петербург'
+    assert updated['name']=='Owner Profile'
+    assert 'email' in updated
+    public=call(friend,'GET',f'/api/users/{owner_id}').json['profile']
+    assert public['avatar_emoji']=='🐱' and public['handle']=='owner_2026'
+    assert 'email' not in public and 'owner@example.test' not in str(public)
+    q=call(friend,'GET','/api/users/search?q=%40owner_2026').json
+    assert any(str(x['id'])==owner_id and x['avatar_emoji']=='🐱' for x in q['users'])
+    call(friend,'PATCH','/api/profile/me',{'handle':'owner_2026'},409)
+    call(friend,'PATCH','/api/profile/me',{'avatar_emoji':'<img src=x onerror=alert(1)>'},400)
+    call(friend,'PATCH','/api/profile/me',{'handle':' bad handle '},400)
+    call(friend,'PATCH','/api/profile/me',{'city':'x'*61},400)
+    call(friend,'POST',f'/api/friends/{owner_id}',{},200)
+    # Recipient may not cancel another person's pending outgoing request.
+    call(owner,'DELETE',f'/api/friends/{friend_id}',{},404)
+    assert call(friend,'GET','/api/friends').json['outgoing']
+    call(friend,'DELETE',f'/api/friends/{owner_id}',{},200)
+    assert not call(friend,'GET','/api/friends').json['outgoing']
+    assert not call(owner,'GET','/api/friends').json['incoming']
+    call(owner,'PATCH','/api/profile/me',{'name':'Owner','handle':'',
+        'avatar_emoji':'🎁','city':'','bio':'','discoverable':True})
+    call(friend,'PATCH','/api/profile/me',{'handle':''})
+
+
+def test_santa_private_link_claim_to_logged_in_account(application):
+    """Private capability is proof for a single binding, not transferable."""
+    organizer=login(application,'other@example.test')
+    target=login(application)
+    event_id=call(organizer,'POST','/api/santas',{'title':'Account link claim'},201).json['id']
+    key=call(organizer,'GET',f'/api/santas/{event_id}').json['event']['invite_key']
+    guest=application.test_client()
+    join=call(guest,'POST',f'/api/invites/{key}/join',{'name':'Guest for account'},201)
+    personal_token=join.json['participant_token']
+    assert len(personal_token)==43
+    before=call(target,'GET','/api/santas').json['events']
+    assert not any(x['id']==event_id for x in before)
+    call(guest,'POST',f'/api/participant/{personal_token}/claim',{},401)
+    call(target,'POST','/api/participant/invalid/claim',{},404)
+    bound=call(target,'POST',f'/api/participant/{personal_token}/claim',{},200).json
+    assert bound['event_id']==event_id
+    assert any(x['id']==event_id for x in call(target,'GET','/api/santas').json['events'])
+    assert any(x['id']==event_id for x in call(target,'GET','/api/dashboard').json['events'])
+    call(target,'POST',f'/api/participant/{personal_token}/claim',{},200)
+    call(organizer,'POST',f'/api/participant/{personal_token}/claim',{},409)
+    # Authenticated membership no longer depends on retaining the bearer link.
+    member=call(target,'GET',f'/api/member/{event_id}').json
+    assert member['participant']['name']=='Guest for account'
+    assert 'assignment' not in str(member)
+
+
+def test_account_changes_require_password_and_exact_authenticated_identity(application,monkeypatch):
+    """Never permit credentials changes with just a persistent app cookie."""
+    from cloud import auth
+    client=login(application)
+    seen=[]
+    def provider(user_id,email,current_password,change):
+        assert str(user_id)==str(IDS['owner@example.test'])
+        assert email=='owner@example.test'
+        assert current_password=='valid-password'
+        seen.append(change)
+        return True
+    monkeypatch.setattr(auth,'update_verified_account',provider)
+    call(client,'POST','/api/account/email',{'current_password':'bad',
+        'email':'new@example.test'},400)
+    call(client,'POST','/api/account/password',{'current_password':'valid-password',
+        'new_password':'valid-password'},400)
+    call(client,'POST','/api/account/email',{'current_password':'valid-password',
+        'email':'not-an-address'},400)
+    good=call(client,'POST','/api/account/email',{'current_password':'valid-password',
+        'email':'new@example.test'},200).json
+    assert good['pending_confirmation'] is True
+    other=call(client,'POST','/api/account/password',{
+        'current_password':'valid-password','new_password':'another-strong-password'},200).json
+    assert other['pending_confirmation'] is False
+    assert seen==[{'email':'new@example.test'},{'password':'another-strong-password'}]
+    call(application.test_client(),'POST','/api/account/password',
+         {'current_password':'valid-password','new_password':'another-strong-password'},401)
+
+
+@pytest.mark.browser
+def test_browser_social_tabs_cache_notification_bell_and_mobile_heading(browser_http):
+    """Same social DOM node and zero redundant API calls on tab return."""
+    from playwright.sync_api import sync_playwright, expect
+    with sync_playwright() as play:
+        browser=play.chromium.launch(headless=True,args=['--no-sandbox'])
+        try:
+            page=browser.new_page(viewport={'width':390,'height':844})
+            page.goto(browser_http+'/')
+            browser_login(page)
+            expect(page.locator('.dashboard-metrics')).to_have_count(0)
+            expect(page.locator('header .header-bell')).to_be_visible()
+            expect(page.locator('header .nav [data-nav="/notifications"]')).to_have_count(0)
+            assert page.evaluate('document.documentElement.scrollWidth<=innerWidth+2')
+            requests=[]
+            page.on('request',lambda r: requests.append(r.url.split('?')[0])
+                    if '/api/friends' in r.url or '/api/profile/me' in r.url else None)
+            page.locator('header [data-nav="/friends"]').click()
+            expect(page.locator('main h1')).to_have_text('Друзья')
+            expect(page.locator('.social-search h2')).to_have_text('Найти друга')
+            page.locator('main').evaluate("(el)=>el.dataset.sameNode='friends'")
+            page.locator('header [data-nav="/profile"]').click()
+            expect(page.locator('main h1').first).to_have_text('Мой профиль')
+            expect(page.locator('.emoji-avatar').first).to_be_visible()
+            page.locator('header .header-bell').click()
+            expect(page.locator('main h1')).to_have_text('Уведомления')
+            page.locator('header [data-nav="/friends"]').click()
+            expect(page.locator('main')).to_have_attribute('data-same-node','friends')
+            assert sum('/api/friends' in u for u in requests)==1,requests
+            assert page.evaluate('document.documentElement.scrollWidth<=innerWidth+2')
+        finally:
+            browser.close()
