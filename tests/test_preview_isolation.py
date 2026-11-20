@@ -94,3 +94,39 @@ def test_local_ci_remains_unaffected(staging_config,monkeypatch):
     monkeypatch.delenv('SUPABASE_URL')
     monkeypatch.delenv('SHURSH_DATABASE_URL')
     assert_staging_target()
+
+
+@pytest.mark.parametrize('username',[
+    'postgres.vwhzhbsaspbelkvnjjho',
+    'shursh_preview_login.rqnbhjhwmubsjwzontnu',
+    'shursh_backend.vwhzhbsaspbelkvnjjho',
+])
+def test_only_least_privilege_staging_login(staging_config, monkeypatch, username):
+    monkeypatch.setenv('SHURSH_DATABASE_URL',
+        f'postgresql://{username}:password@'
+        'aws-0-eu-central-1.pooler.supabase.com:6543/postgres?sslmode=require')
+    with pytest.raises(RuntimeError, match='not Staging'):
+        assert_staging_target()
+
+
+@pytest.mark.parametrize('host,port',[
+    ('db.vwhzhbsaspbelkvnjjho.supabase.co', '5432'),
+    ('aws-0-eu-west-1.pooler.supabase.com', '6543'),
+    ('evil.pooler.supabase.com', '6543'),
+    ('aws-0-eu-central-1.pooler.supabase.com', '5432'),
+])
+def test_pooler_host_and_port_must_match(staging_config, monkeypatch, host, port):
+    monkeypatch.setenv('SHURSH_DATABASE_URL',
+        f'postgresql://shursh_preview_login.{STAGING_REF}:password@'
+        f'{host}:{port}/postgres?sslmode=require')
+    with pytest.raises(RuntimeError, match='not Staging'):
+        assert_staging_target()
+
+
+def test_unknown_postgres_options_are_rejected(staging_config, monkeypatch):
+    monkeypatch.setenv('SHURSH_DATABASE_URL',
+        f'postgresql://shursh_preview_login.{STAGING_REF}:password@'
+        'aws-0-eu-central-1.pooler.supabase.com:6543/postgres'
+        '?sslmode=require&options=-c%20search_path%3Dpublic')
+    with pytest.raises(RuntimeError, match='not Staging'):
+        assert_staging_target()
