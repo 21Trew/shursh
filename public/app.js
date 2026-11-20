@@ -29,7 +29,8 @@ const ico = (name, size=20) => `<svg class="icon" width="${size}" height="${size
   mail:'<rect x="3" y="5" width="18" height="14" rx="2"/><path d="m3 7 9 7 9-7"/>',
   info:'<circle cx="12" cy="12" r="10"/><path d="M12 11v6m0-10v1"/>',
   logout:'<path d="M10 4H5a2 2 0 0 0-2 2v12a2 2 0 0 0 2 2h5M14 16l4-4-4-4m4 4H9"/>',
-  home:'<path d="m3 11 9-8 9 8v10H3V11ZM9 21v-7h6v7"/>'
+  home:'<path d="m3 11 9-8 9 8v10H3V11ZM9 21v-7h6v7"/>',
+  bell:'<path d="M18 8a6 6 0 0 0-12 0c0 7-3 7-3 9h18c0-2-3-2-3-9M10 21h4"/>'
 })[name]||''}</svg>`;
 function esc(value){return String(value??'').replace(/[&<>"']/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));}
 function attr(value){return esc(value);}
@@ -43,9 +44,10 @@ function getLink(path){return isPreview?location.href.split('#')[0]+'#'+path:loc
 /* Owner-only tabs preserve their live DOM between navigations.
    Capability/bearer URLs are deliberately excluded. */
 const ownerTabViews=new Map();
-const OWNER_VIEW_TTL=45000;
+const OWNER_VIEW_TTL=90000;
+const OWNER_VIEW_LIMIT=6;
 let renderedOwnerTab=null;
-function ownerTab(path){return !!currentUser&&['/','/lists','/santas'].includes(path);}
+function ownerTab(path){return !!currentUser&&['/','/lists','/santas','/friends','/profile','/notifications'].includes(path);}
 function clearOwnerTabViews(paths=null){
  if(!paths){ownerTabViews.clear();return;}
  for(const path of paths)ownerTabViews.delete(path);
@@ -54,7 +56,8 @@ function rememberOwnerTab(){
  if(!ownerTab(renderedOwnerTab)||app.querySelector('.dashboard-skeleton'))return;
  const node=app.querySelector('#page-view > main');
  if(!node)return;
- node.remove();ownerTabViews.set(renderedOwnerTab,{node,expires:Date.now()+OWNER_VIEW_TTL});
+ node.remove();ownerTabViews.delete(renderedOwnerTab);ownerTabViews.set(renderedOwnerTab,{node,expires:Date.now()+OWNER_VIEW_TTL});
+ while(ownerTabViews.size>OWNER_VIEW_LIMIT)ownerTabViews.delete(ownerTabViews.keys().next().value);
 }
 function restoreOwnerTab(path){
  if(!ownerTab(path))return false;
@@ -327,11 +330,11 @@ function heroArt(){return `<svg viewBox="0 0 570 535" aria-hidden="true" role="p
  </g><g fill="#edc76c" stroke="#29292c" stroke-width="2"><path d="m161 343 7 19 20 6-20 7-7 20-7-20-20-7 20-6Z"/><path d="m444 310 6 14 14 6-14 6-6 15-5-15-15-6 15-6Z"/></g><path d="M130 252c-12-24-4-36 10-29 8 4 9 13 9 13s12-13 23-4c13 14-5 27-23 40Z" fill="#e98e86"/><path d="m460 212 13-3m-9-15 11-9" stroke="#27272b" stroke-width="3" stroke-linecap="round"/></svg>`;}
 function santaArt(){return `<svg viewBox="0 0 600 430" aria-hidden="true"><path d="M5 210c70-180 229-206 353-138s202 176 220 266v92H0Z" fill="#f3d1c2"/><g transform="translate(60 70) rotate(-12 110 145)"><rect x="25" y="32" width="195" height="232" rx="17" fill="#f5e8ce" stroke="#2c292b" stroke-width="4"/><path d="M45 72h150m-150 31h105m-105 31h130" stroke="#d5baa5" stroke-width="6" stroke-linecap="round"/><circle cx="122" cy="195" r="33" fill="#eeb5a0" stroke="#2c292b" stroke-width="3"/><path d="m106 197 12 12 24-26" stroke="#2c292b" stroke-width="5" fill="none"/></g><g transform="translate(310 91) rotate(13 110 125)"><rect x="18" y="25" width="202" height="230" rx="17" fill="#d4c5ef" stroke="#2c292b" stroke-width="4"/><path d="M19 45 119 139 219 45M19 250l71-91m129 91-72-91" stroke="#2c292b" stroke-width="4" fill="none"/><circle cx="118" cy="150" r="33" fill="#f8c18a" stroke="#2c292b" stroke-width="4"/><path d="M107 152c0-9 7-12 11-4 4-8 12-5 11 4-2 7-11 12-11 12s-11-5-11-12" fill="#fff"/></g><path d="M277 47v29m-14-14h29m204 217 7 17 17 8-17 7-7 17-8-17-17-7 17-8Z" stroke="#2c292b" stroke-width="3" fill="#f2d990"/></svg>`;}
 function stepArt(num){if(num===1)return `<svg viewBox="0 0 130 112">${fallbackArt('book').replace(/viewBox="[^"]*"/,'viewBox="0 0 170 160"')}</svg>`;if(num===2)return `<svg viewBox="0 0 130 112"><rect x="13" y="28" width="104" height="67" rx="10" fill="#fff" stroke="#29292b" stroke-width="3"/><path d="m15 40 50 38 50-38" stroke="#29292b" stroke-width="3" fill="none"/><circle cx="67" cy="73" r="15" fill="#e5bcf0" stroke="#29292b" stroke-width="2"/><path d="M62 72c1-5 5-5 6-1 4-6 9-2 7 3l-7 7Z" fill="#e27f9a"/></svg>`;return `<svg viewBox="0 0 130 112"><rect x="23" y="36" width="86" height="65" fill="#f1b0ac" stroke="#29292b" stroke-width="3"/><rect x="16" y="27" width="100" height="18" fill="#ffdc98" stroke="#29292b" stroke-width="3"/><path d="M65 28v72M65 28c-27 1-25-24-12-23 10 1 12 20 12 23Zm0 0c25-1 24-24 11-23-9 1-11 20-11 23Z" fill="#e5d1f4" stroke="#29292b" stroke-width="3"/></svg>`;}
-function header(){const path=currentPath();return `<header class="site-header"><div class="container topbar"><a class="logo" href="/" data-nav="/" aria-label="Шурш! Главная">шурш<span>!</span></a>${currentUser?`<nav class="nav" aria-label="Главная навигация"><a href="/" data-nav="/" class="${path==='/'?'active':''}">${currentUser?'Кабинет':'Главная'}</a><a href="/lists" data-nav="/lists" class="${path.startsWith('/lists')||path.startsWith('/list/')?'active':''}">Вишлисты</a><a href="/santas" data-nav="/santas" class="${path.startsWith('/santas')||path.startsWith('/santa/')?'active':''}">Тайный Санта</a>${!isPreview?`<a href="/friends" data-nav="/friends" class="${path==='/friends'?'active':''}">Друзья</a><a href="/notifications" data-nav="/notifications" class="${path==='/notifications'?'active':''}">Уведомления <span class="nav-unread" data-notification-count hidden></span></a><a href="/profile" data-nav="/profile" class="${path==='/profile'||path.startsWith('/users/')?'active':''}">Профиль</a>${currentUser.is_admin?`<a href="/admin" data-nav="/admin" class="${path.startsWith('/admin')?'active':''}">Админка</a>`:''}`:''}</nav>`:""}<div class="header-actions">${currentUser?`<span class="user-name">Привет, ${esc(currentUser.name)}!</span><button class="btn btn-ghost" data-action="logout" title="Выйти">${ico('logout')} Выйти</button>`:`<button class="btn btn-ghost" data-open="login">Войти</button>`}</div></div></header>${isPreview?`<div class="preview-ribbon"><div class="container">Интерактивное демо · данные хранятся только в этом браузере · ссылки не работают на других устройствах <button type="button" data-action="reset-preview">Сбросить демо</button></div></div>`:''}`;}
+function header(){const path=currentPath();return `<header class="site-header"><div class="container topbar"><a class="logo" href="/" data-nav="/" aria-label="Шурш! Главная">шурш<span>!</span></a>${currentUser?`<nav class="nav" aria-label="Главная навигация"><a href="/" data-nav="/" class="${path==='/'?'active':''}">${currentUser?'Кабинет':'Главная'}</a><a href="/lists" data-nav="/lists" class="${path.startsWith('/lists')||path.startsWith('/list/')?'active':''}">Вишлисты</a><a href="/santas" data-nav="/santas" class="${path.startsWith('/santas')||path.startsWith('/santa/')?'active':''}">Тайный Санта</a>${!isPreview?`<a href="/friends" data-nav="/friends" class="${path==='/friends'?'active':''}">Друзья</a><a href="/profile" data-nav="/profile" class="${path==='/profile'||path.startsWith('/users/')?'active':''}">Профиль</a>${currentUser.is_admin?`<a href="/admin" data-nav="/admin" class="${path.startsWith('/admin')?'active':''}">Админка</a>`:''}`:''}</nav>`:""}<div class="header-actions">${currentUser?`<span class="user-name">Привет, ${esc(currentUser.name)}!</span><button class="header-bell ${path==='/notifications'?'active':''}" type="button" data-nav="/notifications" title="Уведомления" aria-label="Уведомления">${ico('bell',21)}<span class="nav-unread" data-notification-count hidden></span></button><button class="btn btn-ghost" data-action="logout" title="Выйти">${ico('logout')} Выйти</button>`:`<button class="btn btn-ghost" data-open="login">Войти</button>`}</div></div></header>${isPreview?`<div class="preview-ribbon"><div class="container">Интерактивное демо · данные хранятся только в этом браузере · ссылки не работают на других устройствах <button type="button" data-action="reset-preview">Сбросить демо</button></div></div>`:''}`;}
 function footer(){return `<footer class="container footer"><div><a class="logo" data-nav="/" href="/">шурш<span>!</span></a><small>Место для хотелок и сюрпризов</small></div>${currentUser?`<nav><a data-nav="/lists" href="/lists">Вишлисты</a><a data-nav="/santas" href="/santas">Тайный Санта</a>${!isPreview?`<a data-nav="/friends" href="/friends">Друзья</a>`:""}</nav>`:""}<p class="footer-credit">Сделано с заботой о сюрпризах <span aria-hidden="true">·</span> <button class="footer-developer" type="button" data-action="contact-developer">L-code</button></p></footer>`;}
 let shellUserSignature='';
 function shell(body){
- const identity=(currentUser?.id??'guest')+':'+(currentUser?.name??'')+':'+isDemo+':'+isPreview;
+ const identity=(currentUser?.id??'guest')+':'+(currentUser?.name??'')+':'+!!currentUser?.is_admin+':'+isDemo+':'+isPreview;
  let view=app.querySelector('#page-view');
  if(!view){
   app.innerHTML=header()+'<div id="page-view"></div>'+footer();
@@ -352,7 +355,8 @@ function shell(body){
    link.classList.toggle('active',active);
   });
  }
- closeUiSelect();view.innerHTML=body;enhanceSelects(view);view.removeAttribute('aria-busy');app.classList.remove('route-loading');
+ const bell=app.querySelector('.header-bell');if(bell)bell.classList.toggle('active',currentPath()==='/notifications');
+  closeUiSelect();view.innerHTML=body;enhanceSelects(view);view.removeAttribute('aria-busy');app.classList.remove('route-loading');
  renderedOwnerTab=ownerTab(currentPath())?currentPath():null;
  document.title='Шурш! - вишлисты и Тайный Санта';
  if(currentUser&&!isPreview&&typeof socialRefreshBadge==='function')void socialRefreshBadge();
@@ -376,10 +380,6 @@ function dashboardContent(data){
   '<div class="btn-row"><button class="btn btn-dark" data-open="list">Новый вишлист '+ico('plus')+'</button>'+
   '<button class="btn btn-peach" data-open="santa">Создать Тайного Санту '+ico('gift')+'</button></div></div>'+
   '<div class="dashboard-welcome-art" aria-hidden="true">'+fallbackArt('gift')+'</div></section>'+
-  '<section class="dashboard-metrics" aria-label="Твоя активность">'+
-  '<div><strong>'+lists.length+'</strong><span>'+plural(lists.length,'вишлист','вишлиста','вишлистов')+'</span></div>'+
-  '<div><strong>'+lists.reduce((sum,l)=>sum+Number(l.wish_count||0),0)+'</strong><span>желаний в списках</span></div>'+
-  '<div><strong>'+events.length+'</strong><span>'+plural(events.length,'игра','игры','игр')+' в Тайного Санту</span></div></section>'+
   '<section class="dashboard-section"><div class="dashboard-section-head"><div><div class="section-label">01 / Вишлисты</div>'+
   '<h2>Твои желания</h2></div><button class="text-link" data-nav="/lists">Все списки '+ico('arrow')+'</button></div>'+
   (lists.length?'<div class="cards-grid">'+recentLists+'</div>':
