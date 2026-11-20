@@ -445,8 +445,8 @@ input[type="file"]::file-selector-button:hover{background:#f2e9dc}
  .site-header .nav a{font-size:12px;padding:8px 9px;min-height:37px;display:inline-flex;align-items:center}
  .header-actions{margin-left:auto;gap:7px}
  .header-actions .user-name{display:none}
- .header-bell{width:39px;height:39px;min-width:39px}
- .header-actions .btn-ghost{min-height:39px}
+ .header-bell{width:44px;height:44px;min-width:44px}
+ .header-actions .btn-ghost{min-height:44px}
  .page{padding-top:22px}
  .page-hero{gap:11px}
  .santa-detail-layout{display:grid;grid-template-columns:minmax(0,1fr);gap:14px}
