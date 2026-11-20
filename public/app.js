@@ -339,9 +339,12 @@ function shell(body){
   const path=currentPath();
   app.querySelectorAll('.site-header .nav [data-nav]').forEach(link=>{
    const href=link.dataset.nav;
-   link.classList.toggle('active',href==='/'?path==='/':
-    href==='/lists'?(path==='/lists'||path.startsWith('/list/')):
-    (path==='/santas'||path.startsWith('/santa/')));
+   const active=href==='/'?path==='/':
+     href==='/lists'?(path==='/lists'||path.startsWith('/list/')):
+     href==='/santas'?(path==='/santas'||path.startsWith('/santa/')):
+     href==='/profile'?(path==='/profile'||path.startsWith('/users/')):
+     href==='/admin'?path.startsWith('/admin'):href===path;
+   link.classList.toggle('active',active);
   });
  }
  closeUiSelect();view.innerHTML=body;enhanceSelects(view);view.removeAttribute('aria-busy');app.classList.remove('route-loading');
