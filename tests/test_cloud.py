@@ -1500,6 +1500,10 @@ def test_social_gift_request_and_anonymous_booking(application):
 
 
 def test_social_game_invitation_member_permissions_and_admin(application,monkeypatch):
+    # Session-scoped CI database is shared; isolate relationships from prior tests.
+    with psycopg.connect(os.environ['SHURSH_DATABASE_URL']) as con:
+        con.execute('DELETE FROM public.friendships WHERE user_low=%s AND user_high=%s',
+                    (IDS['owner@example.test'], IDS['other@example.test']))
     owner=login(application)
     friend=login(application,'other@example.test')
     owner_id=str(IDS['owner@example.test'])
