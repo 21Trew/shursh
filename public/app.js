@@ -29,7 +29,8 @@ const ico = (name, size=20) => `<svg class="icon" width="${size}" height="${size
   mail:'<rect x="3" y="5" width="18" height="14" rx="2"/><path d="m3 7 9 7 9-7"/>',
   info:'<circle cx="12" cy="12" r="10"/><path d="M12 11v6m0-10v1"/>',
   logout:'<path d="M10 4H5a2 2 0 0 0-2 2v12a2 2 0 0 0 2 2h5M14 16l4-4-4-4m4 4H9"/>',
-  home:'<path d="m3 11 9-8 9 8v10H3V11ZM9 21v-7h6v7"/>'
+  home:'<path d="m3 11 9-8 9 8v10H3V11ZM9 21v-7h6v7"/>',
+  bell:'<path d="M18 8a6 6 0 0 0-12 0c0 7-3 7-3 9h18c0-2-3-2-3-9ZM10 21h4"/>'
 })[name]||''}</svg>`;
 function esc(value){return String(value??'').replace(/[&<>"']/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));}
 function attr(value){return esc(value);}
@@ -45,7 +46,7 @@ function getLink(path){return isPreview?location.href.split('#')[0]+'#'+path:loc
 const ownerTabViews=new Map();
 const OWNER_VIEW_TTL=45000;
 let renderedOwnerTab=null;
-function ownerTab(path){return !!currentUser&&['/','/lists','/santas'].includes(path);}
+function ownerTab(path){return !!currentUser&&['/','/lists','/santas','/friends','/profile','/notifications'].includes(path);}
 function clearOwnerTabViews(paths=null){
  if(!paths){ownerTabViews.clear();return;}
  for(const path of paths)ownerTabViews.delete(path);
@@ -63,7 +64,7 @@ function restoreOwnerTab(path){
  const view=app.querySelector('#page-view');if(!view)return false;
  ownerTabViews.delete(path);view.replaceChildren(saved.node);
  view.removeAttribute('aria-busy');app.classList.remove('route-loading');
- app.querySelectorAll('.site-header .nav [data-nav]').forEach(link=>{
+ app.querySelectorAll('.site-header [data-nav]').forEach(link=>{
   const href=link.dataset.nav;link.classList.toggle('active',href===path);
  });
  renderedOwnerTab=path;return true;
@@ -100,7 +101,14 @@ function invalidateOwnerDataForMutation(path){
  const santaMutation=/^\/api\/santas(?:\/|$)/.test(path) ||
   /^\/api\/participant\/[^/]+\/wishes$/.test(path) ||
   /^\/api\/invites\/[^/]+\/join$/.test(path);
- if(!listMutation&&!santaMutation){clearOwnerDataCache();return;}
+ if(!listMutation&&!santaMutation){
+  if(/^\/api\/(?:friends|users|profile|notifications)(?:\/|$)/.test(path)){
+   clearOwnerTabViews(['/friends','/profile','/notifications']);
+   if(['/friends','/profile','/notifications'].includes(renderedOwnerTab))renderedOwnerTab=null;
+   return;
+  }
+  clearOwnerDataCache();return;
+ }
  const invalidTabs=['/'].concat(listMutation?['/lists']:[]).concat(santaMutation?['/santas']:[]);
  clearOwnerTabViews(invalidTabs);
  // The currently displayed page can be stale too: never put it back in RAM
@@ -327,7 +335,7 @@ function heroArt(){return `<svg viewBox="0 0 570 535" aria-hidden="true" role="p
  </g><g fill="#edc76c" stroke="#29292c" stroke-width="2"><path d="m161 343 7 19 20 6-20 7-7 20-7-20-20-7 20-6Z"/><path d="m444 310 6 14 14 6-14 6-6 15-5-15-15-6 15-6Z"/></g><path d="M130 252c-12-24-4-36 10-29 8 4 9 13 9 13s12-13 23-4c13 14-5 27-23 40Z" fill="#e98e86"/><path d="m460 212 13-3m-9-15 11-9" stroke="#27272b" stroke-width="3" stroke-linecap="round"/></svg>`;}
 function santaArt(){return `<svg viewBox="0 0 600 430" aria-hidden="true"><path d="M5 210c70-180 229-206 353-138s202 176 220 266v92H0Z" fill="#f3d1c2"/><g transform="translate(60 70) rotate(-12 110 145)"><rect x="25" y="32" width="195" height="232" rx="17" fill="#f5e8ce" stroke="#2c292b" stroke-width="4"/><path d="M45 72h150m-150 31h105m-105 31h130" stroke="#d5baa5" stroke-width="6" stroke-linecap="round"/><circle cx="122" cy="195" r="33" fill="#eeb5a0" stroke="#2c292b" stroke-width="3"/><path d="m106 197 12 12 24-26" stroke="#2c292b" stroke-width="5" fill="none"/></g><g transform="translate(310 91) rotate(13 110 125)"><rect x="18" y="25" width="202" height="230" rx="17" fill="#d4c5ef" stroke="#2c292b" stroke-width="4"/><path d="M19 45 119 139 219 45M19 250l71-91m129 91-72-91" stroke="#2c292b" stroke-width="4" fill="none"/><circle cx="118" cy="150" r="33" fill="#f8c18a" stroke="#2c292b" stroke-width="4"/><path d="M107 152c0-9 7-12 11-4 4-8 12-5 11 4-2 7-11 12-11 12s-11-5-11-12" fill="#fff"/></g><path d="M277 47v29m-14-14h29m204 217 7 17 17 8-17 7-7 17-8-17-17-7 17-8Z" stroke="#2c292b" stroke-width="3" fill="#f2d990"/></svg>`;}
 function stepArt(num){if(num===1)return `<svg viewBox="0 0 130 112">${fallbackArt('book').replace(/viewBox="[^"]*"/,'viewBox="0 0 170 160"')}</svg>`;if(num===2)return `<svg viewBox="0 0 130 112"><rect x="13" y="28" width="104" height="67" rx="10" fill="#fff" stroke="#29292b" stroke-width="3"/><path d="m15 40 50 38 50-38" stroke="#29292b" stroke-width="3" fill="none"/><circle cx="67" cy="73" r="15" fill="#e5bcf0" stroke="#29292b" stroke-width="2"/><path d="M62 72c1-5 5-5 6-1 4-6 9-2 7 3l-7 7Z" fill="#e27f9a"/></svg>`;return `<svg viewBox="0 0 130 112"><rect x="23" y="36" width="86" height="65" fill="#f1b0ac" stroke="#29292b" stroke-width="3"/><rect x="16" y="27" width="100" height="18" fill="#ffdc98" stroke="#29292b" stroke-width="3"/><path d="M65 28v72M65 28c-27 1-25-24-12-23 10 1 12 20 12 23Zm0 0c25-1 24-24 11-23-9 1-11 20-11 23Z" fill="#e5d1f4" stroke="#29292b" stroke-width="3"/></svg>`;}
-function header(){const path=currentPath();return `<header class="site-header"><div class="container topbar"><a class="logo" href="/" data-nav="/" aria-label="Шурш! Главная">шурш<span>!</span></a>${currentUser?`<nav class="nav" aria-label="Главная навигация"><a href="/" data-nav="/" class="${path==='/'?'active':''}">${currentUser?'Кабинет':'Главная'}</a><a href="/lists" data-nav="/lists" class="${path.startsWith('/lists')||path.startsWith('/list/')?'active':''}">Вишлисты</a><a href="/santas" data-nav="/santas" class="${path.startsWith('/santas')||path.startsWith('/santa/')?'active':''}">Тайный Санта</a>${!isPreview?`<a href="/friends" data-nav="/friends" class="${path==='/friends'?'active':''}">Друзья</a><a href="/notifications" data-nav="/notifications" class="${path==='/notifications'?'active':''}">Уведомления <span class="nav-unread" data-notification-count hidden></span></a><a href="/profile" data-nav="/profile" class="${path==='/profile'||path.startsWith('/users/')?'active':''}">Профиль</a>${currentUser.is_admin?`<a href="/admin" data-nav="/admin" class="${path.startsWith('/admin')?'active':''}">Админка</a>`:''}`:''}</nav>`:""}<div class="header-actions">${currentUser?`<span class="user-name">Привет, ${esc(currentUser.name)}!</span><button class="btn btn-ghost" data-action="logout" title="Выйти">${ico('logout')} Выйти</button>`:`<button class="btn btn-ghost" data-open="login">Войти</button>`}</div></div></header>${isPreview?`<div class="preview-ribbon"><div class="container">Интерактивное демо · данные хранятся только в этом браузере · ссылки не работают на других устройствах <button type="button" data-action="reset-preview">Сбросить демо</button></div></div>`:''}`;}
+function header(){const path=currentPath();return `<header class="site-header"><div class="container topbar"><a class="logo" href="/" data-nav="/" aria-label="Шурш! Главная">шурш<span>!</span></a>${currentUser?`<nav class="nav" aria-label="Главная навигация"><a href="/" data-nav="/" class="${path==='/'?'active':''}">${currentUser?'Кабинет':'Главная'}</a><a href="/lists" data-nav="/lists" class="${path.startsWith('/lists')||path.startsWith('/list/')?'active':''}">Вишлисты</a><a href="/santas" data-nav="/santas" class="${path.startsWith('/santas')||path.startsWith('/santa/')?'active':''}">Тайный Санта</a>${!isPreview?`<a href="/friends" data-nav="/friends" class="${path==='/friends'?'active':''}">Друзья</a><a href="/profile" data-nav="/profile" class="${path==='/profile'||path.startsWith('/users/')?'active':''}">Профиль</a>${currentUser.is_admin?`<a href="/admin" data-nav="/admin" class="${path.startsWith('/admin')?'active':''}">Админка</a>`:''}`:''}</nav>`:""}<div class="header-actions">${currentUser?`<span class="user-name">Привет, ${esc(currentUser.name)}!</span>${!isPreview?`<a href="/notifications" data-nav="/notifications" class="header-bell ${path==='/notifications'?'active':''}" aria-label="Уведомления" title="Уведомления">${ico('bell')}<span class="nav-unread" data-notification-count hidden></span></a>`:''}<button class="btn btn-ghost" data-action="logout" title="Выйти">${ico('logout')} Выйти</button>`:`<button class="btn btn-ghost" data-open="login">Войти</button>`}</div></div></header>${isPreview?`<div class="preview-ribbon"><div class="container">Интерактивное демо · данные хранятся только в этом браузере · ссылки не работают на других устройствах <button type="button" data-action="reset-preview">Сбросить демо</button></div></div>`:''}`;}
 function footer(){return `<footer class="container footer"><div><a class="logo" data-nav="/" href="/">шурш<span>!</span></a><small>Место для хотелок и сюрпризов</small></div>${currentUser?`<nav><a data-nav="/lists" href="/lists">Вишлисты</a><a data-nav="/santas" href="/santas">Тайный Санта</a>${!isPreview?`<a data-nav="/friends" href="/friends">Друзья</a>`:""}</nav>`:""}<p class="footer-credit">Сделано с заботой о сюрпризах <span aria-hidden="true">·</span> <button class="footer-developer" type="button" data-action="contact-developer">L-code</button></p></footer>`;}
 let shellUserSignature='';
 function shell(body){
@@ -342,7 +350,7 @@ function shell(body){
   shellUserSignature=identity;
  }else{
   const path=currentPath();
-  app.querySelectorAll('.site-header .nav [data-nav]').forEach(link=>{
+  app.querySelectorAll('.site-header [data-nav]').forEach(link=>{
    const href=link.dataset.nav;
    const active=href==='/'?path==='/':
      href==='/lists'?(path==='/lists'||path.startsWith('/list/')):
@@ -376,10 +384,7 @@ function dashboardContent(data){
   '<div class="btn-row"><button class="btn btn-dark" data-open="list">Новый вишлист '+ico('plus')+'</button>'+
   '<button class="btn btn-peach" data-open="santa">Создать Тайного Санту '+ico('gift')+'</button></div></div>'+
   '<div class="dashboard-welcome-art" aria-hidden="true">'+fallbackArt('gift')+'</div></section>'+
-  '<section class="dashboard-metrics" aria-label="Твоя активность">'+
-  '<div><strong>'+lists.length+'</strong><span>'+plural(lists.length,'вишлист','вишлиста','вишлистов')+'</span></div>'+
-  '<div><strong>'+lists.reduce((sum,l)=>sum+Number(l.wish_count||0),0)+'</strong><span>желаний в списках</span></div>'+
-  '<div><strong>'+events.length+'</strong><span>'+plural(events.length,'игра','игры','игр')+' в Тайного Санту</span></div></section>'+
+
   '<section class="dashboard-section"><div class="dashboard-section-head"><div><div class="section-label">01 / Вишлисты</div>'+
   '<h2>Твои желания</h2></div><button class="text-link" data-nav="/lists">Все списки '+ico('arrow')+'</button></div>'+
   (lists.length?'<div class="cards-grid">'+recentLists+'</div>':
@@ -510,17 +515,22 @@ async function santaGamePage(id,marker=lastRenderToken,participantToken=null){
  shell(`<main class="container page"><div class="guest-topline">${memberView? `${ico('lock')} Личный кабинет участника <span>/</span> <strong>${esc(d.participant.name)}</strong>`:`<button class="text-link" data-nav="/santas">${ico('back')} Все игры</button> <span>/</span> <span>${esc(e.title)}</span>`}</div><div class="page-hero"><div><div class="section-label">${e.status==='drawn'?'Жеребьёвка проведена':'Приглашаем участников'}</div><h1>${esc(e.title)}</h1><p>${esc(e.description||'Праздник начинается с маленькой тайны')}</p></div><span class="chip ${e.status==='drawn'?'chip-green':'chip-lilac'}">${ico(e.status==='drawn'?'check':'users')} ${e.status==='drawn'?'Игра началась':'Приём открыт'}</span></div><div class="santa-detail-layout"><div>
  <div class="panel"><div class="panel-heading-actions"><h2>Участники <span class="chip" data-santa-roster-count>${people.length}</span></h2>${!memberView&&e.status==='open'?'<button class="btn btn-soft btn-small" data-action="add-player">'+ico('plus')+' Добавить участника</button>'+(isPreview?'':'<button class="btn btn-soft btn-small" data-social-action="invite-friends">Пригласить друзей</button>'):''}</div><div class="person-list" data-santa-roster>${people.map(p=>santaRosterPerson(p,activeGameContext)).join('')}</div>${e.status==='open'?`<div class="divider-line"></div><p class="note">Пригласи друзей по общей ссылке. Каждый сможет присоединиться без регистрации и получит собственную личную ссылку</p><div class="share-field"><input class="input" aria-label="Ссылка-приглашение" readonly value="${attr(getLink(`/join/${e.invite_key}`))}"><button class="btn btn-dark btn-small" data-action="copy" data-url="${attr(getLink(`/join/${e.invite_key}`))}">${ico('copy')} Копировать</button></div>`:''}</div>
  <div class="panel"><div class="panel-heading-actions"><h2>Мои пожелания</h2>${!memberView||currentUser?`<button class="btn btn-soft btn-small" data-action="import-own-wishes" ${memberView?`data-key="${attr(participantToken||'')}"`:`data-id="${id}"`}>${ico('plus')} Из вишлиста</button>`:''}</div><p class="note">Твои пожелания увидит только твой тайный Санта</p>
-  <form class="form participant-preferences" id="santa-preferences-form">
-    ${textArea('Что хотелось бы','wanted','Любимые цвета, увлечения, идеи',myPrefs?.wanted||'')}
-    ${textArea('Чего не хотелось бы','unwanted','Что точно не подходит',myPrefs?.unwanted||'')}
-    <button type="submit" class="btn btn-soft btn-small">Сохранить пожелания</button>
+  <div class="preferences-overview" id="game-preferences-view">
+   <div class="preference-display"><strong>Что хотелось бы</strong><p data-preference-display="wanted">${esc(myPrefs?.wanted||'Пока не указано')}</p></div>
+   <div class="preference-display"><strong>Чего не хотелось бы</strong><p data-preference-display="unwanted">${esc(myPrefs?.unwanted||'Пока не указано')}</p></div>
+   <button type="button" class="btn btn-soft btn-small" data-action="edit-game-preferences">${ico('edit')} Изменить пожелания</button>
+  </div>
+  <form class="form participant-preferences" id="santa-preferences-form" hidden>
+   ${textArea('Что хотелось бы','wanted','Любимые цвета, увлечения, идеи',myPrefs?.wanted||'')}
+   ${textArea('Чего не хотелось бы','unwanted','Что точно не подходит',myPrefs?.unwanted||'')}
+   <div class="btn-row"><button type="button" class="btn btn-soft btn-small" data-action="cancel-game-preferences">Отмена</button><button type="submit" class="btn btn-dark btn-small">Сохранить пожелания</button></div>
   </form><div class="my-wishes-list">${wishesMarkup(gameWishes)}</div>
  ${d.rich_enabled!==false?`<button class="btn btn-dark btn-small" type="button" data-action="add-game-gift">${ico('plus')} Добавить подарок</button>`:
  `<form class="form" id="legacy-santa-wish-form"><div class="share-field"><input class="input" name="title" required maxlength="130" placeholder="Название подарка"><button class="btn btn-dark btn-small" type="submit">Добавить ${ico('plus')}</button></div></form><p class="note">Подробные карточки появятся после обновления игры</p>`}</div>
  ${!memberView&&e.status==='open'?`<div class="panel"><h2>Исключения</h2><p class="note">Укажи пары, которые не должны выпадать друг другу. Ограничения работают направленно: «А → Б» означает, что А не может дарить Б</p><div class="rules-list" style="margin:17px 0">${d.exclusions.length?d.exclusions.map(r=>`<span class="rule-chip">${esc(people.find(p=>p.id===r.giver_id)?.name||'?')} → ${esc(people.find(p=>p.id===r.receiver_id)?.name||'?')} <button title="Убрать ограничение" data-action="remove-rule" data-from="${r.giver_id}" data-to="${r.receiver_id}">×</button></span>`).join(''):'<span class="muted">Пока нет исключений</span>'}</div><form class="form" id="rule-form"><div class="form-grid">${selects('giver_id','Кто дарит')}${selects('receiver_id','Кому нельзя дарить')}</div><button class="btn btn-soft btn-small" type="submit">${ico('plus')} Добавить ограничение</button></form></div>`:''}
  </div><div><div class="panel"><div class="panel-heading-actions"><h2>О событии</h2>${!memberView?`<button class="btn btn-soft btn-small" data-action="edit-santa">${ico('edit')} Изменить</button>`:''}</div><div class="details-box santa-event-details"><p>${ico('calendar')} <strong>Дата:</strong> ${dateRu(e.exchange_date)}</p><p>${ico('gift')} <strong>Бюджет:</strong> ${money(e.budget_cents,e.currency)}</p><p>${ico('users')} <strong>Участников:</strong> <span data-santa-event-count>${people.length}</span></p>${e.rules?`<div class="divider-line"></div><strong>Правила:</strong><p>${esc(e.rules)}</p>`:''}</div></div>
  ${!memberView&&e.status==='open'?`<div class="panel"><h2>Время раскрыть карты?</h2><p class="note">После жеребьёвки приглашения, состав и исключения будут заморожены. Каждый увидит только своего получателя</p><div class="alert">${ico('info')} Понадобится минимум 3 участника. Желательно, чтобы все успели присоединиться</div><button class="btn btn-dark" style="width:100%" data-action="draw" ${people.length<3?'disabled':''}>Провести жеребьёвку ${ico('spark')}</button></div>`:`<div class="panel"><h2>Кому ты даришь</h2>${e.status==='drawn'?secretCard(memberView?d.assignment:d.my_assignment,!memberView,memberView?participantToken:id):`<div class="secret-card">${envelopeArt()}<h2>Пока храним интригу</h2><p>Организатор ещё собирает всех участников. После жеребьёвки здесь появится конверт с твоим получателем</p></div>`}</div>`}
- ${memberView?`<div class="panel"><h2>Твоя личная ссылка</h2><p class="note">Не пересылай никому: по ней открывается твой секрет. Сохрани в закладки</p><div class="share-field"><input class="input" readonly value="${attr(getLink(`/p/${participantToken}`))}" aria-label="Личная ссылка"><button class="btn btn-dark btn-small" data-action="copy" data-url="${attr(getLink(`/p/${participantToken}`))}">${ico('copy')} Копировать</button></div></div>`:''}
+ ${memberView?`<div class="panel"><h2>Твоя личная ссылка</h2>${currentUser&&!d.participant.user_id?`<div class="claim-game"><p>Сохрани игру в кабинете, чтобы не искать личную ссылку</p><button class="btn btn-dark btn-small" data-action="claim-game">Сохранить игру</button></div>`:''}<p class="note">Не пересылай никому: по ней открывается твой секрет. Сохрани в закладки</p><div class="share-field"><input class="input" readonly value="${attr(getLink(`/p/${participantToken}`))}" aria-label="Личная ссылка"><button class="btn btn-dark btn-small" data-action="copy" data-url="${attr(getLink(`/p/${participantToken}`))}">${ico('copy')} Копировать</button></div></div>`:''}
  </div></div>
  ${d.rich_enabled!==false?`<section class="panel game-chat-panel" id="game-chat" aria-label="Чаты игры">
  <div class="panel-heading-actions"><h2>Чаты игры</h2></div>
@@ -536,7 +546,13 @@ async function santaGamePage(id,marker=lastRenderToken,participantToken=null){
  document.getElementById('santa-preferences-form')?.addEventListener('submit',async ev=>{
    ev.preventDefault();const form=ev.currentTarget,button=form.querySelector('button');
    button.disabled=true;
-   try{await api(activeGameContext.base+'/preferences',{method:'PATCH',body:readForm(form)});
+   try{const data=readForm(form);
+    await api(activeGameContext.base+'/preferences',{method:'PATCH',body:data});
+    for(const key of ['wanted','unwanted']){
+     const label=document.querySelector('[data-preference-display="'+key+'"]');
+     if(label)label.textContent=data[key]?.trim()||'Пока не указано';
+    }
+    document.getElementById('game-preferences-view').hidden=false;form.hidden=true;
     notice('Пожелания сохранены');
    }catch(err){notice(err.message,true)}finally{button.disabled=false;}
   });
@@ -760,6 +776,20 @@ async function importOwnWishesModal(el){
 function reserveModal(id,key){modal({title:'Забронировать подарок',subtitle:'Владелец списка не узнает, что ты выбрал. Сохрани приватную ссылку для отмены',content:`${field('Как тебя зовут?','guest_name','Например, Маша','text','',true,'maxlength="50"')}`,submitLabel:'Забронировать',onSubmit:async form=>{const r=await api(`/api/public/${key}/reserve/${id}`,{method:'POST',body:readForm(form)});nav(`/r/${r.manage_token}`);notice('Подарок за тобой!');}});}
 async function confirmAction(title,subtitle,handler,label='Удалить'){modal({title,subtitle,content:'<div class="alert alert-error">Это действие нельзя отменить</div>',submitLabel:label,onSubmit:handler});}
 async function dispatch(action,el){try{
+ if(action==='edit-game-preferences'){
+  document.getElementById('game-preferences-view').hidden=true;
+  const form=document.getElementById('santa-preferences-form');
+  form.hidden=false;form.querySelector('textarea')?.focus({preventScroll:true});return;
+ }
+ if(action==='cancel-game-preferences'){
+  const form=document.getElementById('santa-preferences-form');
+  form.reset();form.hidden=true;document.getElementById('game-preferences-view').hidden=false;return;
+ }
+ if(action==='claim-game'){
+  const result=await api(activeGameContext.base+'/claim',{method:'POST',body:{}});
+  notice('Игра сохранена в кабинете');
+  nav('/santa/'+result.event_id,{force:true});return;
+ }
  if(action==='reset-preview'){window.SHURSH_PREVIEW_RESET?.();return;}
  if(action==='logout'){await api('/api/logout',{method:'POST',body:{}});currentUser=null;broadcastSessionChange();notice('Ты вышел из аккаунта');nav('/',{force:true});}
  if(action==='demo-login'){const r=await api('/api/demo-login',{method:'POST',body:{}});currentUser=r.user;closeModal();notice('Демо-аккаунт открыт');nav('/lists');}

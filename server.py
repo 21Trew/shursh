@@ -1141,7 +1141,7 @@ class Handler(BaseHTTPRequestHandler):
         match=re.fullmatch(r'/api/participant/([A-Za-z0-9_\-]+)',path)
         if match and method=='GET':
             # A personal bearer link grants membership view, not organizer powers.
-            part=con.execute('''SELECT p.id,p.name,p.event_id, e.title,e.description,e.exchange_date,e.budget_cents,
+            part=con.execute('''SELECT p.id,p.name,p.event_id,p.user_id, e.title,e.description,e.exchange_date,e.budget_cents,
                         e.currency,e.rules,e.status FROM participants p
                         JOIN santa_events e ON e.id=p.event_id WHERE p.access_hash=?''',
                         (token_hash(match.group(1)),)).fetchone()

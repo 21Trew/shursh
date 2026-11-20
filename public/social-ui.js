@@ -29,7 +29,7 @@ async function socialFriendsPage(marker=lastRenderToken){
  const data=await api('/api/friends');if(marker!==lastRenderToken)return;
  shell('<main class="container page social-page"><div class="page-hero"><div><div class="section-label">Вместе приятнее</div>'+
   '<h1>Друзья</h1><p>Ищи знакомых, делись доступными вишлистами и приглашай в игры</p></div></div>'+
-  '<section class="panel social-search"><h2>Найти человека</h2><form id="social-search-form" class="share-field">'+
+  '<section class="panel social-search"><h2>Найти друга</h2><form id="social-search-form" class="share-field">'+
   '<input class="input" name="q" minlength="2" maxlength="40" required placeholder="Имя друга" aria-label="Найти пользователя по имени">'+
   '<button class="btn btn-dark btn-small" type="submit">Найти</button></form>'+
   '<div id="social-search-results" aria-live="polite"></div></section>'+
@@ -42,7 +42,7 @@ async function socialFriendsPage(marker=lastRenderToken){
     '<button class="btn btn-soft btn-small" data-social-action="unfriend" data-user-id="'+attr(u.id)+'">Убрать</button>')).join(''):
     '<p class="note">Пока никого нет. Найди друга и отправь заявку</p>')+'</section>'+
   (data.outgoing.length?'<section class="panel"><h2>Отправленные заявки</h2>'+
-    data.outgoing.map(u=>socialUserCard(u,'<span class="chip">Ожидает ответа</span>')).join('')+'</section>':'')+
+    data.outgoing.map(u=>socialUserCard(u,'<button class="btn btn-soft btn-small" data-social-action="cancel" data-user-id="'+attr(u.id)+'">Отменить заявку</button>')).join('')+'</section>':'')+
   '</main>');
  document.querySelector('#social-search-form')?.addEventListener('submit',async ev=>{
   ev.preventDefault();
@@ -63,7 +63,7 @@ async function socialProfilePage(uid,marker=lastRenderToken){
  let action='';
  if(relation==='none')action='<button class="btn btn-dark btn-small" data-social-action="add" data-user-id="'+attr(uid)+'">Добавить в друзья</button>';
  if(relation==='incoming')action='<button class="btn btn-dark btn-small" data-social-action="accept" data-user-id="'+attr(uid)+'">Принять заявку</button>';
- if(relation==='outgoing')action='<span class="chip">Заявка отправлена</span>';
+ if(relation==='outgoing')action='<button class="btn btn-soft btn-small" data-social-action="cancel" data-user-id="'+attr(uid)+'">Отменить заявку</button>';
  if(relation==='friends')action='<span class="chip chip-green">Вы друзья</span>';
  if(relation==='self')action='<button class="btn btn-soft btn-small" data-nav="/profile">Редактировать профиль</button>';
  shell('<main class="container page social-page"><div class="social-profile-hero"><div class="avatar">'+esc(p.name.slice(0,1).toUpperCase())+'</div>'+
@@ -166,12 +166,12 @@ document.addEventListener('click',async e=>{
    await api('/api/notifications/'+target.dataset.id+'/read',{method:'POST',body:{}});
    socialUnreadLast=0;await socialNotificationsPage();return;
   }
-  if(action==='add'||action==='accept'||action==='decline'||action==='unfriend'){
-   const method=action==='add'?'POST':action==='unfriend'?'DELETE':'PATCH';
+  if(action==='add'||action==='accept'||action==='decline'||action==='unfriend'||action==='cancel'){
+   const method=action==='add'?'POST':(action==='unfriend'||action==='cancel')?'DELETE':'PATCH';
    const payload=(action==='accept'||action==='decline')?{action:action==='accept'?'accept':'decline'}:{};
    await api('/api/friends/'+encodeURIComponent(uid),{method,body:payload});
    socialUnreadLast=0;
-   notice(action==='add'?'Заявка в друзья отправлена':action==='accept'?'Теперь вы друзья':action==='decline'?'Заявка отклонена':'Друг удалён');
+   notice(action==='add'?'Заявка в друзья отправлена':action==='accept'?'Теперь вы друзья':action==='decline'?'Заявка отклонена':action==='cancel'?'Заявка отменена':'Друг удалён');
    if(currentPath()==='/friends')await socialFriendsPage();
    else if(/^\/users\//.test(currentPath()))await socialProfilePage(uid);
   }

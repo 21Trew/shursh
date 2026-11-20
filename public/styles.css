@@ -354,3 +354,82 @@ input[type="file"]::file-selector-button:hover{background:#f2e9dc}
  .game-gifts-track .game-gift-card .wish-content h3{min-height:0}
  .game-gifts-track .game-gift-card .wish-price{font-size:11px}
 }
+
+/* Mobile QA: lower nesting cost, visual rhythm, clipped navigation protection. */
+[hidden]{display:none!important}
+.header-bell{position:relative;display:grid;place-items:center;flex:0 0 40px;width:40px;height:40px;border:1px solid var(--border);border-radius:50%;color:var(--ink);background:#fffdf8;text-decoration:none}
+.header-bell.active,.header-bell:hover{background:#fbe4d0}
+.header-bell .nav-unread{position:absolute;top:-5px;right:-5px;min-width:18px;height:18px;font-size:10px}
+.header-actions{display:flex;align-items:center;gap:10px;min-width:0}
+.dashboard-welcome h1{max-width:100%;overflow-wrap:anywhere;hyphens:auto}
+.dashboard-welcome .btn-row{display:flex;flex-wrap:wrap;gap:12px}
+.dashboard-welcome .btn-row .btn{max-width:100%;white-space:normal;text-align:center}
+.social-search{gap:16px}
+.social-search .share-field{margin:0}
+.social-search .share-field .btn{min-height:46px;padding-inline:22px}
+.social-person .btn{margin:3px 0;white-space:normal}
+.preferences-overview{display:grid;gap:11px;padding:15px 16px;border-radius:17px;background:#f9f6ef;border:1px solid #eae2d7;margin:15px 0}
+.preference-display strong{font-size:13px}
+.preference-display p{font-size:14px;color:#6f6965;white-space:pre-wrap;overflow-wrap:anywhere;margin:4px 0 0}
+.preferences-overview>.btn{justify-self:start;margin-top:6px}
+.participant-preferences{margin:17px 0}
+.participant-preferences .btn-row{margin-top:4px;gap:10px;flex-wrap:wrap}
+.claim-game{background:#e9f5e9;border:1px solid #c4dfca;padding:14px;border-radius:14px;margin:12px 0}
+.claim-game p{margin:0 0 11px}
+.secret-card.revealed .recipient-summary{gap:9px;margin-bottom:10px}
+.secret-card.revealed .recipient-wishes{padding:12px;margin-top:6px}
+.secret-card.revealed .recipient{font-size:clamp(17px,4vw,22px);line-height:1.2}
+.game-chat-panel .game-chat-tabs{align-items:center;gap:8px}
+.game-chat-panel .game-chat-tabs .btn{white-space:normal}
+.game-chat-messages .chat-message{max-width:min(88%,530px);overflow-wrap:anywhere}
+@media(max-width:760px){
+ .topbar .nav{min-width:0;max-width:100%;scroll-padding-inline:9px}
+ .site-header .topbar{gap:8px;padding-top:12px;padding-bottom:8px}
+ .site-header .nav{padding:6px 4px 11px;gap:12px}
+ .site-header .nav a{padding:7px 9px}
+ .header-actions{margin-left:auto;gap:7px}
+ .header-actions .user-name{display:none}
+ .header-actions .btn-ghost{display:inline-flex;padding:8px;min-height:39px;font-size:12px}
+ .header-bell{width:39px;height:39px;flex-basis:39px}
+ .dashboard-page{padding-top:17px}
+ .dashboard-welcome{padding:23px 18px;min-width:0}
+ .dashboard-welcome h1{font-size:clamp(27px,7vw,36px);letter-spacing:-.055em;line-height:1.18}
+ .dashboard-welcome .btn-row{gap:9px}
+ .dashboard-welcome .btn-row .btn{min-height:45px;margin:0}
+ .santa-detail-layout{display:grid;grid-template-columns:minmax(0,1fr);gap:0}
+ .santa-detail-layout .panel{padding:17px 15px;margin-bottom:13px;border-radius:20px;min-width:0}
+ .santa-detail-layout .panel h2{font-size:19px;line-height:1.25;margin-bottom:12px}
+ .santa-detail-layout .details-box{padding:14px}
+ .santa-detail-layout .secret-card{padding:14px 12px;border-radius:16px}
+ .santa-detail-layout .recipient-wishes{padding:10px}
+ .game-chat-panel{padding:17px 15px}
+ .game-chat-tabs{display:flex;gap:7px;margin:13px 0}
+ .game-chat-tabs .btn{min-height:38px;padding:9px 12px;font-size:12px}
+ .game-chat-messages{min-height:170px;max-height:310px;padding:12px}
+ .game-chat-form{gap:9px}
+ .social-search{padding:20px}
+ .social-search .share-field{display:grid;grid-template-columns:minmax(0,1fr) auto;gap:8px}
+}
+@media(max-width:440px){
+ .container{width:calc(100% - 26px)}
+ .page{padding-top:22px}
+ .topbar .logo{font-size:23px}
+ .site-header .nav{gap:7px}
+ .site-header .nav a{font-size:12px;padding:7px 8px;white-space:nowrap}
+ .dashboard-welcome h1{font-size:clamp(26px,7.4vw,33px);letter-spacing:-.06em}
+ .dashboard-welcome p{font-size:14px}
+ .dashboard-welcome .btn-row{flex-direction:column;align-items:stretch}
+ .dashboard-welcome .btn-row .btn{width:100%;justify-content:center}
+ .santa-detail-layout .panel{padding:15px 12px;border-radius:17px}
+ .santa-detail-layout .secret-card.revealed{padding:12px}
+ .santa-detail-layout .recipient-summary>.icon{display:none}
+ .santa-detail-layout .recipient-wishes{padding:10px}
+ .person-row{gap:8px;padding:11px 0}
+ .person-row .avatar{width:35px;height:35px;border-radius:12px;flex-basis:35px}
+ .game-chat-panel{padding:15px 12px}
+ .game-chat-tabs .btn{font-size:11px;padding:8px 10px}
+ .game-chat-messages{padding:9px}
+ .chat-message{padding:9px 11px}
+ .social-search .share-field{grid-template-columns:1fr}
+ .social-search .share-field .btn{width:100%}
+}

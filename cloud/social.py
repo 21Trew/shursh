@@ -186,7 +186,14 @@ def handle(handler, method, path, con):
             if choice=='accept':
                 _notify(con,other,'friend_accept','Твою заявку в друзья приняли',f'/users/{user["id"]}',user['id'])
         else:
+            old=con.execute('SELECT status,requested_by FROM friendships WHERE user_low=? AND user_high=?',(a,b)).fetchone()
+            if not old: raise ApiError(404,'Связь не найдена')
+            if old['status']=='pending' and old['requested_by']!=user['id']:
+                raise ApiError(403,'Входящую заявку нужно отклонить')
             con.execute('DELETE FROM friendships WHERE user_low=? AND user_high=?',(a,b))
+            if old['status']=='pending':
+                con.execute("""DELETE FROM social_notifications WHERE recipient_id=?
+                   AND actor_id=? AND kind='friend_request' AND read_at IS NULL""",(other,user['id']))
         return 200,{'ok':True},None
 
     if path=='/api/notifications' and method=='GET':
@@ -245,6 +252,21 @@ def handle(handler, method, path, con):
         _notify(con,other,'wish_request','Друг просит подарить ему: '+wish['title'],
                 '/w/'+wish['share_key'],user['id'])
         return 201,{'ok':True},None
+
+    match=re.fullmatch(r'/api/participant/([A-Za-z0-9_-]+)/claim',path)
+    if match and method=='POST':
+        user=handler.auth(con)
+        from server import token_hash
+        existing=con.execute('SELECT id,event_id,user_id FROM participants WHERE access_hash=?',
+                             (token_hash(match.group(1)),)).fetchone()
+        if not existing: raise ApiError(404,'Личная ссылка недействительна')
+        if existing['user_id'] is not None: raise ApiError(409,'Участник уже привязан к аккаунту')
+        if con.execute('SELECT 1 FROM participants WHERE event_id=? AND user_id=?',
+                       (existing['event_id'],user['id'])).fetchone():
+            raise ApiError(409,'Ты уже участвуешь в этой игре')
+        con.execute('UPDATE participants SET user_id=? WHERE id=? AND user_id IS NULL',
+                    (user['id'],existing['id']))
+        return 200,{'ok':True,'event_id':existing['event_id']},None
 
     # Authenticated game members can revisit the same game without keeping
     # a bearer URL in localStorage. Member-only projections are enforced by UID.
