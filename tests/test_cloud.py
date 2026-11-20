@@ -1309,3 +1309,97 @@ def test_developer_feedback_admin_inbox_isolation(application,monkeypatch):
                 if x['id']==target['id'])['status']=='resolved'
     monkeypatch.delenv('SHURSH_ADMIN_EMAILS')
     call(owner,'GET','/api/admin/feedback',status=403)
+
+
+def test_confirmation_creates_app_session_from_verified_provider(application,monkeypatch):
+    from cloud import auth
+    from server import ApiError
+    called=[]
+    def verified(token):
+        called.append('validated')
+        assert token=='header.payload.signature'
+        return {'id':str(IDS['owner@example.test']),
+                'email':'owner@example.test','email_confirmed_at':'2026-11-20T00:00:00Z',
+                'user_metadata':{'name':'Owner'}}
+    monkeypatch.setattr(auth,'verified_user',verified)
+    client=application.test_client()
+    assert call(client,'GET','/api/me').json['user'] is None
+    call(client,'POST','/api/auth/complete',{'access_token':'not-a-token'},400)
+    assert not called, 'Malformed tokens must not reach Supabase'
+    result=call(client,'POST','/api/auth/complete',
+                {'access_token':'header.payload.signature'})
+    assert result.json['user']['email']=='owner@example.test'
+    assert 'HttpOnly' in result.headers['Set-Cookie']
+    assert 'header.payload.signature' not in str(result.headers)
+    assert call(client,'GET','/api/me').json['user']['email']=='owner@example.test'
+    assert len(called)==1
+    call(application.test_client(),'POST','/api/auth/complete',
+         {'access_token':'header.payload.signature'},403,headers={'Origin':'https://untrusted.example'})
+
+
+def test_confirmation_rejects_unverified_provider_identity(application,monkeypatch):
+    from cloud import auth
+    from server import ApiError
+    def reject(_token):
+        raise ApiError(401,'Ссылка подтверждения истекла или недействительна')
+    monkeypatch.setattr(auth,'verified_user',reject)
+    client=application.test_client()
+    call(client,'POST','/api/auth/complete',{'access_token':'header.payload.signature'},401)
+    assert call(client,'GET','/api/me').json['user'] is None
+
+
+def test_resend_confirmation_is_generic_and_rate_limited(application,monkeypatch):
+    from cloud import auth
+    sent=[]
+    def fake(action,**payload):
+        assert action=='resend' and payload['type']=='signup'
+        sent.append(payload['email'])
+        return {}
+    monkeypatch.setattr(auth,'auth_request',fake)
+    client=application.test_client()
+    call(client,'POST','/api/auth/resend',{'email':'invalid'},400)
+    for _ in range(3):
+        result=call(client,'POST','/api/auth/resend',
+                    {'email':'someone@example.test'},202)
+        assert result.json == {'ok':True}
+        assert 'Set-Cookie' not in result.headers
+    assert sent==['someone@example.test']*3
+    call(client,'POST','/api/auth/resend',
+         {'email':'someone@example.test'},429)
+
+
+@pytest.mark.browser
+def test_browser_confirmation_callback_and_recovery(browser_http,monkeypatch):
+    from cloud import auth
+    from server import ApiError
+    from playwright.sync_api import sync_playwright,expect
+    def provider_token(token):
+        if token=='expired.token.example':
+            raise ApiError(401,'Ссылка подтверждения истекла')
+        assert token=='header.payload.signature'
+        return {'id':str(IDS['owner@example.test']),
+                'email':'owner@example.test','email_confirmed_at':'2026-11-20T00:00:00Z',
+                'user_metadata':{'name':'Owner'}}
+    monkeypatch.setattr(auth,'verified_user',provider_token)
+    monkeypatch.setattr(auth,'auth_request',
+                        lambda action,**kwargs: {} if action=='resend' else
+                        pytest.fail('Unexpected provider request'))
+    with sync_playwright() as play:
+        browser=play.chromium.launch(headless=True,args=['--no-sandbox'])
+        try:
+            page=browser.new_page()
+            page.goto(browser_http+'/#access_token=header.payload.signature&refresh_token=not-used')
+            expect(page.locator('header .user-name')).to_contain_text('Owner')
+            assert page.evaluate('location.hash')==''
+            assert page.evaluate('document.cookie')==''
+            # Expired confirmations must show a persistent recovery dialog.
+            expired=browser.new_page()
+            expired.goto(browser_http+'/#access_token=expired.token.example')
+            expect(expired.get_by_role('dialog')).to_contain_text('Не получилось завершить подтверждение')
+            assert expired.evaluate('location.hash')==''
+            expired.locator('[data-open="resend"]').click()
+            expired.locator('#fld-email').fill('owner@example.test')
+            expired.locator('#modal-form button[type="submit"]').click()
+            expect(expired.get_by_role('dialog')).to_contain_text('Проверь почту')
+        finally:
+            browser.close()
