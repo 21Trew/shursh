@@ -1206,13 +1206,13 @@ class Handler(BaseHTTPRequestHandler):
         raise ApiError(404,'Такой страницы или действия нет')
 
     def assignment_view(self,con,eid,pid):
-        item=con.execute('''SELECT a.revealed_at, p.id AS receiver_id,p.name AS receiver_name
+        item=con.execute('''SELECT a.revealed_at, p.id AS receiver_id,p.name AS receiver_name,p.user_id AS receiver_user_id
                  FROM assignments a JOIN participants p ON p.id=a.receiver_id
                  WHERE a.event_id=? AND a.giver_id=?''',(eid,pid)).fetchone()
         if not item or not item['revealed_at']:
             return {'revealed':False}
         cards=self.game_wishes(con,item['receiver_id'])
-        return {'revealed':True,'receiver_name':item['receiver_name'],
+        return {'revealed':True,'receiver_name':item['receiver_name'],'receiver_user_id':item['receiver_user_id'],
                 'preferences':self.participant_preferences(con,item['receiver_id']),
                 'wishes':[w['title'] for w in cards],'wish_cards':cards}
 
