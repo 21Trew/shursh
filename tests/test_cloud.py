@@ -517,7 +517,8 @@ def test_browser_manual_product_link_and_uncluttered_header(browser_http):
             expect(page.locator('.footer')).to_contain_text('Сделано с заботой о сюрпризах')
             expect(page.locator('.footer')).to_contain_text('Место для хотелок и сюрпризов')
             assert page.locator('header .logo-dot').count()==0
-            assert page.locator('header .nav a.active').count()==1
+            assert page.locator('header .nav').count()==0, 'Landing must show logo and login only'
+            assert page.locator('header button[data-open="login"]').count()==1
             page.locator('.footer-developer').click()
             expect(page.locator('.modal')).to_contain_text('Написать разработчику')
             expect(page.locator('#fld-name')).to_be_visible()
