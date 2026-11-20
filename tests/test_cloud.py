@@ -779,6 +779,8 @@ def test_browser_santa_invites_draw_and_private_reveals(browser_http):
                 expect(guest).to_have_url(re.compile(r'/p/[A-Za-z0-9_-]+$'))
                 token = guest.url.rsplit('/', 1)[-1]
                 expect(guest.locator('#game-chat [data-chat-room="general"]')).to_be_visible()
+                guest.locator('[data-action="edit-santa-preferences"]').click()
+                expect(guest.locator('#santa-preferences-form')).to_be_visible()
                 guest.locator('#santa-preferences-form #fld-wanted').fill('Красный цвет, точная модель')
                 guest.locator('#santa-preferences-form #fld-unwanted').fill('Не нужен пластик')
                 guest.locator('#santa-preferences-form button[type="submit"]').click()
@@ -1647,7 +1649,7 @@ def test_santa_private_link_claim_to_logged_in_account(application):
     # Authenticated membership no longer depends on retaining the bearer link.
     member=call(target,'GET',f'/api/member/{event_id}').json
     assert member['participant']['name']=='Guest for account'
-    assert 'assignment' not in str(member)
+    assert member['assignment'] is None
 
 
 def test_account_changes_require_password_and_exact_authenticated_identity(application,monkeypatch):
