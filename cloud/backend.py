@@ -83,12 +83,12 @@ class CloudRequest(Handler):
     def resend_confirmation(self):
         # Fixed per-IP limit, independent of the generic API quota. Avoid
         # exposing whether the email exists or has already been verified.
-        self.throttled('auth-resend', 3, 600)
-        db.close_request_connection()
         data = self.body()
         email = req(data.get('email'), 'Почта', 200).lower()
         if not re.fullmatch(r'[^\s@]+@[^\s@]+\.[^\s@]+', email) or email == 'demo@shursh.local':
             raise ApiError(400, 'Укажи корректную почту')
+        self.throttled('auth-resend', 3, 600)
+        db.close_request_connection()
         started_auth = time.perf_counter()
         try:
             auth.auth_request('resend', type='signup', email=email)
