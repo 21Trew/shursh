@@ -520,7 +520,10 @@ def test_browser_manual_product_link_and_uncluttered_header(browser_http):
             assert page.locator('header .nav a.active').count()==1
             page.locator('.footer-developer').click()
             expect(page.locator('.modal')).to_contain_text('Написать разработчику')
-            expect(page.locator('.developer-contact-link')).to_have_attribute('href','https://t.me/LopatinVS')
+            expect(page.locator('#fld-name')).to_be_visible()
+            expect(page.locator('#fld-email')).to_be_visible()
+            expect(page.locator('#fld-message')).to_be_visible()
+            expect(page.locator('#modal-form button[type="submit"]')).to_contain_text('Отправить')
             page.locator('.modal-close').click()
             assert page.locator('.footer a[href^="mailto:"]').count() == 0
             assert page.locator('header button[data-open="list"]').count() == 0
