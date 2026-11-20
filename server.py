@@ -104,6 +104,7 @@ CREATE TABLE IF NOT EXISTS participants (
  id INTEGER PRIMARY KEY, event_id INTEGER NOT NULL REFERENCES santa_events(id) ON DELETE CASCADE,
  user_id INTEGER REFERENCES users(id) ON DELETE SET NULL,
  name TEXT NOT NULL, access_hash TEXT UNIQUE, created_at TEXT NOT NULL,
+ wanted TEXT NOT NULL DEFAULT '', unwanted TEXT NOT NULL DEFAULT '',
  UNIQUE(event_id, user_id)
 );
 CREATE TABLE IF NOT EXISTS participant_wishes (
@@ -124,6 +125,13 @@ CREATE TABLE IF NOT EXISTS santa_messages (
         (room='pair' AND pair_giver_id IS NOT NULL))
 );
 CREATE INDEX IF NOT EXISTS santa_messages_room_idx ON santa_messages(event_id,room,pair_giver_id,id);
+CREATE TABLE IF NOT EXISTS developer_feedback (
+ id INTEGER PRIMARY KEY, name TEXT NOT NULL, email TEXT NOT NULL,
+ topic TEXT NOT NULL, message TEXT NOT NULL,
+ status TEXT NOT NULL DEFAULT 'new' CHECK(status IN ('new','resolved')),
+ created_at TEXT NOT NULL
+);
+CREATE INDEX IF NOT EXISTS developer_feedback_created_idx ON developer_feedback(id DESC);
 CREATE TABLE IF NOT EXISTS exclusions (
  event_id INTEGER NOT NULL REFERENCES santa_events(id) ON DELETE CASCADE,
  giver_id INTEGER NOT NULL REFERENCES participants(id) ON DELETE CASCADE,
@@ -159,6 +167,15 @@ def init_db():
             ):
                 if name not in existing:
                     con.execute('ALTER TABLE participant_wishes ADD COLUMN '+name+' '+definition)
+            old_participant_cols={row['name'] for row in con.execute('PRAGMA table_info(participants)')}
+            for preference in ('wanted','unwanted'):
+                if preference not in old_participant_cols:
+                    con.execute("ALTER TABLE participants ADD COLUMN "+preference+" TEXT NOT NULL DEFAULT ''")
+                    # One-time backfill; old gift-specific notes remain untouched.
+                    con.execute("""UPDATE participants SET """+preference+"""=COALESCE((
+                        SELECT substr(group_concat(NULLIF(trim("""+preference+"""),''),char(10)),1,2000)
+                        FROM participant_wishes WHERE participant_id=participants.id
+                    ),'')""")
             if DEMO_MODE and not con.execute('SELECT 1 FROM users LIMIT 1').fetchone():
                 seed_demo(con)
 
@@ -446,6 +463,19 @@ class Handler(BaseHTTPRequestHandler):
             WHERE p.event_id=?
             GROUP BY p.id,p.name,p.user_id,e.owner_id ORDER BY p.id''',(eid,))]
 
+    @staticmethod
+    def participant_preferences(con,pid):
+        row=con.execute('SELECT wanted,unwanted FROM participants WHERE id=?',(pid,)).fetchone()
+        if not row: raise ApiError(404,'Участник не найден')
+        return {'wanted':row['wanted'] or '', 'unwanted':row['unwanted'] or ''}
+
+    def edit_participant_preferences(self,con,pid):
+        data=self.body()
+        wanted=optional(data.get('wanted'),'Что хотелось бы',2000)
+        unwanted=optional(data.get('unwanted'),'Чего не хотелось бы',2000)
+        con.execute('UPDATE participants SET wanted=?,unwanted=? WHERE id=?',(wanted,unwanted,pid))
+        return 200,{'preferences':{'wanted':wanted,'unwanted':unwanted}},None
+
     def game_wishes(self,con,participant_id):
         if not self.santa_schema_ready(con):
             return [dict(r)|{'description':'','wanted':'','unwanted':'','price_cents':None,
@@ -563,7 +593,7 @@ class Handler(BaseHTTPRequestHandler):
     def mutate_game_wish(self,con,pid,wid,method):
         if not self.santa_schema_ready(con):
             raise ApiError(409,'Карточки подарков пока недоступны')
-        wish=con.execute('SELECT id,image_data FROM participant_wishes WHERE participant_id=? AND id=?',
+        wish=con.execute('SELECT id,image_data,wanted,unwanted FROM participant_wishes WHERE participant_id=? AND id=?',
                          (pid,wid)).fetchone()
         if not wish: raise ApiError(404,'Подарок не найден')
         if method=='DELETE':
@@ -571,6 +601,9 @@ class Handler(BaseHTTPRequestHandler):
             return 200,{'ok':True},None
         data=self.body()
         values=list(self.game_wish_payload(data))
+        # Preserve legacy gift-specific notes hidden by the new participant-level UI.
+        for position,key in ((2,'wanted'),(3,'unwanted')):
+            if key not in data: values[position]=wish[key]
         # Editing text should not upload the unchanged photo again.
         if 'image_data' not in data:
             values[-1]=wish['image_data']
@@ -602,15 +635,18 @@ class Handler(BaseHTTPRequestHandler):
         condition='m.pair_giver_id=?' if pair is not None else 'm.pair_giver_id IS NULL'
         args=(eid,topic,pair) if pair is not None else (eid,topic)
         if method=='POST':
-            self.throttled('chat',20)
+            if not getattr(self,'_chat_rate_checked',False): self.throttled('chat',20)
             payload=self.body()
             message=req(payload.get('message'),'Сообщение',500)
             count=con.execute('SELECT count(*) AS n FROM santa_messages m WHERE m.event_id=? AND m.room=? AND '+
                               condition,args).fetchone()['n']
             if count>=2500: raise ApiError(409,'Чат заполнен')
-            con.execute('''INSERT INTO santa_messages(event_id,sender_id,room,pair_giver_id,message,created_at)
-                       VALUES(?,?,?,?,?,?)''',(eid,pid,topic,pair,message,now()))
-            return 201,{'ok':True},None
+            created=now()
+            sent=con.execute('''INSERT INTO santa_messages(event_id,sender_id,room,pair_giver_id,message,created_at)
+                       VALUES(?,?,?,?,?,?) RETURNING id''',(eid,pid,topic,pair,message,created)).fetchone()
+            return 201,{'ok':True,'room':room,
+                        'message':{'id':sent['id'],'message':message,'author':'Ты',
+                                   'mine':True,'created_at':created}},None
         if method=='GET':
             rows=con.execute('''SELECT m.id,m.sender_id,m.message,m.created_at,p.name
                  FROM santa_messages m JOIN participants p ON p.id=m.sender_id
@@ -631,7 +667,41 @@ class Handler(BaseHTTPRequestHandler):
             return 200,{'messages':items,'room':room},None
         raise ApiError(405,'Метод не поддерживается')
 
+    def is_site_admin(self,con):
+        user=self.auth(con)
+        allowed={email.strip().casefold() for email in
+                 os.getenv('SHURSH_ADMIN_EMAILS','').split(',') if email.strip()}
+        if not allowed or (user['email'] or '').casefold() not in allowed:
+            raise ApiError(403,'Недостаточно прав')
+        return user
+
     def handle_api(self,method,path,con):
+        if path=='/api/feedback' and method=='POST':
+            if not getattr(self,'_feedback_rate_checked',False):
+                self.throttled('feedback',5,600)
+            data=self.body()
+            name=req(data.get('name'),'Имя',80)
+            email=req(data.get('email'),'Почта',200).lower()
+            if not re.fullmatch(r'[^\s@]+@[^\s@]+\.[^\s@]+',email):
+                raise ApiError(400,'Укажи корректную почту')
+            topic=enum(data.get('topic'),('idea','bug','question','other'),'Тема')
+            message=req(data.get('message'),'Сообщение',3000,5)
+            con.execute('''INSERT INTO developer_feedback(name,email,topic,message,status,created_at)
+                         VALUES(?,?,?,?,'new',?)''',(name,email,topic,message,now()))
+            return 201,{'ok':True},None
+        if path=='/api/admin/feedback' and method=='GET':
+            self.is_site_admin(con)
+            items=[dict(r) for r in con.execute('''SELECT id,name,email,topic,message,status,created_at
+                       FROM developer_feedback ORDER BY id DESC LIMIT 100''')]
+            return 200,{'items':items},None
+        match=re.fullmatch(r'/api/admin/feedback/(\d+)',path)
+        if match and method=='PATCH':
+            self.is_site_admin(con)
+            status=enum(self.body().get('status'),('new','resolved'),'Статус')
+            updated=con.execute('''UPDATE developer_feedback SET status=? WHERE id=?
+                            RETURNING id''',(status,int(match.group(1)))).fetchone()
+            if not updated: raise ApiError(404,'Обращение не найдено')
+            return 200,{'ok':True},None
         user = self.user(con)
         if method == 'GET' and path == '/api/me':
             return 200, {'user':user, 'demo':DEMO_MODE}, None
@@ -937,6 +1007,7 @@ class Handler(BaseHTTPRequestHandler):
             my_wishes=self.game_wishes(con,my_part['id']) if my_part else []
             return 200,{'event':dict(event),'participants':participants,'exclusions':excluded,
                         'my_assignment':mine,'my_wishes':my_wishes,
+                        'my_preferences':self.participant_preferences(con,my_part['id']) if my_part else {'wanted':'','unwanted':''},
                         'rich_enabled':self.santa_schema_ready(con)},None
         match=re.fullmatch(r'/api/santas/(\d+)/my-wishes',path)
         if match and method=='GET':
@@ -946,6 +1017,13 @@ class Handler(BaseHTTPRequestHandler):
                              (eid,user['id'],user['id'])).fetchone()
             if not part: raise ApiError(404,'Участник не найден')
             return 200,{'wishes':self.game_wishes(con,part['id'])},None
+        match=re.fullmatch(r'/api/santas/(\d+)/preferences',path)
+        if match and method=='PATCH':
+            user=self.auth(con)
+            part=con.execute('SELECT id FROM participants WHERE event_id=? AND user_id=?',
+                             (int(match.group(1)),user['id'])).fetchone()
+            if not part: raise ApiError(404,'Участник не найден')
+            return self.edit_participant_preferences(con,part['id'])
         # Organizer may only read/write their own three chat rooms.
         match=re.fullmatch(r'/api/santas/(\d+)/messages/(general|to-recipient|from-santa)',path)
         if match and method in ('GET','POST'):
@@ -1085,7 +1163,14 @@ class Handler(BaseHTTPRequestHandler):
             receiver=self.assignment_view(con,part['event_id'],part['id']) if part['status']=='drawn' else None
             return 200,{'participant':dict(part),'event':public_event,
                         'participants':participants,'wishes':wishes,'assignment':receiver,
+                        'preferences':self.participant_preferences(con,part['id']),
                         'rich_enabled':self.santa_schema_ready(con)},None
+        match=re.fullmatch(r'/api/participant/([A-Za-z0-9_\-]+)/preferences',path)
+        if match and method=='PATCH':
+            part=con.execute('SELECT id FROM participants WHERE access_hash=?',
+                             (token_hash(match.group(1)),)).fetchone()
+            if not part: raise ApiError(404,'Личная ссылка недействительна')
+            return self.edit_participant_preferences(con,part['id'])
         match=re.fullmatch(r'/api/participant/([A-Za-z0-9_\-]+)/wishes',path)
         if match and method=='POST':
             part=con.execute('SELECT id FROM participants WHERE access_hash=?',
@@ -1128,6 +1213,7 @@ class Handler(BaseHTTPRequestHandler):
             return {'revealed':False}
         cards=self.game_wishes(con,item['receiver_id'])
         return {'revealed':True,'receiver_name':item['receiver_name'],
+                'preferences':self.participant_preferences(con,item['receiver_id']),
                 'wishes':[w['title'] for w in cards],'wish_cards':cards}
 
     def reveal(self,con,eid,pid):
