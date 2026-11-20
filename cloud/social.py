@@ -315,15 +315,21 @@ def after_mutation(handler, method, path, con, result):
     if match and not result[1].get('already_drawn'):
         eid=int(match.group(1))
         for member in con.execute('SELECT user_id FROM participants WHERE event_id=? AND user_id IS NOT NULL',(eid,)):
-            if not user or member['user_id']!=user['id']:
-                _notify(con,member['user_id'],'santa_drawn','Жеребьёвка прошла! Тайный Санта начался',
-                        '/santa/'+str(eid))
+            _notify(con,member['user_id'],'santa_drawn','Жеребьёвка прошла! Тайный Санта начался',
+                    '/santa/'+str(eid))
     match=re.fullmatch(r'/api/invites/([A-Za-z0-9_-]+)/join',path)
     if match:
         event=con.execute('SELECT id,owner_id FROM santa_events WHERE invite_key=?',(match.group(1),)).fetchone()
         if event:
-            _notify(con,event['owner_id'],'santa_joined','В Тайного Санту присоединился участник',
-                    '/santa/'+str(event['id']))
+            # Notify every registered member, not merely the organizer.
+            # Guests without a registered user ID do not receive account alerts.
+            for member in con.execute(
+                'SELECT DISTINCT user_id FROM participants WHERE event_id=? AND user_id IS NOT NULL',
+                (event['id'],)):
+                if not user or member['user_id']!=user['id']:
+                    _notify(con,member['user_id'],'santa_joined',
+                            'К Тайному Санте присоединился новый участник',
+                            '/santa/'+str(event['id']))
             if user:
                 con.execute("UPDATE santa_friend_invitations SET status='accepted' WHERE event_id=? AND invited_user_id=?",
                             (event['id'],user['id']))
