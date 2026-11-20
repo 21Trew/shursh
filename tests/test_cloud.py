@@ -791,6 +791,20 @@ def test_browser_santa_invites_draw_and_private_reveals(browser_http):
                 expect(guest.locator('.modal')).not_to_contain_text('Красный цвет, точная модель')
                 guest.locator('.modal-close').click()
                 expect(guest.locator('#santa-preferences-form #fld-wanted')).to_have_value('Красный цвет, точная модель')
+                if mobile:
+                    for extra in ('Второй', 'Третий'):
+                        guest.locator('button[data-action="add-game-gift"]').click()
+                        expect(guest.locator('.wish-edit-modal .modal-fixed-footer')).to_be_visible()
+                        guest.locator('#fld-title').fill(extra+' подарок')
+                        guest.locator('.modal-fixed-footer button[type="submit"]').click()
+                        expect(guest.locator('.my-wishes-list .game-gifts-track .game-gift-card')).to_have_count(
+                            2 if extra=='Второй' else 3)
+                    track=guest.locator('.my-wishes-list .game-gifts-track')
+                    measurements=track.evaluate("""el => ({scrollWidth:el.scrollWidth,clientWidth:el.clientWidth})""")
+                    assert measurements['scrollWidth']>measurements['clientWidth']+10
+                    guest.locator('.my-wishes-list [data-action="scroll-game-gifts"][data-direction="next"]').click()
+                    guest.wait_for_function("""() => document.querySelector('.my-wishes-list .game-gifts-track').scrollLeft > 10""")
+                    assert guest.evaluate('document.documentElement.scrollWidth <= window.innerWidth + 2')
                 guest.locator('#game-chat-input').fill('Привет от ' + name)
                 guest.locator('#game-chat-form button[type="submit"]').click()
                 expect(guest.locator('.game-chat-messages')).to_contain_text('Привет от ' + name)
