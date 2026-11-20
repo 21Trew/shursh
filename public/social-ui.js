@@ -89,29 +89,55 @@ async function socialProfilePage(uid,marker=lastRenderToken){
 }
 async function socialOwnProfilePage(marker=lastRenderToken){
  if(!currentUser){loginModal();return;}
- const res=await api('/api/profile/me');if(marker!==lastRenderToken)return;
- const p=res.profile;
- shell('<main class="container page social-page"><div class="page-hero"><div><div class="section-label">Твой профиль</div><h1>О себе</h1>'+
-  '<p>Имя видят другие пользователи, но твоя почта никому не показывается</p></div></div>'+
-  '<section class="panel"><div class="social-profile-hero"><div class="avatar">'+esc(p.name.slice(0,1).toUpperCase())+'</div>'+
-  '<div><h2>'+esc(p.name)+'</h2><p>'+esc(p.bio||'Добавь пару слов о себе')+'</p></div></div>'+
-  '<p class="note">Поиск по имени: '+(p.discoverable?'включён':'выключен')+'</p>'+
-  '<div class="btn-row"><button class="btn btn-dark btn-small" data-social-action="edit-profile">Редактировать</button>'+
-  '<button class="btn btn-soft btn-small" data-nav="/users/'+attr(p.id)+'">Посмотреть профиль</button></div></section></main>');
+ const data=await api('/api/profile/me');if(marker!==lastRenderToken)return;
+ const p=data.profile,lists=data.lists||[];
+ shell('<main class="container page social-page social-profile-page">'+
+  '<div class="social-page-heading"><span class="section-label">Твоя визитная карточка</span><h1>Мой профиль</h1>'+
+  '<p>Имя, никнейм, аватар и открытые вишлисты видят другие. Почта остаётся приватной.</p></div>'+
+  '<section class="panel profile-main-card">'+socialIdentity(p)+
+  '<div class="profile-actions"><span class="profile-visibility">'+(p.discoverable?'В поиске друзей':'Скрыт из поиска')+'</span>'+
+  '<button type="button" class="btn btn-dark btn-small" data-social-action="edit-profile">'+ico('edit')+' Редактировать профиль</button>'+
+  '<button type="button" class="btn btn-soft btn-small" data-nav="/users/'+attr(p.id)+'">Как видят друзья</button></div></section>'+
+  '<section class="panel profile-public-lists"><div class="panel-heading-actions"><h2>Мои открытые вишлисты <span class="chip">'+lists.length+'</span></h2>'+
+  '<button class="btn btn-soft btn-small" data-nav="/lists">Управлять списками</button></div>'+
+  (lists.length?'<div class="profile-list-links">'+lists.map(l=>'<button class="profile-list-link" data-nav="/list/'+attr(l.id)+'"><span>'+esc(l.title)+'</span><small>'+l.wish_count+' желаний</small>'+ico('arrow')+'</button>').join('')+'</div>':
+   '<p class="note">Создай вишлист с доступом по ссылке — он появится в твоём профиле.</p>')+'</section>'+
+  '<section class="panel profile-security"><div><h2>Вход и безопасность</h2><p class="note">Почта не отображается в публичном профиле</p><div class="account-email">'+esc(p.email||'')+'</div></div>'+
+  '<div class="profile-actions"><button class="btn btn-soft btn-small" data-social-action="change-email">Изменить почту</button>'+
+  '<button class="btn btn-soft btn-small" data-social-action="change-password">Изменить пароль</button></div></section></main>');
 }
 async function socialEditProfileModal(){
  const d=await api('/api/profile/me'),p=d.profile;
- modal({title:'Редактировать профиль',subtitle:'Покажи друзьям, кто ты и какие сюрпризы любишь',
-  content:field('Имя','name','Имя','text',p.name,true,'maxlength="40"')+
-   textArea('О себе','bio','Например, люблю книги и настолки',p.bio||'')+
+ const choices=socialEmojiChoices.map(emoji=>
+  '<button type="button" class="emoji-choice'+(emoji===(p.avatar_emoji||'🎁')?' selected':'')+
+  '" data-avatar-pick="'+attr(emoji)+'" aria-pressed="'+String(emoji===(p.avatar_emoji||'🎁'))+'">'+esc(emoji)+'</button>').join('');
+ modal({title:'Редактировать профиль',subtitle:'Настрой, как тебя видят друзья',
+  content:'<div class="field"><label>Твой аватар — только эмодзи</label><div class="emoji-grid" role="group" aria-label="Выбрать эмодзи">'+choices+'</div>'+
+   '<input type="hidden" name="avatar_emoji" id="social-avatar-value" value="'+attr(p.avatar_emoji||'🎁')+'"></div>'+
+   field('Имя','name','Как к тебе обращаться','text',p.name,true,'maxlength="40"')+
+   field('Никнейм (@)','handle','Например, shursh_friend','text',p.handle||'',false,'maxlength="20" autocomplete="username"')+
+   field('Город (необязательно)','city','Например, Санкт-Петербург','text',p.city||'',false,'maxlength="60"')+
+   textArea('О себе','bio','Что любишь, чем увлекаешься и что тебя радует',p.bio||'')+
    '<label class="switch-label"><input type="checkbox" name="discoverable"'+(p.discoverable?' checked':'')+'> Показывать мой профиль в поиске</label>',
-  submitLabel:'Сохранить',onSubmit:async form=>{
+  submitLabel:'Сохранить профиль',onSubmit:async form=>{
    const data=readForm(form);data.discoverable=form.elements.discoverable.checked;
-   await api('/api/profile/me',{method:'PATCH',body:data});
-   currentUser.name=data.name;
-   notice('Профиль обновлён');await socialOwnProfilePage();
+   const response=await api('/api/profile/me',{method:'PATCH',body:data});
+   currentUser.name=response.profile.name;currentUser.avatar_emoji=response.profile.avatar_emoji;currentUser.handle=response.profile.handle;
+   clearOwnerTabViews(['/profile']);notice('Профиль обновлён');await socialOwnProfilePage();
   }});
  const bio=modalRoot.querySelector('#fld-bio');if(bio)bio.maxLength=500;
+}
+async function socialAccountModal(kind){
+ if(isPreview){notice('Настройки входа доступны только на сайте',true);return;}
+ const email=kind==='email';
+ modal({title:email?'Изменить почту':'Изменить пароль',subtitle:'Для защиты аккаунта сначала подтверди текущий пароль',
+  content:field('Текущий пароль','current_password','Твой текущий пароль','password','',true,'autocomplete="current-password" minlength="8" maxlength="200"')+
+   (email?field('Новая почта','email','new@example.com','email','',true,'autocomplete="email" maxlength="254"'):
+    field('Новый пароль','new_password','Не менее 8 символов','password','',true,'autocomplete="new-password" minlength="8" maxlength="200"')),
+  submitLabel:email?'Отправить подтверждение':'Обновить пароль',onSubmit:async form=>{
+   const result=await api('/api/account/'+kind,{method:'POST',body:readForm(form)});
+   notice(email&&result.pending_confirmation?'Проверь новую почту и подтверди изменение':'Пароль изменён');
+  }});
 }
 async function socialNotificationsPage(marker=lastRenderToken){
  if(!currentUser){loginModal();return;}
@@ -161,12 +187,15 @@ async function socialAskGiftModal(wishId){
   }});
 }
 document.addEventListener('click',async e=>{
+ const picker=e.target.closest('[data-avatar-pick]');if(picker){e.preventDefault();const root=picker.closest('.emoji-grid');root?.querySelectorAll('[data-avatar-pick]').forEach(x=>{x.classList.toggle('selected',x===picker);x.setAttribute('aria-pressed',String(x===picker));});const input=modalRoot.querySelector('#social-avatar-value');if(input)input.value=picker.dataset.avatarPick;return;}
  const target=e.target.closest('[data-social-action]');if(!target)return;
  e.preventDefault();
  const action=target.dataset.socialAction,uid=target.dataset.userId;
  target.disabled=true;
  try{
   if(action==='edit-profile'){await socialEditProfileModal();return;}
+   if(action==='change-email'){await socialAccountModal('email');return;}
+   if(action==='change-password'){await socialAccountModal('password');return;}
   if(action==='invite-friends'){await socialInviteFriendsModal();return;}
   if(action==='ask-gift'){await socialAskGiftModal(target.dataset.wishId);return;}
   if(action==='open-notification'){
