@@ -166,7 +166,7 @@ def frontend(route=''):
     if route in ('app.js','santa-ui.js','styles.css','favicon.svg'):
         return send_from_directory(ROOT/'public',route)
     # Serve only known app routes; never include the simulator or repository files.
-    if route in ('','index.html','lists','santas') or re.fullmatch(r'(?:list|santa)/[0-9]{1,16}|(?:w|r|join|p)/[A-Za-z0-9_-]{1,128}',route):
+    if route in ('','index.html','lists','santas','admin/feedback') or re.fullmatch(r'(?:list|santa)/[0-9]{1,16}|(?:w|r|join|p)/[A-Za-z0-9_-]{1,128}',route):
         return send_from_directory(ROOT/'public','index.html')
     return response({'error':'Страница не найдена'},404)
 
