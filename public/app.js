@@ -836,7 +836,7 @@ if(!isPreview && ['access_token','refresh_token','error','error_code','error_des
  confirmationToken=authFragment.get('access_token');
  const callbackType=authFragment.get('type');
  authReturnError=authFragment.has('error')||authFragment.has('error_code')||authFragment.has('error_description')||!confirmationToken||
-  (callbackType!==null&&callbackType!=='signup'&&callbackType!=='email');
+  (callbackType!==null&&callbackType!=='signup'&&callbackType!=='email'&&callbackType!=='email_change');
  if(authReturnError){
   confirmationToken=null;
   authReturnNotice='Ссылка подтверждения недействительна или истекла';
