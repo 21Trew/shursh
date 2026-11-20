@@ -515,6 +515,13 @@ def test_browser_manual_product_link_and_uncluttered_header(browser_http):
             page.goto(browser_http + '/')
             expect(page.locator('main h1')).to_be_visible()
             expect(page.locator('.footer')).to_contain_text('Сделано с заботой о сюрпризах')
+            expect(page.locator('.footer')).to_contain_text('Место для хотелок и сюрпризов')
+            assert page.locator('header .logo-dot').count()==0
+            assert page.locator('header .nav a.active').count()==1
+            page.locator('.footer-developer').click()
+            expect(page.locator('.modal')).to_contain_text('Написать разработчику')
+            expect(page.locator('.developer-contact-link')).to_have_attribute('href','https://t.me/LopatinVS')
+            page.locator('.modal-close').click()
             assert page.locator('.footer a[href^="mailto:"]').count() == 0
             assert page.locator('header button[data-open="list"]').count() == 0
             browser_login(page)
@@ -536,8 +543,21 @@ def test_browser_manual_product_link_and_uncluttered_header(browser_http):
             page.wait_for_timeout(950)
             expect(page.locator('#fld-title')).to_have_value('')
             expect(page.locator('#fld-price')).to_have_value('')
+            chooser=page.locator('.ui-select-trigger[data-select-id="fld-priority"]')
+            expect(chooser).to_have_text('Было бы здорово')
+            chooser.click()
+            expect(page.locator('.ui-select-menu [role="option"]')).to_have_count(2)
+            page.locator('.ui-select-menu [role="option"]').filter(has_text='Очень хочу!').click()
+            assert page.locator('#fld-priority').input_value()=='love'
+            chooser.focus()
+            chooser.press('ArrowUp')
+            chooser.press('Enter')
+            assert page.locator('#fld-priority').input_value()=='nice'
+            assert page.locator('.ui-select-menu').count()==0
             page.locator('#fld-title').fill('Кот и настольная игра')
             page.locator('#fld-price').fill('1299')
+            assert page.locator('.modal').evaluate("(el) => getComputedStyle(el).overflowY")=='hidden'
+            assert page.locator('.modal-scroll-area').count()==1
             # A manually uploaded image must still work without a scraper.
             from base64 import b64decode
             photo = b64decode('iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mP8/x8AAusB9aer6aQAAAAASUVORK5CYII=')

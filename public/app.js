@@ -148,21 +148,141 @@ async function api(path,opts={}){
 function notice(message,error=false){const n=document.createElement('div');n.className='toast'+(error?' error':'');n.textContent=message;document.getElementById('toast-root').replaceChildren(n);clearTimeout(toastTimeout);toastTimeout=setTimeout(()=>n.remove(),4500);}
 async function clipboard(value){try{await navigator.clipboard.writeText(value);notice('Ссылка скопирована!');}catch{modal({title:'Скопируй ссылку',content:`<div class="field"><label>Ссылка</label><input class="input" autofocus readonly value="${attr(value)}" onclick="this.select()"></div>`});}}
 function modal({title,subtitle='',content='',onSubmit=null,submitLabel='Сохранить',size='normal',footer=''}){
- modalRoot.innerHTML=`<div class="modal-backdrop" data-backdrop><div class="modal" role="dialog" aria-modal="true" aria-label="${attr(title)}"><button class="modal-close" type="button" data-close aria-label="Закрыть">×</button><h2>${esc(title)}</h2>${subtitle?`<p class="modal-subtitle">${esc(subtitle)}</p>`:''}<form class="form" id="modal-form">${content}${onSubmit?`<div class="form-actions"><button type="button" class="btn btn-soft" data-close>Отмена</button><button type="submit" class="btn btn-dark">${esc(submitLabel)} ${ico('arrow')}</button></div>`:''}</form>${footer?`<div class="modal-foot">${footer}</div>`:''}</div></div>`;
+ closeUiSelect();
+ modalRoot.innerHTML=`<div class="modal-backdrop" data-backdrop><div class="modal" role="dialog" aria-modal="true" aria-label="${attr(title)}"><button class="modal-close" type="button" data-close aria-label="Закрыть">×</button><div class="modal-scroll-area"><h2>${esc(title)}</h2>${subtitle?`<p class="modal-subtitle">${esc(subtitle)}</p>`:''}<form class="form" id="modal-form">${content}${onSubmit?`<div class="form-actions"><button type="button" class="btn btn-soft" data-close>Отмена</button><button type="submit" class="btn btn-dark">${esc(submitLabel)} ${ico('arrow')}</button></div>`:''}</form>${footer?`<div class="modal-foot">${footer}</div>`:''}</div></div></div>`;
+ enhanceSelects(modalRoot);
  document.body.style.overflow='hidden';const bd=modalRoot.querySelector('[data-backdrop]');bd.addEventListener('click',e=>{if(e.target===bd)closeModal()});modalRoot.querySelectorAll('[data-close]').forEach(b=>b.addEventListener('click',closeModal));
  if(onSubmit){modalRoot.querySelector('form').addEventListener('submit',async e=>{e.preventDefault();const btn=e.currentTarget.querySelector('[type=submit]');btn.disabled=true;try{const submitted=e.currentTarget;await onSubmit(submitted);if(modalRoot.querySelector('form')===submitted)closeModal();}catch(err){notice(err.message,true)}finally{if(btn.isConnected)btn.disabled=false;}});}
  // No delayed autofocus: it can steal focus while the user types in the
  // password field, silently redirecting keystrokes to email after 10 ms.
- modalRoot.querySelector('input:not([type=hidden]),textarea,select')?.focus({preventScroll:true});
+ modalRoot.querySelector('input:not([type=hidden]),textarea,.ui-select-trigger,select:not(.ui-select-native)')?.focus({preventScroll:true});
 }
-function closeModal(){modalRoot.replaceChildren();document.body.style.overflow='';}
-document.addEventListener('keydown',e=>{if(e.key==='Escape')closeModal();});
+function contactDeveloperModal(){
+ modal({title:'Написать разработчику',subtitle:'Есть идея для ШУРШ!, нашли ошибку или что-то не работает? Напишите напрямую разработчику.',
+  content:'<div class="developer-contact"><div class="developer-contact-name">L-code</div><p>Отвечаю на сообщения в Telegram.</p><a class="btn btn-dark developer-contact-link" href="https://t.me/LopatinVS" target="_blank" rel="noopener noreferrer">Написать в Telegram '+ico('arrow')+'</a></div>'});
+}
+function closeModal(){closeUiSelect();modalRoot.replaceChildren();document.body.style.overflow='';}
+document.addEventListener('keydown',e=>{if(e.key==='Escape'){if(uiSelectOpen){e.preventDefault();closeUiSelect(true);}else closeModal();}});
 function field(label,name,placeholder='',type='text',value='',required=false,extra=''){
  return `<div class="field"><label for="fld-${attr(name)}">${esc(label)}</label><input id="fld-${attr(name)}" name="${attr(name)}" type="${attr(type)}" placeholder="${attr(placeholder)}" value="${attr(value??'')}" ${required?'required':''} ${extra}></div>`;
 }
 function textArea(label,name,placeholder='',value=''){
  return `<div class="field"><label for="fld-${attr(name)}">${esc(label)}</label><textarea id="fld-${attr(name)}" name="${attr(name)}" placeholder="${attr(placeholder)}">${esc(value)}</textarea></div>`;
 }
+
+/* Custom desktop selects with keyboard support; keep the real form select.
+   On touch screens the native OS picker remains available and accessible. */
+let uiSelectOpen=null;
+let uiSelectSerial=0;
+function closeUiSelect(focus=false){
+ const open=uiSelectOpen;if(!open)return;
+ uiSelectOpen=null;open.menu.remove();
+ open.button.setAttribute('aria-expanded','false');
+ open.button.removeAttribute('aria-activedescendant');
+ if(focus&&open.button.isConnected)open.button.focus({preventScroll:true});
+}
+function openUiSelect(select,button){
+ if(uiSelectOpen?.select===select){closeUiSelect();return;}
+ closeUiSelect();
+ const opts=[...select.options];
+ const list=document.createElement('div');
+ list.id='ui-select-list-'+(++uiSelectSerial);
+ list.className='ui-select-menu';
+ list.setAttribute('role','listbox');
+ list.setAttribute('aria-label',select.labels?.[0]?.textContent?.trim()||'Выбрать вариант');
+ list.innerHTML=opts.map((o,i)=>
+  '<button type="button" role="option" tabindex="-1" data-ui-index="'+i+'" id="'+list.id+'-opt-'+i+'"'+
+  (o.disabled?' disabled':'')+' aria-selected="'+(o.selected?'true':'false')+'">'+esc(o.textContent)+'</button>').join('');
+ const portal=select.closest('.modal')||document.body;
+ portal.appendChild(list);
+ const r=button.getBoundingClientRect(),height=window.innerHeight,width=window.innerWidth;
+ const below=Math.max(0,height-r.bottom-12),above=Math.max(0,r.top-12);
+ const useAbove=below<Math.min(190,opts.length*44)&&above>below;
+ const maxHeight=Math.max(58,Math.min(244,useAbove?above:below));
+ list.style.width=Math.min(r.width,width-20)+'px';
+ list.style.maxHeight=maxHeight+'px';
+ list.style.left=Math.max(10,Math.min(r.left,width-r.width-10))+'px';
+ list.style.top=Math.max(8,useAbove?r.top-6-maxHeight:r.bottom+6)+'px';
+ let highlighted=Math.max(0,select.selectedIndex);
+ const mark=(i)=>{
+  if(!opts.length)return;
+  highlighted=(i+opts.length)%opts.length;
+  list.querySelectorAll('[data-ui-index]').forEach(el=>{
+   const active=Number(el.dataset.uiIndex)===highlighted;
+   el.classList.toggle('is-highlighted',active);
+   el.setAttribute('aria-selected',String(Number(el.dataset.uiIndex)===select.selectedIndex));
+  });
+  button.setAttribute('aria-activedescendant',list.id+'-opt-'+highlighted);
+  const target=list.querySelector('[data-ui-index="'+highlighted+'"]');
+  target?.scrollIntoView({block:'nearest'});
+ };
+ const choose=(i)=>{
+  if(!opts[i]||opts[i].disabled)return;
+  select.selectedIndex=i;
+  select.dispatchEvent(new Event('change',{bubbles:true}));
+  closeUiSelect(true);
+ };
+ uiSelectOpen={select,button,menu:list,choose,mark,get highlighted(){return highlighted;}};
+ button.setAttribute('aria-controls',list.id);
+ button.setAttribute('aria-expanded','true');
+ list.addEventListener('pointerdown',e=>e.preventDefault());
+ list.addEventListener('click',e=>{
+  const option=e.target.closest('[data-ui-index]');
+  if(option)choose(Number(option.dataset.uiIndex));
+ });
+ mark(highlighted);
+}
+function enhanceSelects(root){
+ if(window.matchMedia?.('(pointer:coarse)').matches)return;
+ root.querySelectorAll('select:not([data-ui-enhanced])').forEach(select=>{
+  select.dataset.uiEnhanced='true';
+  const shell=document.createElement('div');shell.className='ui-select';
+  select.parentNode.insertBefore(shell,select);shell.appendChild(select);
+  select.classList.add('ui-select-native');
+  select.tabIndex=-1;select.setAttribute('aria-hidden','true');
+  const button=document.createElement('button');
+  button.type='button';button.className='ui-select-trigger';
+  button.dataset.selectId=select.id;
+  button.setAttribute('role','combobox');
+  button.setAttribute('aria-haspopup','listbox');
+  button.setAttribute('aria-expanded','false');
+  button.disabled=select.disabled;
+  const update=()=>{
+   const text=select.selectedOptions[0]?.textContent||'Выбрать';
+   const label=select.labels?.[0]?.textContent?.trim()||'Вариант';
+   button.textContent=text;
+   button.setAttribute('aria-label',label+': '+text);
+  };
+  update();select.addEventListener('change',update);
+  button.addEventListener('click',()=>openUiSelect(select,button));
+  button.addEventListener('keydown',e=>{
+   if(e.key==='Escape'&&uiSelectOpen?.select===select){
+    e.preventDefault();e.stopPropagation();closeUiSelect(true);return;
+   }
+   if(e.key==='Tab'){if(uiSelectOpen?.select===select)closeUiSelect();return;}
+   if(!['ArrowDown','ArrowUp','Home','End','Enter',' '].includes(e.key))return;
+   e.preventDefault();
+   if(!uiSelectOpen||uiSelectOpen.select!==select)openUiSelect(select,button);
+   const state=uiSelectOpen;
+   if(!state)return;
+   if(e.key==='ArrowDown')state.mark(state.highlighted+1);
+   else if(e.key==='ArrowUp')state.mark(state.highlighted-1);
+   else if(e.key==='Home')state.mark(0);
+   else if(e.key==='End')state.mark(select.options.length-1);
+   else if(e.key==='Enter'||e.key===' ')state.choose(state.highlighted);
+  });
+  shell.appendChild(button);
+  select.labels?.[0]?.addEventListener('click',e=>{e.preventDefault();button.focus({preventScroll:true});});
+ });
+}
+document.addEventListener('pointerdown',e=>{
+ if(uiSelectOpen&&!uiSelectOpen.button.contains(e.target)&&!uiSelectOpen.menu.contains(e.target))closeUiSelect();
+});
+document.addEventListener('scroll',e=>{
+ if(uiSelectOpen&&!uiSelectOpen.menu.contains(e.target))closeUiSelect();
+},true);
+window.addEventListener('resize',()=>closeUiSelect());
+
 function selectField(label,name,options,selected){return `<div class="field"><label for="fld-${name}">${esc(label)}</label><select id="fld-${name}" name="${name}">${options.map(([value,text])=>`<option value="${attr(value)}" ${String(value)===String(selected)?'selected':''}>${esc(text)}</option>`).join('')}</select></div>`;}
 function readForm(form){return Object.fromEntries(new FormData(form).entries());}
 function fallbackArt(type='gift'){
@@ -189,8 +309,8 @@ function heroArt(){return `<svg viewBox="0 0 570 535" aria-hidden="true" role="p
  </g><g fill="#edc76c" stroke="#29292c" stroke-width="2"><path d="m161 343 7 19 20 6-20 7-7 20-7-20-20-7 20-6Z"/><path d="m444 310 6 14 14 6-14 6-6 15-5-15-15-6 15-6Z"/></g><path d="M130 252c-12-24-4-36 10-29 8 4 9 13 9 13s12-13 23-4c13 14-5 27-23 40Z" fill="#e98e86"/><path d="m460 212 13-3m-9-15 11-9" stroke="#27272b" stroke-width="3" stroke-linecap="round"/></svg>`;}
 function santaArt(){return `<svg viewBox="0 0 600 430" aria-hidden="true"><path d="M5 210c70-180 229-206 353-138s202 176 220 266v92H0Z" fill="#f3d1c2"/><g transform="translate(60 70) rotate(-12 110 145)"><rect x="25" y="32" width="195" height="232" rx="17" fill="#f5e8ce" stroke="#2c292b" stroke-width="4"/><path d="M45 72h150m-150 31h105m-105 31h130" stroke="#d5baa5" stroke-width="6" stroke-linecap="round"/><circle cx="122" cy="195" r="33" fill="#eeb5a0" stroke="#2c292b" stroke-width="3"/><path d="m106 197 12 12 24-26" stroke="#2c292b" stroke-width="5" fill="none"/></g><g transform="translate(310 91) rotate(13 110 125)"><rect x="18" y="25" width="202" height="230" rx="17" fill="#d4c5ef" stroke="#2c292b" stroke-width="4"/><path d="M19 45 119 139 219 45M19 250l71-91m129 91-72-91" stroke="#2c292b" stroke-width="4" fill="none"/><circle cx="118" cy="150" r="33" fill="#f8c18a" stroke="#2c292b" stroke-width="4"/><path d="M107 152c0-9 7-12 11-4 4-8 12-5 11 4-2 7-11 12-11 12s-11-5-11-12" fill="#fff"/></g><path d="M277 47v29m-14-14h29m204 217 7 17 17 8-17 7-7 17-8-17-17-7 17-8Z" stroke="#2c292b" stroke-width="3" fill="#f2d990"/></svg>`;}
 function stepArt(num){if(num===1)return `<svg viewBox="0 0 130 112">${fallbackArt('book').replace(/viewBox="[^"]*"/,'viewBox="0 0 170 160"')}</svg>`;if(num===2)return `<svg viewBox="0 0 130 112"><rect x="13" y="28" width="104" height="67" rx="10" fill="#fff" stroke="#29292b" stroke-width="3"/><path d="m15 40 50 38 50-38" stroke="#29292b" stroke-width="3" fill="none"/><circle cx="67" cy="73" r="15" fill="#e5bcf0" stroke="#29292b" stroke-width="2"/><path d="M62 72c1-5 5-5 6-1 4-6 9-2 7 3l-7 7Z" fill="#e27f9a"/></svg>`;return `<svg viewBox="0 0 130 112"><rect x="23" y="36" width="86" height="65" fill="#f1b0ac" stroke="#29292b" stroke-width="3"/><rect x="16" y="27" width="100" height="18" fill="#ffdc98" stroke="#29292b" stroke-width="3"/><path d="M65 28v72M65 28c-27 1-25-24-12-23 10 1 12 20 12 23Zm0 0c25-1 24-24 11-23-9 1-11 20-11 23Z" fill="#e5d1f4" stroke="#29292b" stroke-width="3"/></svg>`;}
-function header(){const path=currentPath();return `<header class="site-header"><div class="container topbar"><a class="logo" href="/" data-nav="/" aria-label="Шурш! Главная">шурш<span>!</span><span class="logo-dot"></span></a><nav class="nav" aria-label="Главная навигация"><a href="/" data-nav="/" class="${path==='/'?'active':''}">${currentUser?'Кабинет':'Главная'}</a><a href="/lists" data-nav="/lists" class="${path.startsWith('/lists')||path.startsWith('/list/')?'active':''}">Вишлисты</a><a href="/santas" data-nav="/santas" class="${path.startsWith('/santas')||path.startsWith('/santa/')?'active':''}">Тайный Санта</a></nav><div class="header-actions">${currentUser?`<span class="user-name">Привет, ${esc(currentUser.name)}!</span><button class="btn btn-ghost" data-action="logout" title="Выйти">${ico('logout')} Выйти</button>`:`<button class="btn btn-ghost" data-open="login">Войти</button>`}</div></div></header>${isPreview?`<div class="preview-ribbon"><div class="container">Интерактивное демо · данные хранятся только в этом браузере · ссылки не работают на других устройствах <button type="button" data-action="reset-preview">Сбросить демо</button></div></div>`:''}`;}
-function footer(){return `<footer class="container footer"><div><a class="logo" data-nav="/" href="/">шурш<span>!</span></a><small>Дарить приятно. Угадывать необязательно</small></div><nav><a data-nav="/lists" href="/lists">Вишлисты</a><a data-nav="/santas" href="/santas">Тайный Санта</a></nav><p>Сделано с заботой о сюрпризах</p></footer>`;}
+function header(){const path=currentPath();return `<header class="site-header"><div class="container topbar"><a class="logo" href="/" data-nav="/" aria-label="Шурш! Главная">шурш<span>!</span></a><nav class="nav" aria-label="Главная навигация"><a href="/" data-nav="/" class="${path==='/'?'active':''}">${currentUser?'Кабинет':'Главная'}</a><a href="/lists" data-nav="/lists" class="${path.startsWith('/lists')||path.startsWith('/list/')?'active':''}">Вишлисты</a><a href="/santas" data-nav="/santas" class="${path.startsWith('/santas')||path.startsWith('/santa/')?'active':''}">Тайный Санта</a></nav><div class="header-actions">${currentUser?`<span class="user-name">Привет, ${esc(currentUser.name)}!</span><button class="btn btn-ghost" data-action="logout" title="Выйти">${ico('logout')} Выйти</button>`:`<button class="btn btn-ghost" data-open="login">Войти</button>`}</div></div></header>${isPreview?`<div class="preview-ribbon"><div class="container">Интерактивное демо · данные хранятся только в этом браузере · ссылки не работают на других устройствах <button type="button" data-action="reset-preview">Сбросить демо</button></div></div>`:''}`;}
+function footer(){return `<footer class="container footer"><div><a class="logo" data-nav="/" href="/">шурш<span>!</span></a><small>Место для хотелок и сюрпризов</small></div><nav><a data-nav="/lists" href="/lists">Вишлисты</a><a data-nav="/santas" href="/santas">Тайный Санта</a></nav><p class="footer-credit">Сделано с заботой о сюрпризах <span aria-hidden="true">·</span> <button class="footer-developer" type="button" data-action="contact-developer">L-code</button></p></footer>`;}
 let shellUserSignature='';
 function shell(body){
  const identity=(currentUser?.id??'guest')+':'+(currentUser?.name??'')+':'+isDemo+':'+isPreview;
@@ -211,7 +331,7 @@ function shell(body){
     (path==='/santas'||path.startsWith('/santa/')));
   });
  }
- view.innerHTML=body;view.removeAttribute('aria-busy');app.classList.remove('route-loading');
+ closeUiSelect();view.innerHTML=body;enhanceSelects(view);view.removeAttribute('aria-busy');app.classList.remove('route-loading');
  renderedOwnerTab=ownerTab(currentPath())?currentPath():null;
  document.title='Шурш! - вишлисты и Тайный Санта';
 }
@@ -373,7 +493,7 @@ async function santaGamePage(id,marker=lastRenderToken,participantToken=null){
 }
 async function myWishesForAdmin(id){const res=await api(`/api/santas/${id}/my-wishes`);return wishesMarkup(res.wishes);}
 function secretCard(assignment,organizer,identifier){if(!assignment||!assignment.revealed)return `<div class="secret-card">${envelopeArt()}<h2>Твой получатель ждёт внутри</h2><p>Никто, кроме тебя, не увидит это имя</p><button class="btn btn-dark" data-action="reveal" data-mode="${organizer?'owner':'participant'}" data-key="${attr(identifier)}">Узнать, кому я дарю ${ico('spark')}</button></div>`;
- return `<div class="secret-card revealed">${ico('check')}<p>Кому ты даришь</p><div class="recipient">${esc(assignment.receiver_name)}</div><p>Здорово, правда? Теперь самое интересное - выбрать подарок!</p><div class="recipient-wishes"><strong>Пожелания получателя</strong>${assignment.wish_cards?.length?wishesMarkup(assignment.wish_cards,'recipient'):'<p>Пожеланий пока нет. Можно придумать сюрприз самостоятельно</p>'}</div></div>`;}
+ return `<div class="secret-card revealed"><div class="recipient-summary">${ico('check')}<div><div class="recipient-eyebrow">Твой получатель</div><div class="recipient">${esc(assignment.receiver_name)}</div></div></div><div class="recipient-wishes"><strong>Пожелания получателя</strong>${assignment.wish_cards?.length?wishesMarkup(assignment.wish_cards,'recipient'):'<p class="recipient-empty">Пока без пожеланий — можно придумать сюрприз самому</p>'}</div></div>`;}
 async function invitePage(key,marker=lastRenderToken){const {event:e,already_joined}=await api(`/api/invites/${key}`);if(marker!==lastRenderToken)return;shell(`<main class="container page"><div class="invite-card"><div class="invite-icon">${envelopeArt()}</div><div class="section-label" style="text-align:center">Тебя зовут в игру!</div><h1>${esc(e.title)}</h1><p>${esc(e.description||'Кто-то хочет устроить вам небольшой праздник')}</p><div class="invite-info"><div class="info-tile"><small>Когда обмениваемся</small><strong>${dateRu(e.exchange_date)}</strong></div><div class="info-tile"><small>Бюджет</small><strong>${money(e.budget_cents,e.currency)}</strong></div></div>${e.rules?`<div class="details-box"><strong>Правила от организатора</strong><p>${esc(e.rules)}</p></div>`:''}${already_joined?'<div class="alert">Ты уже участвуешь в этой игре. Повторное вступление не требуется</div>':e.status==='open'?`<form class="invite-form" id="join-form"><h3>Как тебя зовут?</h3><div class="field"><label for="join-name">Твоё имя</label><input id="join-name" name="name" maxlength="50" required placeholder="Например, Маша"></div><button class="btn btn-dark" type="submit">Присоединиться ${ico('arrow')}</button><p class="note" style="margin-top:15px">После вступления получишь личную ссылку - сохрани её, чтобы вернуться в игру</p></form>`:`<div class="alert">Жеребьёвка уже состоялась. Новые участники присоединиться не могут</div>`}</div></main>`);
  document.getElementById('join-form')?.addEventListener('submit',async ev=>{ev.preventDefault();const btn=ev.currentTarget.querySelector('button');btn.disabled=true;try{const r=await api(`/api/invites/${key}/join`,{method:'POST',body:readForm(ev.currentTarget)});nav(`/p/${r.participant_token}`);notice('Ты в игре! Сохрани личную ссылку');}catch(err){notice(err.message,true);btn.disabled=false;}});
 }
@@ -438,7 +558,7 @@ function wishModal(edit=null){
    selectField('Валюта','currency',[['RUB','₽ Рубли'],['EUR','€ Евро'],['USD','$ Доллары']],w.currency||'RUB')+
    '</div><div class="form-grid">'+
    selectField('Тип','kind',[['item','Конкретный подарок'],['experience','Идея / впечатление']],w.kind||'item')+
-   selectField('Приоритет','priority',[['nice','Буду рада'],['love','Очень хочу!']],w.priority||'nice')+
+   selectField('Приоритет','priority',[['nice','Было бы здорово'],['love','Очень хочу!']],w.priority||'nice')+
    '</div>'+
    '<div class="field"><label for="wish-file">Фотография (необязательно)</label>'+
    '<div class="file-picker"><input id="wish-file" name="image" type="file" accept="image/png,image/jpeg,image/webp">'+
@@ -541,6 +661,7 @@ async function dispatch(action,el){try{
  if(action==='demo-login'){const r=await api('/api/demo-login',{method:'POST',body:{}});currentUser=r.user;closeModal();notice('Демо-аккаунт открыт');nav('/lists');}
  if(action==='sample-list'){if(!isDemo){listModal();return;}if(!currentUser){const r=await api('/api/demo-login',{method:'POST',body:{}});currentUser=r.user;}const {lists}=await api('/api/lists');if(lists.length)nav(`/w/${lists[lists.length-1].share_key}`);else nav('/lists');}
  if(action==='copy')await clipboard(el.dataset.url);
+ if(action==='contact-developer')contactDeveloperModal();
  if(action==='scroll-game-gifts'){const track=el.closest('.game-gifts-carousel')?.querySelector('.game-gifts-track');if(track)track.scrollBy({left:(el.dataset.direction==='prev'?-1:1)*Math.max(180,track.clientWidth*.7),behavior:'smooth'});}
  if(action==='edit-list')listModal(loadedList.list);
  if(action==='add-game-gift')gameGiftModal();

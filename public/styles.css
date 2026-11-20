@@ -142,3 +142,89 @@
  .game-gifts-arrows .btn{width:32px;height:32px;min-height:32px}
 }
 @media(prefers-reduced-motion:reduce){.game-gifts-track{scroll-behavior:auto}}
+
+
+/* Shursh interface polish: restrained ink markers, contained scrollbars,
+   a compact Santa recipient card, and accessible styled desktop selects. */
+.nav{gap:25px}
+.nav a{position:relative;isolation:isolate;padding:8px 9px;margin:-8px -9px;border-radius:7px;white-space:nowrap;transition:color .18s ease,opacity .18s ease}
+.nav a::before{content:'';position:absolute;z-index:-1;left:-3px;right:-3px;top:49%;height:63%;
+ background:#f5cf83;opacity:0;transform:translateY(-50%) rotate(-1deg) scaleX(0);
+ transform-origin:0 50%;border-radius:46% 19% 32% 27% / 33% 48% 27% 52%;
+ clip-path:polygon(0 7%,97% 0,100% 78%,90% 100%,3% 93%);
+ transition:transform .3s cubic-bezier(.18,.74,.24,1),opacity .16s ease}
+.nav a.active::before{opacity:.98;transform:translateY(-50%) rotate(-1deg) scaleX(1)}
+.nav a.active::after{content:none}
+.nav a:hover{opacity:1}
+.nav a:focus-visible{outline-offset:8px}
+
+.my-wishes-list{display:block;min-width:0}
+.my-wishes-list .game-gifts-carousel,.game-gifts-carousel{display:block;width:100%;min-width:0;max-width:100%}
+.game-gifts-toolbar{width:100%;justify-content:space-between}
+.game-gifts-arrows{margin-left:auto;flex:0 0 auto}
+
+.secret-card{padding:23px 18px;border-radius:20px}
+.secret-card h2{font-size:18px;margin:10px auto}
+.secret-card .envelope-svg{width:120px;height:96px}
+.secret-card.revealed{text-align:left;padding:22px 18px;background:#e3f2e5;border-radius:19px}
+.secret-card.revealed .recipient-summary{display:flex;align-items:center;gap:12px;margin-bottom:14px}
+.secret-card.revealed .recipient-summary>.icon{flex:0 0 auto;width:35px;height:35px;padding:8px;background:#cce8d0;border-radius:12px;color:#416849}
+.secret-card.revealed .recipient-eyebrow{font-size:12px;font-weight:700;color:#66796c;margin-bottom:3px}
+.secret-card.revealed .recipient{font-size:clamp(18px,2vw,24px);margin:0;line-height:1.4;overflow-wrap:anywhere}
+.secret-card.revealed .recipient-wishes{max-width:100%;width:100%;margin:0;padding:14px;background:rgba(255,255,255,.74);border-radius:13px}
+.secret-card.revealed .recipient-wishes>strong{font-size:13px}
+.secret-card.revealed .recipient-empty{font-size:13px;line-height:1.5;margin:10px 0 0;color:#696e67}
+.secret-card.revealed .game-gifts-track{margin-top:10px}
+
+/* Keep every scroll track inset from the rounded edges of its own surface. */
+html{scrollbar-width:thin;scrollbar-color:#c5b9ac var(--paper)}
+.modal{padding:0;max-height:min(92dvh,900px);overflow:hidden;display:flex;flex-direction:column;isolation:isolate}
+.modal-scroll-area{min-height:0;overflow-y:auto;overscroll-behavior:contain;padding:32px 36px 30px 32px;scrollbar-gutter:stable}
+.modal-close{z-index:3}
+.modal-scroll-area,.game-gifts-track,.game-chat-messages,.import-wish-choices,.ui-select-menu{scrollbar-width:thin;scrollbar-color:#c6bdb4 transparent}
+.modal-scroll-area::-webkit-scrollbar,.game-gifts-track::-webkit-scrollbar,.game-chat-messages::-webkit-scrollbar,.import-wish-choices::-webkit-scrollbar,.ui-select-menu::-webkit-scrollbar{width:8px;height:8px}
+.modal-scroll-area::-webkit-scrollbar-thumb,.game-gifts-track::-webkit-scrollbar-thumb,.game-chat-messages::-webkit-scrollbar-thumb,.import-wish-choices::-webkit-scrollbar-thumb,.ui-select-menu::-webkit-scrollbar-thumb{background:#c6bdb4;border-radius:20px;border:2px solid #fffefa}
+.modal-scroll-area::-webkit-scrollbar-track,.game-gifts-track::-webkit-scrollbar-track,.game-chat-messages::-webkit-scrollbar-track,.import-wish-choices::-webkit-scrollbar-track,.ui-select-menu::-webkit-scrollbar-track{background:transparent}
+.game-gifts-track{padding-bottom:12px}
+.game-chat-messages,.import-wish-choices{scrollbar-gutter:stable}
+.field select{appearance:none;background-color:#fffefa;
+ background-image:linear-gradient(45deg,transparent 50%,#484149 50%),linear-gradient(135deg,#484149 50%,transparent 50%);
+ background-position:calc(100% - 23px) 51%,calc(100% - 18px) 51%;background-size:5px 5px;background-repeat:no-repeat;padding-right:38px}
+.field select option{background:#fffefa;color:var(--ink)}
+.field :is(input,textarea,select):focus-visible,.ui-select-trigger:focus-visible{outline:2px solid #9b87c9;outline-offset:2px}
+input[type="checkbox"],input[type="radio"]{accent-color:#8672b9}
+input[type="file"]::file-selector-button{border:1px solid #d7ccc0;border-radius:10px;background:#fffefa;color:var(--ink);font:inherit;font-weight:750;padding:8px 12px;margin-right:12px;cursor:pointer}
+input[type="file"]::file-selector-button:hover{background:#f2e9dc}
+.ui-select{position:relative;min-width:0}
+.ui-select-native{position:absolute!important;width:1px!important;height:1px!important;min-height:0!important;padding:0!important;border:0!important;clip-path:inset(50%);opacity:0;pointer-events:none}
+.ui-select-trigger{width:100%;min-height:48px;padding:12px 38px 12px 15px;border:1.5px solid #e6dfd6;border-radius:13px;background:#fffefa;color:var(--ink);font-size:14px;text-align:left;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;position:relative;transition:border-color .15s,box-shadow .15s}
+.ui-select-trigger:hover{border-color:#c9b8d2;background:#fffdf8}
+.ui-select-trigger[aria-expanded="true"]{border-color:#b2a0d7;box-shadow:0 0 0 3px rgba(181,166,221,.17)}
+.ui-select-trigger::after{content:'';position:absolute;right:17px;top:calc(50% - 4px);width:8px;height:8px;border-right:2px solid #484149;border-bottom:2px solid #484149;transform:rotate(45deg);pointer-events:none}
+.ui-select-trigger[aria-expanded="true"]::after{transform:rotate(225deg);top:calc(50% - 1px)}
+.ui-select-menu{position:fixed;z-index:60;border-radius:14px;padding:6px;overflow-y:auto;overscroll-behavior:contain;border:1px solid #e4daca;background:#fffefa;box-shadow:0 12px 35px rgba(43,35,39,.18)}
+.ui-select-menu [role="option"]{display:block;width:100%;padding:11px 12px;border:0;border-radius:9px;background:transparent;color:var(--ink);font:inherit;font-size:14px;text-align:left;line-height:1.35;white-space:normal;overflow-wrap:anywhere;cursor:pointer}
+.ui-select-menu [role="option"].is-highlighted,.ui-select-menu [role="option"]:hover{background:#eee4f5}
+.ui-select-menu [role="option"][aria-selected="true"]{font-weight:800;background:#f7e9dc}
+.ui-select-menu [role="option"][aria-selected="true"].is-highlighted{background:#ebdcef}
+.ui-select-menu [role="option"]:disabled{opacity:.45;cursor:not-allowed}
+.footer-credit{display:flex;align-items:center;gap:6px;flex-wrap:wrap;justify-content:flex-end}
+.footer-developer{border:0;border-radius:6px;background:transparent;padding:2px 4px;color:#655681;font-weight:850;text-decoration:underline;text-underline-offset:3px;text-decoration-color:#cab9e1}
+.footer-developer:hover{background:#eee5fa;color:#3e3159}
+.developer-contact{border-radius:18px;border:1px solid #eadfce;background:#f8f2e9;padding:20px;display:grid;gap:13px}
+.developer-contact-name{font-family:var(--heading);font-size:22px}
+.developer-contact p{font-size:13px;color:var(--muted)}
+.developer-contact-link{justify-self:start}
+@media(max-width:760px){
+ .nav{gap:14px}
+ .nav a{padding:6px 7px;margin:-6px -7px}
+ .modal{padding:0}
+ .modal-scroll-area{padding:28px 25px 26px 22px}
+ .footer-credit{justify-content:center}
+}
+@media(max-width:440px){
+ .nav{gap:10px}
+ .modal-scroll-area{padding:24px 20px 24px 17px}
+ .ui-select-menu [role="option"]{padding:13px 12px}
+}
+@media(prefers-reduced-motion:reduce){.nav a::before{transition:none}.ui-select-trigger{transition:none}}
