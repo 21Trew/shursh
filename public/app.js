@@ -443,6 +443,10 @@ function showWishDetails(el){
    content:'<div class="wish-detail">'+image+
      (wish.description?'<p>'+esc(wish.description)+'</p>':'')+
      '<div class="wish-detail-actions">'+store+actions+'</div></div>'});
+ const photo=modalRoot.querySelector('.wish-detail > .wish-detail-image, .wish-detail > .wish-detail-art');
+ const heading=modalRoot.querySelector('.modal-scroll-area h2');
+ if(photo&&heading)heading.before(photo);
+ modalRoot.querySelector('.modal')?.classList.add('gift-details-modal');
 }
 let loadedList = null;
 async function ownerListPage(id,marker=lastRenderToken){if(!currentUser)throw new Error('Войди, чтобы открыть список');const d=await api(`/api/lists/${id}`);if(marker!==lastRenderToken)return;loadedList=d;
@@ -644,6 +648,7 @@ function wishModal(edit=null){
    await render();
   }
  });
+ modalRoot.querySelector('.modal')?.classList.add('wish-edit-modal');
 
 }
 function fileToData(file){return new Promise((resolve,reject)=>{const r=new FileReader();r.onload=()=>resolve(r.result);r.onerror=()=>reject(new Error('Не получилось прочитать файл'));r.readAsDataURL(file)});}
