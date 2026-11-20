@@ -354,3 +354,147 @@ input[type="file"]::file-selector-button:hover{background:#f2e9dc}
  .game-gifts-track .game-gift-card .wish-content h3{min-height:0}
  .game-gifts-track .game-gift-card .wish-price{font-size:11px}
 }
+
+/* Release candidate: mobile-first visual density without reducing tap targets. */
+.header-actions{display:flex;align-items:center;gap:10px;min-width:0}
+.header-bell{width:43px;height:43px;min-width:43px;border:1.5px solid var(--border);background:var(--paper2);color:var(--ink);border-radius:50%;display:grid;place-items:center;position:relative;flex:0 0 auto;transition:background .15s,border-color .15s}
+.header-bell:hover,.header-bell.active{background:#f3e5cf;border-color:#ecd4a4}
+.header-bell .nav-unread:not([hidden]){position:absolute;right:-5px;top:-5px;min-width:18px;height:18px;box-shadow:0 0 0 2px var(--paper)}
+.site-header .nav{min-width:0;padding:9px 5px 12px;overflow-x:auto;overscroll-behavior-x:contain;scrollbar-width:thin}
+.site-header .nav a{margin:0;flex:0 0 auto;padding:9px 11px}
+.site-header .nav a:focus-visible{outline-offset:0}
+.site-header .nav a::before{left:2px;right:2px}
+.site-header .nav a.active{z-index:1}
+.dashboard-welcome h1{overflow-wrap:anywhere;word-break:normal;hyphens:auto}
+.dashboard-welcome>.dashboard-welcome-copy{min-width:0}
+.dashboard-welcome .btn-row{display:flex;flex-wrap:wrap;align-items:center;gap:13px}
+.dashboard-page .dashboard-section:first-of-type{margin-top:34px}
+.santa-preferences-display{display:grid;gap:12px;margin:13px 0 18px}
+.santa-preferences-display .participant-preferences-summary{margin:0;display:grid;gap:10px;background:#f7f4ed;padding:13px}
+.santa-preferences-display .game-gift-note{margin:0;padding:5px 0;min-width:0}
+.santa-preferences-display .game-gift-note strong{font-size:13px;color:#443c40;margin-bottom:5px}
+.santa-preferences-display .game-gift-note p{font-size:14px;line-height:1.48;color:#67615f}
+.santa-preferences-display>.btn{justify-self:start;min-height:42px}
+.participant-preferences[hidden],.santa-preferences-display[hidden]{display:none!important}
+.participant-preferences .btn-row{display:flex;flex-wrap:wrap;gap:10px}
+.participant-preferences .btn-row .btn{min-height:42px}
+.participant-preferences{gap:12px}
+.game-save-account{border-top:1px solid var(--border);padding-top:14px;margin-top:16px;display:grid;gap:11px}
+.game-save-account p{font-size:13px;line-height:1.55;color:var(--muted)}
+.game-save-account .btn{justify-self:start}
+.secret-card.revealed{padding:16px;background:#e3f2e5}
+.secret-card.revealed .recipient-summary{align-items:flex-start;margin-bottom:12px}
+.secret-card.revealed .recipient-wishes{border:0;background:rgba(255,255,255,.7);padding:12px}
+.secret-card.revealed .recipient-wishes .participant-preferences-summary{display:grid;gap:12px;margin:12px 0;padding:0;background:transparent;border:0}
+.secret-card.revealed .recipient-wishes .game-gift-note{margin:0;padding:0}
+.secret-card.revealed .recipient-wishes>strong{display:block;margin:14px 0 8px}
+.secret-card.revealed .recipient{font-family:var(--heading);font-weight:700;letter-spacing:-.045em}
+.game-chat-tabs{display:flex;flex-wrap:nowrap;align-items:center;gap:9px;overflow-x:auto;padding:4px 2px 10px;scrollbar-width:thin;scroll-snap-type:x proximity}
+.game-chat-tabs .btn{white-space:nowrap;flex:0 0 auto;scroll-snap-align:start;min-height:40px}
+.game-chat-messages{min-width:0;scrollbar-gutter:auto;overflow-wrap:anywhere}
+.chat-message{min-width:0;max-width:min(87%,520px);padding:11px 13px}
+.game-chat-form{display:grid;grid-template-columns:minmax(0,1fr) auto;gap:10px;align-items:stretch}
+.game-chat-form .btn{min-width:128px;min-height:46px}
+.game-chat-refresh{display:inline-flex;min-height:36px;align-items:center;margin-top:8px}
+.santa-detail-layout,.santa-detail-layout>.panel,.santa-detail-layout>div{min-width:0;max-width:100%}
+.santa-detail-layout .panel,.santa-detail-layout>.panel{overflow-wrap:anywhere}
+.santa-detail-layout .panel .btn{max-width:100%}
+.santa-detail-layout .person-topline{min-width:0}
+.social-page-heading{display:grid;gap:9px}
+.social-page-heading h1{font-family:var(--heading);font-size:clamp(27px,4vw,42px)}
+.social-page-heading p{max-width:700px;color:var(--muted);line-height:1.6}
+.social-profile-page{gap:20px}
+.social-profile-identity{display:flex;gap:22px;align-items:flex-start;min-width:0}
+.social-profile-identity .profile-identity-text{min-width:0;flex:1}
+.social-profile-identity h1{font-family:var(--heading);font-size:clamp(22px,3.4vw,38px);line-height:1.25;overflow-wrap:anywhere}
+.emoji-avatar{display:inline-grid;place-items:center;font-size:24px;line-height:1}
+.social-profile-identity .profile-emoji{width:94px;height:94px;flex:0 0 94px;font-size:48px;border-radius:29px;background:#f5e4d8}
+.profile-main-card{background:#fffdf9;border:1.5px solid var(--border);display:grid;gap:24px}
+.profile-handle{display:block;color:#8f6a9e;font-weight:800;margin-top:4px}
+.profile-city{display:flex;align-items:center;gap:6px;color:#766d6b;font-size:13px;margin-top:12px}
+.profile-bio{color:#625e5b;line-height:1.6;margin-top:13px;white-space:pre-wrap}
+.profile-actions{display:flex;align-items:center;flex-wrap:wrap;gap:12px;margin-top:7px}
+.profile-actions .btn{min-height:43px}
+.profile-visibility{background:#e6f1e3;color:#42664b;padding:8px 12px;border-radius:999px;font-size:12px;font-weight:800}
+.profile-list-links{display:grid;gap:9px;margin-top:16px}
+.profile-list-link{width:100%;display:flex;align-items:center;gap:12px;text-align:left;border:1px solid var(--border);background:#fffdf9;border-radius:14px;padding:15px 17px;min-height:60px}
+.profile-list-link span{min-width:0;flex:1;font-weight:800;overflow-wrap:anywhere}
+.profile-list-link small{font-size:12px;color:var(--muted)}
+.profile-list-link:hover{background:#f6efe7}
+.profile-security{display:grid;gap:15px}
+.profile-security h2,.profile-public-lists h2{font-family:var(--heading);font-size:clamp(18px,2.4vw,24px)}
+.profile-security .note{margin-top:9px}
+.account-email{font-weight:700;margin-top:7px;overflow-wrap:anywhere}
+.social-person-name{display:flex;flex-direction:column;gap:1px}
+.social-person-name small{color:#85747d;font-weight:500}
+.social-request-actions{display:flex;align-items:center;gap:9px;flex-wrap:wrap}
+.social-search{display:grid;gap:16px;padding:24px 28px!important}
+.social-search .note{font-size:13px}
+.social-search .share-field{display:grid;grid-template-columns:minmax(0,1fr) auto;gap:10px;align-items:stretch}
+.social-search .share-field .btn{min-height:48px;min-width:112px}
+.social-search #social-search-results:not(:empty){border-top:1px solid var(--border);padding-top:13px;display:grid;gap:6px}
+.emoji-grid{display:grid;grid-template-columns:repeat(7,minmax(0,1fr));gap:8px;padding:6px 0}
+.emoji-choice{display:grid;place-items:center;min-width:0;aspect-ratio:1/1;border:2px solid var(--border);border-radius:13px;background:#fffefa;font-size:clamp(21px,3vw,28px);line-height:1;min-height:43px}
+.emoji-choice.selected,.emoji-choice[aria-pressed="true"]{border-color:#8a70be;background:#ede4f7;box-shadow:0 0 0 2px rgba(138,112,190,.15)}
+.emoji-choice:hover{background:#f3eaf8}
+@media(max-width:760px){
+ .container{width:calc(100% - 28px)}
+ .topbar{height:auto;min-height:69px;gap:8px;flex-wrap:wrap;align-items:center;padding-top:10px;padding-bottom:0}
+ .topbar .logo{font-size:25px;flex:0 0 auto}
+ .site-header .nav{order:3;flex:1 0 100%;width:100%;margin:0;padding:9px 4px 13px;gap:7px}
+ .site-header .nav a{font-size:12px;padding:8px 9px;min-height:37px;display:inline-flex;align-items:center}
+ .header-actions{margin-left:auto;gap:7px}
+ .header-actions .user-name{display:none}
+ .header-bell{width:39px;height:39px;min-width:39px}
+ .header-actions .btn-ghost{min-height:39px}
+ .page{padding-top:22px}
+ .page-hero{gap:11px}
+ .santa-detail-layout{display:grid;grid-template-columns:minmax(0,1fr);gap:14px}
+ .santa-detail-layout .panel{padding:18px 17px;border-radius:23px;margin:0}
+ .santa-detail-layout .panel h2{font-size:clamp(18px,5vw,23px)}
+ .santa-detail-layout .panel-heading-actions{gap:10px;flex-wrap:wrap}
+ .santa-detail-layout .panel-heading-actions .btn{margin:4px 0 0}
+ .santa-detail-layout .person-row{gap:10px}
+ .santa-detail-layout .person-row .avatar{width:43px;height:43px;flex:0 0 43px}
+ .santa-detail-layout .person-row .chip{padding:4px 8px;font-size:10px}
+ .santa-detail-layout .person-row .person-topline{flex-wrap:wrap}
+ .secret-card.revealed{padding:13px;border-radius:15px}
+ .secret-card.revealed .recipient-summary{gap:9px}
+ .secret-card.revealed .recipient-summary>.icon{width:31px;height:31px;flex:0 0 31px;padding:7px}
+ .secret-card.revealed .recipient-wishes{padding:10px;border-radius:12px}
+ .secret-card.revealed .recipient-wishes .participant-preferences-summary{gap:10px}
+ .game-chat-panel{padding:19px 16px}
+ .game-chat-tabs{gap:7px}
+ .game-chat-messages{padding:12px;gap:8px;min-height:180px;max-height:45dvh}
+ .chat-message{padding:9px 11px}
+ .game-chat-form{grid-template-columns:minmax(0,1fr) auto;gap:7px}
+ .game-chat-form button{width:auto;min-width:94px}
+ .social-search{padding:19px!important}
+ .social-profile-identity{gap:14px;align-items:flex-start}
+ .social-profile-identity .profile-emoji{width:70px;height:70px;flex-basis:70px;font-size:36px;border-radius:20px}
+ .social-profile-page .panel{padding:19px}
+ .profile-actions{gap:9px}
+ .profile-actions .btn{max-width:100%}
+ .emoji-grid{grid-template-columns:repeat(5,minmax(0,1fr))}
+ .dashboard-welcome{padding:24px 21px;min-width:0}
+ .dashboard-welcome h1{font-size:clamp(23px,6.1vw,36px);line-height:1.16;letter-spacing:-.05em;overflow-wrap:anywhere}
+ .dashboard-welcome .btn-row{gap:9px}
+ .dashboard-welcome .btn-row .btn{max-width:100%;white-space:normal}
+}
+@media(max-width:400px){
+ .container{width:calc(100% - 22px)}
+ .santa-detail-layout .panel{padding:15px 12px;border-radius:20px}
+ .santa-detail-layout .person-row .avatar{width:38px;height:38px;flex-basis:38px}
+ .santa-detail-layout .person-row{gap:7px}
+ .santa-detail-layout .person-topline{gap:5px}
+ .santa-detail-layout .recipient-wishes{padding:8px}
+ .game-chat-panel{padding:15px 12px}
+ .game-chat-form button{min-width:84px;font-size:12px;padding-inline:8px}
+ .social-profile-identity{gap:10px}
+ .social-profile-identity .profile-emoji{width:56px;height:56px;flex-basis:56px;font-size:30px}
+ .social-search .share-field{grid-template-columns:minmax(0,1fr)}
+ .social-search .share-field .btn{width:100%}
+ .emoji-grid{grid-template-columns:repeat(4,minmax(0,1fr))}
+ .dashboard-welcome{padding:20px 16px}
+ .dashboard-welcome h1{font-size:clamp(22px,6vw,28px)}
+}
