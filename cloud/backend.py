@@ -87,7 +87,7 @@ class CloudRequest(Handler):
         db.close_request_connection()
         data = self.body()
         email = req(data.get('email'), 'Почта', 200).lower()
-        if not re.fullmatch(r'[^\\s@]+@[^\\s@]+\\.[^\\s@]+', email) or email == 'demo@shursh.local':
+        if not re.fullmatch(r'[^\s@]+@[^\s@]+\.[^\s@]+', email) or email == 'demo@shursh.local':
             raise ApiError(400, 'Укажи корректную почту')
         started_auth = time.perf_counter()
         try:
@@ -95,6 +95,29 @@ class CloudRequest(Handler):
         finally:
             g.shursh_auth_ms = (time.perf_counter() - started_auth) * 1000
         return 202, {'ok':True}, None
+
+    def prepare_confirmation(self):
+        # The browser removes tokens from the fragment before transmitting.
+        # Validate with Supabase Auth; never decode JWT claims as authority.
+        self.throttled('auth-confirm', 10, 600)
+        db.close_request_connection()
+        payload = self.body()
+        token_value = payload.get('access_token')
+        if (not isinstance(token_value,str) or len(token_value)>4096 or
+                not re.fullmatch(r'[A-Za-z0-9_-]+\.[A-Za-z0-9_-]+\.[A-Za-z0-9_-]+',token_value)):
+            raise ApiError(400, 'Недействительная ссылка подтверждения')
+        started_auth = time.perf_counter()
+        try:
+            provider = auth.verified_user(token_value)
+        finally:
+            g.shursh_auth_ms = (time.perf_counter() - started_auth) * 1000
+        try:
+            uid = UUID(provider['id'])
+        except (ValueError,TypeError,KeyError):
+            raise ApiError(503, 'Сервис входа временно недоступен') from None
+        display = (provider.get('user_metadata') or {}).get('name')
+        name = display.strip()[:40] if isinstance(display,str) and display.strip() else 'Друг'
+        return (uid,name,provider['email'])
 
     def prepare_auth(self, path):
         self.throttled('auth', 15)
