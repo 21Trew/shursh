@@ -1066,25 +1066,25 @@ def test_browser_confirmation_return_clears_provider_hash(browser_http):
             page=browser.new_page()
             page.goto(browser_http+'/#access_token=fake-test-value&refresh_token=fake-refresh&type=signup')
             expect(page).to_have_url(browser_http+'/')
-            expect(page.locator('.toast')).to_contain_text('подтверждён')
+            expect(page.get_by_role('dialog')).to_contain_text('Не получилось завершить подтверждение')
             assert 'fake-test-value' not in page.url
             # A provider confirmation redirects from Supabase to a new document.
             # A same-document hash navigation would not rerun startup logic.
             page=browser.new_page()
             page.goto(browser_http+'/#error=access_denied&error_code=otp_expired&error_description=test')
             expect(page).to_have_url(browser_http+'/')
-            expect(page.locator('.toast')).to_contain_text('истекла')
+            expect(page.get_by_role('dialog')).to_contain_text('истекла')
             # Providers may redirect with only error/error_code, without
             # error_description. Do not leave such callback fragments in the URL.
             page=browser.new_page()
             page.goto(browser_http+'/#error=access_denied&error_code=otp_expired')
             expect(page).to_have_url(browser_http+'/')
-            expect(page.locator('.toast')).to_contain_text('истекла')
+            expect(page.get_by_role('dialog')).to_contain_text('истекла')
             assert 'otp_expired' not in page.url
             page=browser.new_page()
             page.goto(browser_http+'/#error_code=otp_expired')
             expect(page).to_have_url(browser_http+'/')
-            expect(page.locator('.toast')).to_contain_text('истекла')
+            expect(page.get_by_role('dialog')).to_contain_text('истекла')
         finally:
             browser.close()
 
@@ -1257,3 +1257,117 @@ def test_santa_wishlist_library_single_request_and_owner_only(application):
     assert 'image_data' not in str(collection) and 'image_path' not in str(collection)
     assert lid not in {item['id'] for item in call(other,'GET','/api/santa/library').json['lists']}
     call(application.test_client(),'GET','/api/santa/library',status=401)
+
+
+def test_confirmation_creates_app_session_from_verified_provider(application,monkeypatch):
+    from cloud import auth
+    from server import ApiError
+    called=[]
+    def verified(token):
+        called.append('validated')
+        assert token=='header.payload.signature'
+        return {'id':str(IDS['owner@example.test']),
+                'email':'owner@example.test','email_confirmed_at':'2026-11-20T00:00:00Z',
+                'user_metadata':{'name':'Owner'}}
+    monkeypatch.setattr(auth,'verified_user',verified)
+    client=application.test_client()
+    assert call(client,'GET','/api/me').json['user'] is None
+    call(client,'POST','/api/auth/complete',{'access_token':'not-a-token'},400)
+    assert not called, 'Malformed tokens must not reach Supabase'
+    result=call(client,'POST','/api/auth/complete',
+                {'access_token':'header.payload.signature'})
+    assert result.json['user']['email']=='owner@example.test'
+    assert 'HttpOnly' in result.headers['Set-Cookie']
+    assert 'header.payload.signature' not in str(result.headers)
+    assert call(client,'GET','/api/me').json['user']['email']=='owner@example.test'
+    assert len(called)==1
+    call(application.test_client(),'POST','/api/auth/complete',
+         {'access_token':'header.payload.signature'},403,headers={'Origin':'https://untrusted.example'})
+
+
+def test_confirmation_rejects_unverified_provider_identity(application,monkeypatch):
+    from cloud import auth
+    from server import ApiError
+    def reject(_token):
+        raise ApiError(401,'Ссылка подтверждения истекла или недействительна')
+    monkeypatch.setattr(auth,'verified_user',reject)
+    client=application.test_client()
+    call(client,'POST','/api/auth/complete',{'access_token':'header.payload.signature'},401)
+    assert call(client,'GET','/api/me').json['user'] is None
+
+
+def test_resend_confirmation_is_generic_and_rate_limited(application,monkeypatch):
+    from cloud import auth
+    sent=[]
+    def fake(action,**payload):
+        assert action=='resend' and payload['type']=='signup'
+        sent.append(payload['email'])
+        return {}
+    monkeypatch.setattr(auth,'auth_request',fake)
+    client=application.test_client()
+    call(client,'POST','/api/auth/resend',{'email':'invalid'},400)
+    for _ in range(3):
+        result=call(client,'POST','/api/auth/resend',
+                    {'email':'someone@example.test'},202)
+        assert result.json == {'ok':True}
+        assert 'Set-Cookie' not in result.headers
+    assert sent==['someone@example.test']*3
+    call(client,'POST','/api/auth/resend',
+         {'email':'someone@example.test'},429)
+
+
+@pytest.mark.browser
+def test_browser_confirmation_callback_and_recovery(browser_http,monkeypatch):
+    from cloud import auth
+    from server import ApiError
+    from playwright.sync_api import sync_playwright,expect
+    def provider_token(token):
+        if token=='expired.token.example':
+            raise ApiError(401,'Ссылка подтверждения истекла')
+        assert token=='header.payload.signature'
+        return {'id':str(IDS['owner@example.test']),
+                'email':'owner@example.test','email_confirmed_at':'2026-11-20T00:00:00Z',
+                'user_metadata':{'name':'Owner'}}
+    monkeypatch.setattr(auth,'verified_user',provider_token)
+    monkeypatch.setattr(auth,'auth_request',
+                        lambda action,**kwargs: {} if action=='resend' else
+                        pytest.fail('Unexpected provider request'))
+    with sync_playwright() as play:
+        browser=play.chromium.launch(headless=True,args=['--no-sandbox'])
+        try:
+            page=browser.new_page()
+            page.goto(browser_http+'/#access_token=header.payload.signature&refresh_token=not-used')
+            expect(page.locator('header .user-name')).to_contain_text('Owner')
+            assert page.evaluate('location.hash')==''
+            assert page.evaluate('document.cookie')==''
+            # Expired confirmations must show a persistent recovery dialog.
+            expired=browser.new_page()
+            expired.goto(browser_http+'/#access_token=expired.token.example')
+            expect(expired.get_by_role('dialog')).to_contain_text('Не получилось завершить подтверждение')
+            assert expired.evaluate('location.hash')==''
+            expired.locator('[data-open="resend"]').click()
+            expired.locator('#fld-email').fill('owner@example.test')
+            expired.locator('#modal-form button[type="submit"]').click()
+            expect(expired.get_by_role('dialog')).to_contain_text('Проверь почту')
+        finally:
+            browser.close()
+
+
+def test_resend_provider_rejection_does_not_claim_email_sent(monkeypatch):
+    import io
+    from urllib.error import HTTPError
+    from cloud import auth
+    from server import ApiError
+    monkeypatch.delenv('SHURSH_ENV', raising=False)
+    monkeypatch.delenv('VERCEL_ENV', raising=False)
+    monkeypatch.delenv('VERCEL', raising=False)
+    monkeypatch.setenv('SUPABASE_URL','https://unit-project.supabase.co')
+    monkeypatch.setenv('SUPABASE_PUBLISHABLE_KEY','sb_publishable_for_test')
+    monkeypatch.setenv('SHURSH_AUTH_REDIRECT_URL','https://shursh.vercel.app')
+    def reject(request,timeout):
+        raise HTTPError(request.full_url,400,'Rejected redirect',{},
+                        io.BytesIO(b'{"error_code":"redirect_to_not_allowed"}'))
+    monkeypatch.setattr(auth,'urlopen',reject)
+    with pytest.raises(ApiError) as exc:
+        auth.auth_request('resend',type='signup',email='owner@example.test')
+    assert exc.value.status==503
