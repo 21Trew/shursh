@@ -64,6 +64,18 @@ def _member(con, handler, event_id):
 
 def handle(handler, method, path, con):
     """Return an API response triple or None for non-social endpoints."""
+    if path=='/api/santas' and method=='GET':
+        user=handler.auth(con)
+        rows=con.execute('''SELECT e.*,count(p.id) AS participant_count,
+                    (e.owner_id=?) AS is_owner
+                    FROM santa_events e LEFT JOIN participants p ON p.event_id=e.id
+                    WHERE e.owner_id=? OR EXISTS(
+                        SELECT 1 FROM participants mine
+                        WHERE mine.event_id=e.id AND mine.user_id=?)
+                    GROUP BY e.id ORDER BY e.id DESC''',
+                    (user['id'],user['id'],user['id']))
+        return 200,{'events':[dict(e) for e in rows]},None
+
     if path == '/api/admin/overview' and method == 'GET':
         handler.is_site_admin(con)
         counts={}
