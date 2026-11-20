@@ -10,7 +10,7 @@ from uuid import UUID
 from flask import g
 
 from server import Handler, ApiError, req, token, token_hash, decode_image, LIMIT_BYTES
-from cloud import auth, db
+from cloud import auth, db, social
 
 SESSION_SECONDS = 24 * 60 * 60
 IMAGE_USER_LIMIT = 12_000_000
@@ -58,6 +58,10 @@ class CloudRequest(Handler):
                 self._user = con.execute('''SELECT p.id,p.name,s.email FROM app_sessions s
                     JOIN profiles p ON p.id=s.user_id WHERE s.token_hash=? AND s.expires_at>?''',
                     (token_hash(raw), int(time.time()))).fetchone()
+                if self._user:
+                    self._user=dict(self._user)
+                    admins={a.strip().casefold() for a in os.getenv('SHURSH_ADMIN_EMAILS','').split(',') if a.strip()}
+                    self._user['is_admin']=bool(admins and self._user['email'].casefold() in admins)
         return self._user
 
     def throttled(self, action, limit=25, window=60):
@@ -190,8 +194,15 @@ class CloudRequest(Handler):
             return 200, {'ok':True}, self.send_cookie('',0)
         if path == '/api/demo-login':
             raise ApiError(404,'Демо-аккаунт отключён')
-        # All original wishlist, reservation and random matching routes.
-        return super().handle_api(method,path,con)
+        # Social routes are authenticated and scoped to the current UID.
+        # They are intentionally absent from the local demo handler.
+        special=social.handle(self,method,path,con)
+        if special is not None:
+            return special
+        # Original wishlist, reservation and random matching routes.
+        result=super().handle_api(method,path,con)
+        social.after_mutation(self,method,path,con,result)
+        return result
 
     def store_image(self, con, list_id, data):
         decoded = decode_image(data)
