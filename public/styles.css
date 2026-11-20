@@ -320,3 +320,37 @@ input[type="file"]::file-selector-button:hover{background:#f2e9dc}
  .social-person{flex-wrap:wrap}
 }
 @media(max-width:440px){.social-stat-grid{grid-template-columns:1fr}.social-profile-hero>.avatar{width:57px;height:57px;flex-basis:57px}}
+
+/* Wishlist editing: fixed toolbar and actions, independent of scroll height. */
+.wish-edit-modal{display:flex;flex-direction:column;max-height:min(92dvh,900px)}
+.wish-edit-modal .modal-fixed-header{flex:0 0 auto;min-width:0;padding:23px 65px 17px 30px;background:#fffefa;border-bottom:1px solid #ede5d8}
+.wish-edit-modal .modal-fixed-header>h2{font-size:clamp(21px,4vw,32px);line-height:1.12;margin:0;overflow-wrap:anywhere}
+.wish-edit-modal .modal-scroll-area{flex:1 1 auto;min-height:0;overflow-y:auto;display:block;padding:18px 30px 22px}
+.wish-edit-modal .modal-scroll-area>form{display:flex;flex-direction:column}
+.wish-edit-modal .modal-fixed-footer{flex:0 0 auto;background:#fffefa;border-top:1px solid #ede5d8;padding:12px 30px max(12px,env(safe-area-inset-bottom))}
+.wish-edit-modal .modal-fixed-footer .form-actions{position:static;display:flex;justify-content:flex-end;gap:10px;margin:0;padding:0;border:0;background:transparent}
+.wish-edit-modal .modal-close{position:absolute;top:17px;right:21px;z-index:6}
+.wish-edit-modal .modal-scroll-area>.modal-subtitle{margin:0 0 18px}
+@media(max-width:760px){
+ .wish-edit-modal .modal-fixed-header{padding:18px 56px 14px 20px}
+ .wish-edit-modal .modal-scroll-area{padding:16px 20px}
+ .wish-edit-modal .modal-fixed-footer{padding:12px 20px max(12px,env(safe-area-inset-bottom))}
+}
+@media(max-width:440px){
+ .wish-edit-modal .modal-fixed-footer .form-actions{display:grid;grid-template-columns:1fr 1fr;gap:10px}
+ .wish-edit-modal .modal-fixed-footer .btn{width:100%;min-width:0}
+}
+/* Scroll containers must never grow wider than their cards on narrow screens. */
+.santa-detail-layout,.santa-detail-layout>div,.secret-card,.secret-card.revealed,.recipient-wishes,.game-gifts-carousel,.game-gifts-track{min-width:0;max-width:100%}
+.game-gifts-track{overflow-x:auto!important;overflow-y:hidden!important;scroll-snap-type:x proximity;touch-action:pan-x;scrollbar-gutter:stable}
+.game-gifts-toolbar .game-gifts-arrows{margin-left:auto}
+.game-gifts-track .game-gift-card{min-width:0;scroll-snap-align:start}
+@media(max-width:520px){
+ .game-gifts-track{gap:9px}
+ .game-gifts-track .game-gift-card{flex:0 0 min(132px,52vw);width:min(132px,52vw);max-width:52vw}
+ .game-gifts-track .game-gift-card .wish-image{height:72px}
+ .game-gifts-track .game-gift-card .wish-content{padding:9px}
+ .game-gifts-track .game-gift-card .wish-desc{min-height:0;margin:3px 0 4px}
+ .game-gifts-track .game-gift-card .wish-content h3{min-height:0}
+ .game-gifts-track .game-gift-card .wish-price{font-size:11px}
+}

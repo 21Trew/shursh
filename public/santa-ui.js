@@ -87,7 +87,7 @@ function gameGiftModal(edit=null){
     notice(isEdit?'Подарок обновлён':'Подарок добавлен');
     await render();
    }});
- modalRoot.querySelector('.modal')?.classList.add('wish-edit-modal');
+ fixWishModalLayout();
   const desc=modalRoot.querySelector('#fld-description');if(desc)desc.maxLength=800;
 }
 function setupGameChat(state){
