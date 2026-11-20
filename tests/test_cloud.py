@@ -1424,3 +1424,109 @@ def test_resend_provider_rejection_does_not_claim_email_sent(monkeypatch):
     with pytest.raises(ApiError) as exc:
         auth.auth_request('resend',type='signup',email='owner@example.test')
     assert exc.value.status==503
+
+
+
+# Social v1: real PostgreSQL, synthetic Auth users and no hosted secrets.
+def test_social_friends_profiles_and_notifications(application):
+    from cloud import db
+    owner=login(application)
+    friend=login(application,'other@example.test')
+    owner_id=str(IDS['owner@example.test'])
+    friend_id=str(IDS['other@example.test'])
+    # Guests cannot enumerate users or access the social graph.
+    call(application.test_client(),'GET','/api/friends',status=401)
+    call(application.test_client(),'GET','/api/users/search?q=Own',status=401)
+    call(owner,'POST',f'/api/friends/{owner_id}',{},400)
+    # Start with an owner-only private list; it must remain invisible to friends.
+    private_id=call(owner,'POST','/api/lists',{'title':'Private list',
+                                 'visibility':'private'},201).json['id']
+    public_id=call(owner,'POST','/api/lists',{'title':'Shared list'},201).json['id']
+    before=call(friend,'GET',f'/api/users/{owner_id}').json
+    assert before['lists']==[] and 'email' not in str(before)
+    assert before['relationship']=='none'
+    call(owner,'POST',f'/api/friends/{friend_id}',{},200)
+    incoming=call(friend,'GET','/api/friends').json['incoming']
+    assert any(str(x['id'])==owner_id for x in incoming)
+    notices=call(friend,'GET','/api/notifications').json
+    assert any(n['kind']=='friend_request' for n in notices['items'])
+    first=next(n['id'] for n in notices['items'] if n['kind']=='friend_request')
+    call(owner,'POST',f'/api/notifications/{first}/read',{},200)
+    # Unauthorized mark-read must not change another user's notification.
+    assert any(n['id']==first and n['read_at'] is None
+               for n in call(friend,'GET','/api/notifications').json['items'])
+    call(friend,'PATCH',f'/api/friends/{owner_id}',{'action':'accept'})
+    profile=call(friend,'GET',f'/api/users/{owner_id}').json
+    assert profile['relationship']=='friends'
+    assert any(x['id']==public_id for x in profile['lists'])
+    assert all(x['id']!=private_id for x in profile['lists'])
+    assert 'email' not in str(profile)
+    call(owner,'POST','/api/lists',{'title':'Gift list added with friends'},201)
+    feed=call(friend,'GET','/api/notifications').json['items']
+    assert any(n['kind']=='wishlist_new' for n in feed)
+    call(friend,'POST',f'/api/notifications/{first}/read',{})
+    assert any(n['id']==first and n['read_at'] is not None
+               for n in call(friend,'GET','/api/notifications').json['items'])
+    search=call(friend,'GET','/api/users/search?q=Own').json['users']
+    assert any(str(x['id'])==owner_id for x in search)
+    call(owner,'PATCH','/api/profile/me',{'bio':'Люблю сюрпризы','discoverable':False})
+    assert not any(str(x['id'])==owner_id for x in
+                   call(friend,'GET','/api/users/search?q=Own').json['users'])
+    assert call(friend,'GET',f'/api/users/{owner_id}').json['profile']['bio']=='Люблю сюрпризы'
+    call(owner,'PATCH','/api/profile/me',{'discoverable':True})
+    call(friend,'DELETE',f'/api/friends/{owner_id}',{})
+    assert call(friend,'GET',f'/api/users/{owner_id}').json['lists']==[]
+
+
+def test_social_gift_request_and_anonymous_booking(application):
+    owner=login(application)
+    friend=login(application,'other@example.test')
+    owner_id=str(IDS['owner@example.test'])
+    friend_id=str(IDS['other@example.test'])
+    call(owner,'POST',f'/api/friends/{friend_id}',{})
+    call(friend,'PATCH',f'/api/friends/{owner_id}',{'action':'accept'})
+    lid,wid,key=make_list(owner)
+    call(owner,'POST',f'/api/wishes/{wid}/request-friend/{friend_id}',{},201)
+    items=call(friend,'GET','/api/notifications').json['items']
+    assert any(x['kind']=='wish_request' for x in items)
+    call(owner,'POST',f'/api/wishes/{wid}/request-friend/{friend_id}',{},409)
+    guest=application.test_client()
+    call(guest,'POST',f'/api/public/{key}/reserve/{wid}',{'guest_name':'Secret Donor'},201)
+    feed=[x for x in call(owner,'GET','/api/notifications').json['items']
+          if x['kind']=='reservation_anonymous']
+    assert feed
+    assert all('Secret Donor' not in x['message'] and 'Gift' not in x['message']
+               and str(wid) not in x['target_path'] for x in feed)
+
+
+def test_social_game_invitation_member_permissions_and_admin(application,monkeypatch):
+    owner=login(application)
+    friend=login(application,'other@example.test')
+    owner_id=str(IDS['owner@example.test'])
+    friend_id=str(IDS['other@example.test'])
+    # Friend-only invite cannot be sent before acceptance.
+    event_id=call(owner,'POST','/api/santas',{'title':'Synthetic Santa'},201).json['id']
+    call(owner,'POST',f'/api/santas/{event_id}/invite-friend/{friend_id}',{},403)
+    call(owner,'POST',f'/api/friends/{friend_id}',{})
+    call(friend,'PATCH',f'/api/friends/{owner_id}',{'action':'accept'})
+    call(owner,'POST',f'/api/santas/{event_id}/invite-friend/{friend_id}',{},201)
+    invitation=[x for x in call(friend,'GET','/api/notifications').json['items']
+                if x['kind']=='santa_invitation']
+    assert invitation
+    key=call(owner,'GET',f'/api/santas/{event_id}').json['event']['invite_key']
+    joined=call(friend,'POST',f'/api/invites/{key}/join',{'name':'Friend'},201)
+    assert joined.json['participant_token']
+    game=call(friend,'GET',f'/api/member/{event_id}').json
+    assert game['event']['id']==event_id and game['participant']['name']=='Friend'
+    assert 'assignments' not in str(game)
+    assert any(x['id']==event_id for x in call(friend,'GET','/api/santas').json['events'])
+    assert any(x['id']==event_id for x in call(friend,'GET','/api/dashboard').json['events'])
+    call(application.test_client(),'GET',f'/api/member/{event_id}',status=401)
+    call(friend,'GET',f'/api/santas/{event_id}',status=404)
+    call(friend,'GET','/api/admin/overview',status=403)
+    monkeypatch.setenv('SHURSH_ADMIN_EMAILS','owner@example.test')
+    assert call(owner,'GET','/api/admin/overview').json['stats']['users']>=2
+    assert call(friend,'GET','/api/admin/overview',status=403)
+    new_login=login(application)
+    assert new_login.get('/api/me',base_url=BASE).json['user']['is_admin'] is True
+    assert new_login.post('/api/logout',base_url=BASE,json={}).status_code==200
