@@ -3,7 +3,7 @@
 function gameWishCard(w,source='own'){
  const mine=source==='own';
  const image=w.image_data?'<img src="'+attr(w.image_data)+'" alt="'+attr(w.title)+'" loading="lazy" decoding="async">':artFor(w);
- const detail=w.wanted||w.description||'Нажми, чтобы посмотреть детали';
+ const detail=w.description||'Нажми, чтобы посмотреть детали';
  return '<article class="wish-card game-gift-card">'+
   '<button type="button" class="card-hitarea" data-action="show-game-gift" data-id="'+w.id+'" data-source="'+source+'" aria-label="Посмотреть подарок '+attr(w.title)+'"></button>'+
   '<div class="wish-image">'+image+'</div><div class="wish-content"><h3>'+esc(w.title)+'</h3>'+
@@ -32,7 +32,7 @@ function showGameWishDetails(el){
  const actions=own?'<button class="btn btn-soft" data-action="edit-game-gift" data-id="'+gift.id+'">'+ico('edit')+' Изменить</button>':'';
  modal({title:gift.title,subtitle:money(gift.price_cents,gift.currency),
    content:'<div class="wish-detail">'+image+details('Описание',gift.description)+
-     details('Что хотелось бы',gift.wanted)+details('Чего не хотелось бы',gift.unwanted)+
+     
      '<div class="wish-detail-actions">'+store+actions+'</div></div>'});
 }
 async function smallGamePhoto(file){
@@ -63,8 +63,6 @@ function gameGiftModal(edit=null){
    '<p class="field-hint">Сохраним ссылку, а название, цену и фото можно указать самостоятельно</p>'+
    field('Что хочется?','title','Например, настольная игра','text',gift.title||'',true,'maxlength="130"')+
    textArea('Комментарий','description','Размер, цвет, модель, особенности',gift.description||'')+
-   textArea('Что хотелось бы','wanted','То, что особенно порадует',gift.wanted||'')+
-   textArea('Чего не хотелось бы','unwanted','Что не подходит и чего лучше избегать',gift.unwanted||'')+
    '<div class="form-grid">'+
    field('Ориентировочная цена','price','Например, 1500','number',budget,false,'min="0" step="0.01"')+
    selectField('Валюта','currency',[['RUB','₽ Рубли'],['EUR','€ Евро'],['USD','$ Доллары']],gift.currency||'RUB')+'</div>'+
@@ -85,7 +83,6 @@ function gameGiftModal(edit=null){
     notice(isEdit?'Подарок обновлён':'Подарок добавлен');
     await render();
    }});
- for(const name of ['wanted','unwanted']){const input=modalRoot.querySelector('#fld-'+name);if(input)input.maxLength=500;}
  const desc=modalRoot.querySelector('#fld-description');if(desc)desc.maxLength=800;
 }
 function setupGameChat(state){
@@ -115,7 +112,7 @@ function setupGameChat(state){
  };
  root.addEventListener('click',ev=>{
   const tab=ev.target.closest('[data-chat-room]');
-  if(tab){room=tab.dataset.chatRoom;lastContent='';root.querySelectorAll('[data-chat-room]').forEach(b=>{
+  if(tab){room=tab.dataset.chatRoom;lastContent='';lastMessages=[];root.querySelectorAll('[data-chat-room]').forEach(b=>{
    const selected=b===tab;b.classList.toggle('active',selected);b.setAttribute('aria-pressed',String(selected));
   });list.innerHTML='<p class="note">Загружаем сообщения…</p>';load();}
   if(ev.target.closest('[data-chat-refresh]'))load();
