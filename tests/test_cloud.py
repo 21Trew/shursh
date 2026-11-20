@@ -1403,3 +1403,23 @@ def test_browser_confirmation_callback_and_recovery(browser_http,monkeypatch):
             expect(expired.get_by_role('dialog')).to_contain_text('Проверь почту')
         finally:
             browser.close()
+
+
+def test_resend_provider_rejection_does_not_claim_email_sent(monkeypatch):
+    import io
+    from urllib.error import HTTPError
+    from cloud import auth
+    from server import ApiError
+    monkeypatch.delenv('SHURSH_ENV', raising=False)
+    monkeypatch.delenv('VERCEL_ENV', raising=False)
+    monkeypatch.delenv('VERCEL', raising=False)
+    monkeypatch.setenv('SUPABASE_URL','https://unit-project.supabase.co')
+    monkeypatch.setenv('SUPABASE_PUBLISHABLE_KEY','sb_publishable_for_test')
+    monkeypatch.setenv('SHURSH_AUTH_REDIRECT_URL','https://shursh.vercel.app')
+    def reject(request,timeout):
+        raise HTTPError(request.full_url,400,'Rejected redirect',{},
+                        io.BytesIO(b'{"error_code":"redirect_to_not_allowed"}'))
+    monkeypatch.setattr(auth,'urlopen',reject)
+    with pytest.raises(ApiError) as exc:
+        auth.auth_request('resend',type='signup',email='owner@example.test')
+    assert exc.value.status==503
