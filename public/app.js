@@ -163,7 +163,7 @@ function contactDeveloperModal(){
    field('Почта для ответа','email','name@example.com','email',currentUser?.email||'',true,'maxlength="200"')+
    selectField('Тема','topic',[['idea','Предложение'],['bug','Ошибка'],['question','Вопрос'],['other','Другое']],'idea')+
    textArea('Сообщение','message','Расскажите подробнее…')+
-   '<p class="field-hint">Сообщение поступит в кабинет администрации. Ответим на указанную почту.</p>',
+   '<p class="field-hint">Сообщение поступит в кабинет администрации. Ответим на указанную почту</p>',
   submitLabel:'Отправить',onSubmit:async form=>{
    await api('/api/feedback',{method:'POST',body:readForm(form)});
    notice('Обращение отправлено');
