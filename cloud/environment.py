@@ -61,7 +61,7 @@ def assert_staging_target(*, require_database=True):
     # Only the dedicated, non-superuser login is accepted for serverless
     # Preview traffic, never postgres.<ref> or a direct admin connection.
     if (username != f'shursh_preview_login.{expected}' or
-            not re.fullmatch(r'aws-[0-9]+-eu-central-1\\.pooler\\.supabase\\.com', host) or
+            not re.fullmatch(r'aws-[0-9]+-eu-central-1\.pooler\.supabase\.com', host) or
             str(config.get('port')) != '6543' or
             config.get('dbname') != 'postgres' or
             not config.get('password') or
