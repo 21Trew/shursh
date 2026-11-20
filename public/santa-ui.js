@@ -34,6 +34,10 @@ function showGameWishDetails(el){
    content:'<div class="wish-detail">'+image+details('Описание',gift.description)+
      
      '<div class="wish-detail-actions">'+store+actions+'</div></div>'});
+ const photo=modalRoot.querySelector('.wish-detail > .wish-detail-image, .wish-detail > .wish-detail-art');
+ const heading=modalRoot.querySelector('.modal-scroll-area h2');
+ if(photo&&heading)heading.before(photo);
+ modalRoot.querySelector('.modal')?.classList.add('gift-details-modal');
 }
 async function smallGamePhoto(file){
  if(!['image/png','image/jpeg','image/webp'].includes(file.type))throw new Error('Нужно фото JPG, PNG или WEBP');
@@ -83,7 +87,8 @@ function gameGiftModal(edit=null){
     notice(isEdit?'Подарок обновлён':'Подарок добавлен');
     await render();
    }});
- const desc=modalRoot.querySelector('#fld-description');if(desc)desc.maxLength=800;
+ modalRoot.querySelector('.modal')?.classList.add('wish-edit-modal');
+  const desc=modalRoot.querySelector('#fld-description');if(desc)desc.maxLength=800;
 }
 function setupGameChat(state){
  const root=document.querySelector('#game-chat');if(!root)return;
@@ -156,9 +161,9 @@ function santaRosterPerson(p,state){
  const mine=state.memberView&&p.id===state.memberId;
  const adminActions=!state.memberView&&state.event.status==='open'&&!organizer;
  return '<div class="person-row"><div class="avatar">'+esc(p.name.slice(0,1).toUpperCase())+
-  '</div><div class="person-main"><strong>'+esc(p.name)+' '+
-  (organizer?'<span class="chip chip-peach">Организатор</span>':'')+
-  (mine?'<span class="chip">Ты</span>':'')+'</strong><small>'+
+  '</div><div class="person-main"><div class="person-topline"><strong class="person-name">'+esc(p.name)+'</strong>'+
+  (mine?'<span class="chip">Ты</span>':'')+
+  (organizer?'<span class="chip chip-peach organizer-label">Организатор</span>':'')+'</div><small>'+
   p.wish_count+' '+plural(p.wish_count,'желание','желания','желаний')+'</small></div>'+
   (adminActions?'<div class="person-actions"><button class="btn btn-soft btn-small" title="Выдать новую личную ссылку" data-action="new-player-link" data-id="'+p.id+'">'+ico('link')+'</button>'+
   '<button class="btn btn-soft btn-small" title="Убрать участника" data-action="remove-player" data-id="'+p.id+'">'+ico('trash')+'</button></div>':'')+
