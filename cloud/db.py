@@ -10,6 +10,7 @@ from flask import g, has_request_context
 import psycopg
 from psycopg.rows import dict_row
 from psycopg_pool import ConnectionPool
+from cloud.environment import assert_staging_target
 
 # Project-wide write lock for the small MVP. It serializes conflicting state
 # changes across multiple serverless instances, not merely one Python process.
@@ -110,6 +111,7 @@ def close_request_connection():
 
 @contextmanager
 def transaction(write=False, *, rate_limit=False):
+    assert_staging_target()
     dsn=os.environ.get('SHURSH_DATABASE_URL')
     if not dsn:
         raise RuntimeError('SHURSH_DATABASE_URL is not configured')
