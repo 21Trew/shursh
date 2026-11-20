@@ -88,43 +88,59 @@ function gameGiftModal(edit=null){
 function setupGameChat(state){
  const root=document.querySelector('#game-chat');if(!root)return;
  if(gameChatTimer){clearInterval(gameChatTimer);gameChatTimer=null;}
- let room='general',loading=false,pendingRefresh=false,lastContent='';
+ let room='general',loading=false,pendingRefresh=false,lastContent='',messages=[];
  const list=root.querySelector('.game-chat-messages');
  const apiRoom=()=>state.base+'/messages/'+room;
+ const markup=m=>'<div class="chat-message '+(m.mine?'chat-mine':'')+'"><div class="chat-meta">'+
+   esc(m.author)+'</div><p>'+esc(m.message)+'</p></div>';
+ const paint=()=>{
+  list.innerHTML=messages.length?messages.map(markup).join(''):'<p class="note">Сообщений пока нет. Начни разговор!</p>';
+  list.scrollTop=list.scrollHeight;
+ };
  const load=async()=>{
   if(!root.isConnected)return;
   if(loading){pendingRefresh=true;return;}
-  loading=true;
-  const requestedRoom=room;
+  loading=true;const requestedRoom=room;
   try{
    const result=await api(apiRoom());
    if(!root.isConnected||requestedRoom!==room||room!==result.room)return;
    const signature=JSON.stringify(result.messages.map(m=>m.id));
-   if(signature!==lastContent){
-    list.innerHTML=result.messages.length?result.messages.map(m=>
-     '<div class="chat-message '+(m.mine?'chat-mine':'')+'"><div class="chat-meta">'+
-     esc(m.author)+'</div><p>'+esc(m.message)+'</p></div>').join(''):
-     '<p class="note">Сообщений пока нет. Начни разговор!</p>';
-    lastContent=signature;list.scrollTop=list.scrollHeight;
-   }
-  }catch(err){if(root.isConnected&&requestedRoom===room)list.innerHTML='<p class="note" role="alert">'+esc(err.message)+'</p>';}
-  finally{loading=false;if(pendingRefresh&&root.isConnected){pendingRefresh=false;load();}}
+   if(signature!==lastContent){messages=result.messages;lastContent=signature;paint();}
+  }catch(err){
+   if(root.isConnected&&requestedRoom===room)notice(err.message,true);
+  }finally{
+   loading=false;
+   if(pendingRefresh&&root.isConnected){pendingRefresh=false;load();}
+  }
  };
  root.addEventListener('click',ev=>{
   const tab=ev.target.closest('[data-chat-room]');
-  if(tab){room=tab.dataset.chatRoom;lastContent='';lastMessages=[];root.querySelectorAll('[data-chat-room]').forEach(b=>{
-   const selected=b===tab;b.classList.toggle('active',selected);b.setAttribute('aria-pressed',String(selected));
-  });list.innerHTML='<p class="note">Загружаем сообщения…</p>';load();}
+  if(tab){
+   room=tab.dataset.chatRoom;lastContent='';messages=[];
+   root.querySelectorAll('[data-chat-room]').forEach(b=>{
+    const selected=b===tab;b.classList.toggle('active',selected);b.setAttribute('aria-pressed',String(selected));
+   });
+   list.innerHTML='<p class="note">Загружаем сообщения…</p>';load();
+  }
   if(ev.target.closest('[data-chat-refresh]'))load();
  });
  root.querySelector('#game-chat-form').addEventListener('submit',async ev=>{
   ev.preventDefault();
-  const form=ev.currentTarget,button=form.querySelector('button');
-  const data=readForm(form);
+  const form=ev.currentTarget,button=form.querySelector('button'),data=readForm(form);
   if(!data.message?.trim())return;
+  const targetRoom=room;
   button.disabled=true;
-  try{await api(apiRoom(),{method:'POST',body:data});form.reset();await load();}
-  catch(err){notice(err.message,true);}finally{button.disabled=false;}
+  try{
+   const sent=await api(apiRoom(),{method:'POST',body:data});
+   form.reset();
+   if(root.isConnected&&room===targetRoom&&sent.message){
+    if(!messages.some(m=>m.id===sent.message.id)){
+     messages=[...messages,sent.message].slice(-60);
+     lastContent=JSON.stringify(messages.map(m=>m.id));paint();
+    }
+   }else if(root.isConnected)load();
+  }catch(err){notice(err.message,true)}
+  finally{button.disabled=false;}
  });
  load();
  gameChatTimer=setInterval(()=>{
