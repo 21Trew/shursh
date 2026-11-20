@@ -108,7 +108,7 @@ def api(route):
             result=handler.resend_confirmation()
             return response(result[1],result[0],result[2])
         if path in ('/api/account/email','/api/account/password') and request.method=='POST':
-            handler.throttled('account-update',4,600)
+            handler.throttled('account-update',8,600)
             data=handler.body()
             with db.transaction() as con:
                 owner=handler.auth(con)

@@ -69,6 +69,7 @@ function restoreOwnerTab(path){
  app.querySelectorAll('.site-header .nav [data-nav]').forEach(link=>{
   const href=link.dataset.nav;link.classList.toggle('active',href===path);
  });
+ const bell=app.querySelector('.header-bell');if(bell)bell.classList.toggle('active',path==='/notifications');
  renderedOwnerTab=path;return true;
 }
 
