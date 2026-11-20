@@ -1257,3 +1257,51 @@ def test_santa_wishlist_library_single_request_and_owner_only(application):
     assert 'image_data' not in str(collection) and 'image_path' not in str(collection)
     assert lid not in {item['id'] for item in call(other,'GET','/api/santa/library').json['lists']}
     call(application.test_client(),'GET','/api/santa/library',status=401)
+
+
+def test_participant_preferences_and_chat_post_ack(application):
+    owner=login(application)
+    guest=application.test_client()
+    eid=call(owner,'POST','/api/santas',{'title':'Preference isolation'},201).json['id']
+    invite=call(owner,'GET',f'/api/santas/{eid}').json['event']['invite_key']
+    token=call(guest,'POST',f'/api/invites/{invite}/join',{'name':'Visitor'},201).json['participant_token']
+    saved=call(guest,'PATCH',f'/api/participant/{token}/preferences',
+               {'wanted':'Книги','unwanted':'Пластик'}).json
+    assert saved['preferences']=={'wanted':'Книги','unwanted':'Пластик'}
+    participant=call(guest,'GET',f'/api/participant/{token}').json
+    assert participant['preferences']==saved['preferences']
+    assert call(owner,'GET',f'/api/santas/{eid}').json['my_preferences']=={'wanted':'','unwanted':''}
+    assert call(guest,'PATCH',f'/api/participant/invalid/preferences',
+                {'wanted':'x','unwanted':''},404).status_code==404
+    assert call(guest,'PATCH',f'/api/participant/{token}/preferences',
+                {'wanted':'x'*2001,'unwanted':''},400).status_code==400
+    sent=call(guest,'POST',f'/api/participant/{token}/messages/general',
+              {'message':'One trip only'},201).json
+    assert sent['message']['mine'] is True
+    assert sent['message']['message']=='One trip only'
+    assert sent['message']['author']=='Ты'
+    assert isinstance(sent['message']['id'],int)
+    assert 'sender_id' not in str(sent)
+
+
+def test_developer_feedback_admin_inbox_isolation(application,monkeypatch):
+    monkeypatch.setenv('SHURSH_ADMIN_EMAILS','owner@example.test')
+    anon=application.test_client()
+    owner=login(application)
+    other=login(application,'other@example.test')
+    assert call(anon,'GET','/api/admin/feedback',status=401).status_code==401
+    assert call(other,'GET','/api/admin/feedback',status=403).status_code==403
+    assert call(anon,'POST','/api/feedback',{'name':'A','email':'invalid',
+         'topic':'bug','message':'Broken feature'},400).status_code==400
+    assert call(anon,'POST','/api/feedback',{'name':'User','email':'user@example.test',
+         'topic':'bug','message':'The send button hangs'},201).json['ok']
+    entries=call(owner,'GET','/api/admin/feedback').json['items']
+    target=next(x for x in entries if x['email']=='user@example.test')
+    assert target['message']=='The send button hangs'
+    assert target['status']=='new'
+    call(other,'PATCH',f"/api/admin/feedback/{target['id']}",{'status':'resolved'},403)
+    call(owner,'PATCH',f"/api/admin/feedback/{target['id']}",{'status':'resolved'})
+    assert next(x for x in call(owner,'GET','/api/admin/feedback').json['items']
+                if x['id']==target['id'])['status']=='resolved'
+    monkeypatch.delenv('SHURSH_ADMIN_EMAILS')
+    call(owner,'GET','/api/admin/feedback',status=403)
