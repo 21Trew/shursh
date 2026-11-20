@@ -853,7 +853,7 @@ if(!isPreview)(async()=>{
  if(authReturnError){
   modal({title:'Не получилось завершить подтверждение',
    subtitle:authReturnNotice||'Ссылка могла истечь или быть открыта повторно',
-   content:'<p>Если почта уже подтверждена, попробуй войти с паролем. Если нет — запроси новое письмо</p>',
+   content:'<p>Если почта уже подтверждена, попробуй войти с паролем. Если нет, запроси новое письмо</p>',
    footer:'<button type="button" data-open="login">Войти</button> · <button type="button" data-open="resend">Новое письмо</button>'});
  }else if(authReturnNotice)notice(authReturnNotice);
 })().catch(()=>notice('Не удалось открыть страницу',true));
