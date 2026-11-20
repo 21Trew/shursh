@@ -90,6 +90,10 @@ function cacheableOwnerRead(path){
 }
 function clearOwnerDataCache(){ownerCacheVersion++;ownerDataCache.clear();clearOwnerTabViews();}
 function invalidateOwnerDataForMutation(path){
+ // Chat, profile notes and support do not affect dashboard/list snapshots.
+ // Clearing all cached owner views after every message caused needless work.
+ if(/^\/api\/(?:santas\/\d+|participant\/[^/]+)\/(?:messages\/|preferences$)/.test(path)
+    ||path==='/api/feedback'||/^\/api\/admin\/feedback(?:\/|$)/.test(path))return;
  // Scoped invalidation: creating a wishlist does not change Santa games,
  // and changing a Santa event does not change owned wishlists.
  const listMutation=/^\/api\/(?:lists|wishes)(?:\/|$)/.test(path);
