@@ -4,6 +4,7 @@ This check runs before opening any PostgreSQL connection or Auth HTTP request.
 The two project references are public identifiers, not credentials.
 """
 import os
+import re
 from urllib.parse import urlsplit
 
 from psycopg.conninfo import conninfo_to_dict
@@ -57,9 +58,14 @@ def assert_staging_target(*, require_database=True):
         raise RuntimeError('Invalid Preview PostgreSQL configuration') from exc
     host = config.get('host', '')
     username = config.get('user', '')
-    direct = host == f'db.{expected}.supabase.co'
-    pooler = host.endswith('.pooler.supabase.com') and username.endswith('.' + expected)
-    if not (direct or pooler):
+    # Only the dedicated, non-superuser login is accepted for serverless
+    # Preview traffic, never postgres.<ref> or a direct admin connection.
+    if (username != f'shursh_preview_login.{expected}' or
+            not re.fullmatch(r'aws-[0-9]+-eu-central-1\\.pooler\\.supabase\\.com', host) or
+            str(config.get('port')) != '6543' or
+            config.get('dbname') != 'postgres' or
+            not config.get('password') or
+            config.get('hostaddr') or config.get('service') or config.get('options')):
         raise RuntimeError('Preview PostgreSQL project is not Staging')
     if config.get('sslmode') not in ('require', 'verify-ca', 'verify-full'):
         raise RuntimeError('Preview PostgreSQL TLS is mandatory')
