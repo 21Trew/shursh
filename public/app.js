@@ -568,8 +568,20 @@ function securePassword(){
 function confirmationModal(email){
  modal({title:'Проверь почту 💌',subtitle:'Ещё один маленький шаг - и все желания будут под рукой',
   content:'<div class="auth-confirm-card" role="status"><span class="auth-confirm-symbol" aria-hidden="true">'+ico('mail',28)+'</span><div class="auth-confirm-message"><strong>Письмо с подтверждением отправлено!</strong><p>Загляни в <b>'+esc(email)+'</b> и перейди по ссылке из письма</p></div></div>'+
-   '<p class="auth-confirm-help">Не видишь письмо? Проверь «Спам» и подожди немного! Повторная регистрация сразу после отправки не ускорит доставку</p>',
-  footer:'Уже подтвердил адрес? <button type="button" data-open="login">Войти в аккаунт</button>'});
+   '<p class="auth-confirm-help">Не видишь письмо? Проверь «Спам» и подожди немного, прежде чем запрашивать новое</p>',
+  footer:'<button type="button" data-open="resend" data-email="'+attr(email)+'">Отправить письмо ещё раз</button> · <button type="button" data-open="login">Войти</button>'});
+}
+function resendConfirmationModal(email=''){
+ modal({title:'Повторить подтверждение',subtitle:'Если адрес ожидает подтверждения, отправим ещё одно письмо',
+  content:field('Почта','email','you@example.com','email',email,true,'autocomplete="email"')+
+    '<p class="auth-confirm-help">Используй адрес, указанный при регистрации. Отправка нового письма может быть ограничена по частоте</p>',
+  submitLabel:'Отправить письмо',
+  onSubmit:async form=>{
+   await api('/api/auth/resend',{method:'POST',body:readForm(form)});
+   modal({title:'Проверь почту 💌',content:'<p>Если адрес ожидает подтверждения, новое письмо отправлено. Проверь входящие и «Спам»</p>',
+     footer:'<button type="button" data-open="login">Войти в аккаунт</button>'});
+  },
+  footer:'Уже подтвердил адрес? <button type="button" data-open="login">Войти</button>'});
 }
 function loginModal(mode='login'){
  const register=mode==='register';
@@ -586,6 +598,7 @@ function loginModal(mode='login'){
   },
   footer:(register?'Уже есть аккаунт?':'Нет аккаунта?')+
    ' <button type="button" data-open="'+(register?'login':'register')+'">'+(register?'Войти':'Зарегистрироваться')+'</button>'+
+   (!register?'<span> · </span><button type="button" data-open="resend">Не пришло подтверждение?</button>':'')+
    (!register&&isDemo?'<p style="margin-top:12px"><button type="button" data-action="demo-login">Войти в демонстрационный аккаунт →</button></p>':'')
  });
 }
@@ -761,14 +774,15 @@ sessionChannel?.addEventListener('message',event=>{
 let renderStarted=false;
 let authReturnNotice = null;
 let authReturnError = false;
+let confirmationToken = null;
 const authFragment=new URLSearchParams(location.hash.slice(1));
 if(!isPreview && ['access_token','refresh_token','error','error_code','error_description']
     .some(key=>authFragment.has(key))){
- const params=authFragment;
- authReturnError=params.has('error')||params.has('error_code')||params.has('error_description');
- authReturnNotice=authReturnError?'Ссылка подтверждения недействительна или истекла. Попробуй зарегистрироваться снова':'Адрес электронной почты подтверждён. Теперь войди с паролем';
- // Remove provider tokens *before* any async fetch or UI rendering. The
- // application creates its own HttpOnly session cookie on password login.
+ confirmationToken=authFragment.get('access_token');
+ authReturnError=authFragment.has('error')||authFragment.has('error_code')||authFragment.has('error_description')||!confirmationToken;
+ if(authReturnError)authReturnNotice='Ссылка подтверждения недействительна или истекла';
+ // Remove all provider credentials from URL before performing requests,
+ // navigating or drawing any UI. Do not store tokens in localStorage.
  history.replaceState(null,'',location.pathname+location.search);
 }
 async function render(){const marker=++lastRenderToken;try{
@@ -820,6 +834,26 @@ document.addEventListener('click',async ev=>{
   }catch(err){notice(err.message,true)}
   return;
  }
- const n=ev.target.closest('[data-nav]');if(n){ev.preventDefault();nav(n.dataset.nav);return;}const op=ev.target.closest('[data-open]');if(op){ev.preventDefault();const key=op.dataset.open;if(key==='login'||key==='register')loginModal(key);if(key==='list')listModal();if(key==='wish')wishModal();if(key==='santa')santaModal();return;}const a=ev.target.closest('[data-action]');if(a){ev.preventDefault();await dispatch(a.dataset.action,a);}});
+ const n=ev.target.closest('[data-nav]');if(n){ev.preventDefault();nav(n.dataset.nav);return;}const op=ev.target.closest('[data-open]');if(op){ev.preventDefault();const key=op.dataset.open;if(key==='login'||key==='register')loginModal(key);if(key==='resend')resendConfirmationModal(op.dataset.email||'');if(key==='list')listModal();if(key==='wish')wishModal();if(key==='santa')santaModal();return;}const a=ev.target.closest('[data-action]');if(a){ev.preventDefault();await dispatch(a.dataset.action,a);}});
 window.addEventListener('popstate',()=>{rememberOwnerTab();if(restoreOwnerTab(currentPath()))lastRenderToken++;else render();});window.addEventListener('hashchange',()=>{if(isPreview)render();});
-if(!isPreview)render().then(()=>{if(authReturnNotice)notice(authReturnNotice,authReturnError);});
+if(!isPreview)(async()=>{
+ if(confirmationToken&&!authReturnError){
+  try{
+   const token=confirmationToken;confirmationToken=null;
+   const result=await api('/api/auth/complete',{method:'POST',body:{access_token:token}});
+   currentUser=result.user;broadcastSessionChange();
+   authReturnNotice='Почта подтверждена! Ты вошёл в аккаунт';
+  }catch(_error){
+   // Never include token, provider response or URL in UI or logs.
+   authReturnError=true;
+   authReturnNotice='Не получилось завершить вход после подтверждения';
+  }finally{confirmationToken=null;}
+ }
+ await render();
+ if(authReturnError){
+  modal({title:'Не получилось завершить подтверждение',
+   subtitle:authReturnNotice||'Ссылка могла истечь или быть открыта повторно',
+   content:'<p>Если почта уже подтверждена, попробуй войти с паролем. Если нет — запроси новое письмо</p>',
+   footer:'<button type="button" data-open="login">Войти</button> · <button type="button" data-open="resend">Новое письмо</button>'});
+ }else if(authReturnNotice)notice(authReturnNotice);
+})().catch(()=>notice('Не удалось открыть страницу',true));
