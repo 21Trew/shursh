@@ -173,7 +173,9 @@ class CloudRequest(Handler):
         con.execute('INSERT INTO app_sessions(token_hash,user_id,email,expires_at) VALUES(?,?,?,?)',
                     (token_hash(value),uid,verified_email,now+SESSION_SECONDS))
         rec = con.execute('SELECT id,name FROM profiles WHERE id=?',(uid,)).fetchone()
-        return 200, {'user': {**rec,'email':verified_email}}, self.send_cookie(value)
+        admins={a.strip().casefold() for a in os.getenv('SHURSH_ADMIN_EMAILS','').split(',') if a.strip()}
+        return 200, {'user': {**rec,'email':verified_email,
+                 'is_admin':bool(admins and verified_email.casefold() in admins)}}, self.send_cookie(value)
 
     def handle_api(self, method, path, con):
         if method == 'GET' and path == '/api/me':
@@ -185,7 +187,7 @@ class CloudRequest(Handler):
             if user is None:
                 return 200, {'user': None, 'demo': False, 'lists': [], 'events': []}, None
             lists = super().handle_api('GET', '/api/lists', con)[1]['lists']
-            events = super().handle_api('GET', '/api/santas', con)[1]['events']
+            events = social.handle(self, 'GET', '/api/santas', con)[1]['events']
             return 200, {'user': user, 'demo': False, 'lists': lists, 'events': events}, None
         if method == 'POST' and path == '/api/logout':
             raw = self.request.cookies.get('shursh_sid','')
