@@ -625,6 +625,25 @@ function loginModal(mode='login'){
 }
 function listModal(edit=null){if(!currentUser){loginModal('register');return;}
  const selected=edit||{};modal({title:edit?'Настройки вишлиста':'Новый вишлист',subtitle:edit?'Меняй оформление и доступ, когда захочешь':'Как назовём твою маленькую коллекцию желаний?',content:`${field('Название','title','Например, День рождения, ура!','text',selected.title||'',true,'maxlength="90"')}${textArea('Пара слов о списке','description','Что важно знать дарителям?',selected.description||'')}<div class="form-grid">${selectField('Повод','occasion',['Просто так','День рождения','Годовщина','Новоселье','Свадьба','Новый год','Другое'].map(v=>[v,v]),selected.occasion||'День рождения')}${selectField('Оформление','theme',[['peach','Персиковое'],['lilac','Лавандовое'],['mint','Мятное'],['yellow','Солнечное']],selected.theme||'peach')}</div>${selectField('Доступ к списку','visibility',[['link','По ссылке'],['private','Только мне']],selected.visibility||'link')}`,submitLabel:edit?'Сохранить':'Создать список',onSubmit:async form=>{const payload=readForm(form);if(edit){await api(`/api/lists/${edit.id}`,{method:'PATCH',body:payload});notice('Настройки сохранены');await render();}else{const r=await api('/api/lists',{method:'POST',body:payload});notice('Список создан!');nav(`/list/${r.id}`);}}});}
+function fixWishModalLayout(){
+ const dialog=modalRoot.querySelector('.modal');
+ dialog?.classList.add('wish-edit-modal');
+ // Keep heading and action buttons fixed while only the long form scrolls.
+ const scrollArea=dialog?.querySelector('.modal-scroll-area');
+ const heading=scrollArea?.querySelector(':scope > h2');
+ const actions=scrollArea?.querySelector('#modal-form > .form-actions');
+ if(scrollArea&&heading&&actions){
+  const fixedHeader=document.createElement('div');
+  fixedHeader.className='modal-fixed-header';
+  fixedHeader.appendChild(heading);
+  dialog.insertBefore(fixedHeader,scrollArea);
+  const fixedFooter=document.createElement('div');
+  fixedFooter.className='modal-fixed-footer';
+  actions.querySelector('[type="submit"]')?.setAttribute('form','modal-form');
+  fixedFooter.appendChild(actions);
+  dialog.appendChild(fixedFooter);
+ }
+}
 function wishModal(edit=null){
  if(!currentUser||!loadedList){notice('Сначала открой список',true);return;}
  const w=edit||{};
@@ -665,23 +684,7 @@ function wishModal(edit=null){
    await render();
   }
  });
- const dialog=modalRoot.querySelector('.modal');
- dialog?.classList.add('wish-edit-modal');
- // Keep heading and action buttons fixed while only the long form scrolls.
- const scrollArea=dialog?.querySelector('.modal-scroll-area');
- const heading=scrollArea?.querySelector(':scope > h2');
- const actions=scrollArea?.querySelector('#modal-form > .form-actions');
- if(scrollArea&&heading&&actions){
-  const fixedHeader=document.createElement('div');
-  fixedHeader.className='modal-fixed-header';
-  fixedHeader.appendChild(heading);
-  dialog.insertBefore(fixedHeader,scrollArea);
-  const fixedFooter=document.createElement('div');
-  fixedFooter.className='modal-fixed-footer';
-  actions.querySelector('[type="submit"]')?.setAttribute('form','modal-form');
-  fixedFooter.appendChild(actions);
-  dialog.appendChild(fixedFooter);
- }
+ fixWishModalLayout();
 
 }
 function fileToData(file){return new Promise((resolve,reject)=>{const r=new FileReader();r.onload=()=>resolve(r.result);r.onerror=()=>reject(new Error('Не получилось прочитать файл'));r.readAsDataURL(file)});}
