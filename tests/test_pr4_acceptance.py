@@ -121,8 +121,10 @@ def test_pr4_six_tabs_dom_http_timings_and_all_viewports(browser_http):
                 browser_login(page)
                 expect(page.locator(".dashboard-page")).to_be_visible()
                 expect(page.locator("header .header-bell")).to_be_visible()
-                stable_header = page.locator("header").element_handle()
-                stable_footer = page.locator("footer").element_handle()
+                page.evaluate("""() => {
+                    window.__pr4Header = document.querySelector("header");
+                    window.__pr4Footer = document.querySelector("footer");
+                }""")
                 page.locator("main").evaluate(
                     "(el) => el.dataset.acceptanceTab = '/'"
                 )
@@ -193,13 +195,15 @@ def test_pr4_six_tabs_dom_http_timings_and_all_viewports(browser_http):
                             path=str(OUTPUT / f"{width}-{phase}-{path.strip('/') or 'home'}.png"),
                             full_page=True, animations="disabled"
                         )
-                        assert page.locator("header").element_handle() == stable_header
-                        assert page.locator("footer").element_handle() == stable_footer
+                        assert page.evaluate("""() =>
+                            document.querySelector("header") === window.__pr4Header &&
+                            document.querySelector("footer") === window.__pr4Footer
+                        """)
 
                 # Clicking already active tab should do no app work.
                 page.evaluate("window.__pr4Audit.begin()")
                 before = len(requests)
-                page.locator('header .nav [data-nav="/notifications"]').count() == 0
+                assert page.locator('header .nav [data-nav="/notifications"]').count() == 0
                 page.locator("header .header-bell").click()
                 same = page.evaluate("window.__pr4Audit.end()")
                 # The warm traversal ends on notifications.
