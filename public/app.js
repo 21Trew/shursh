@@ -158,8 +158,17 @@ function modal({title,subtitle='',content='',onSubmit=null,submitLabel='Сохр
  modalRoot.querySelector('input:not([type=hidden]),textarea,.ui-select-trigger,select:not(.ui-select-native)')?.focus({preventScroll:true});
 }
 function contactDeveloperModal(){
- modal({title:'Написать разработчику',subtitle:'Есть идея для ШУРШ!, нашли ошибку или что-то не работает? Напишите напрямую разработчику',
-  content:'<div class="developer-contact"><div class="developer-contact-name">L-code</div><p>Отвечаю на сообщения в Telegram</p><a class="btn btn-dark developer-contact-link" href="https://t.me/LopatinVS" target="_blank" rel="noopener noreferrer">Написать в Telegram '+ico('arrow')+'</a></div>'});
+ modal({title:'Написать разработчику',subtitle:'Есть идея, вопрос или нашли ошибку? Напишите прямо здесь',
+  content:field('Как к вам обращаться','name','Ваше имя','text',currentUser?.name||'',true,'maxlength="80"')+
+   field('Почта для ответа','email','name@example.com','email',currentUser?.email||'',true,'maxlength="200"')+
+   selectField('Тема','topic',[['idea','Предложение'],['bug','Ошибка'],['question','Вопрос'],['other','Другое']],'idea')+
+   textArea('Сообщение','message','Расскажите подробнее…')+
+   '<p class="field-hint">Сообщение поступит в кабинет администрации. Ответим на указанную почту.</p>',
+  submitLabel:'Отправить',onSubmit:async form=>{
+   await api('/api/feedback',{method:'POST',body:readForm(form)});
+   notice('Обращение отправлено');
+  }});
+ const message=modalRoot.querySelector('#fld-message');if(message){message.required=true;message.minLength=5;message.maxLength=3000;}
 }
 function closeModal(){closeUiSelect();modalRoot.replaceChildren();document.body.style.overflow='';}
 document.addEventListener('keydown',e=>{if(e.key==='Escape'){if(uiSelectOpen){e.preventDefault();closeUiSelect(true);}else closeModal();}});
@@ -437,6 +446,21 @@ async function ownerListPage(id,marker=lastRenderToken){if(!currentUser)throw ne
 let loadedPublicWishes=[];
 async function publicListPage(key,marker=lastRenderToken){const {list:l,wishes,owner_view}=await api(`/api/public/${key}`);if(marker!==lastRenderToken)return;loadedPublicWishes=wishes;shell(`<main class="container page"><div class="guest-topline">${ico('gift')} <span>Вишлист по ссылке</span><span>/</span><strong>от ${esc(l.owner_name)}</strong></div><div class="detail-top cover-${attr(l.theme)}"><div><span class="chip">${ico('heart')} ${esc(l.occasion)}</span><h1>${esc(l.title)}</h1><p>${esc(l.description)}</p></div><div class="detail-art">${fallbackArt('gift')}</div></div><div class="guest-banner">${ico('lock')} ${owner_view?'Это твой список - статус бронирования для владельца скрыт':'Можешь забронировать понравившийся подарок. Владелец списка не увидит, что выбрано. После брони сохрани приватную ссылку для управления'}</div><div class="detail-actions"><h2>Желания <span class="chip">${wishes.length}</span></h2></div>${wishes.length?`<div class="wishlist-grid">${wishes.map(w=>wishCard(w,owner_view?'view':'guest',key)).join('')}</div>`:emptyState('В этом списке пока пусто','Загляни позже - здесь скоро появятся желания','На главную','login')}</main>`);}
 async function reservationPage(key,marker=lastRenderToken){const {reservation:r}=await api(`/api/reservations/${key}`);if(marker!==lastRenderToken)return;shell(`<main class="container page"><div class="invite-card"><div class="invite-icon">${envelopeArt()}</div><h1>${r.cancelled_at?'Бронь отменена':'Подарок ждёт своего часа!'}</h1><p>${r.cancelled_at?'Этот подарок снова доступен другим дарителям':'Твоя бронь сохранена. Эта ссылка - личный ключ для отмены, береги её'}</p><div class="details-box"><p><strong>Подарок:</strong> ${esc(r.wish_title)}</p><p><strong>Вишлист:</strong> ${esc(r.list_title)}</p><p><strong>Даритель:</strong> ${esc(r.guest_name)}</p></div>${!r.cancelled_at?`<div class="share-field"><input class="input" readonly value="${attr(getLink(`/r/${key}`))}" aria-label="Ссылка управления бронью"><button class="btn btn-dark btn-small" data-action="copy" data-url="${attr(getLink(`/r/${key}`))}">${ico('copy')} Копировать</button></div><button class="btn btn-danger btn-small" data-action="cancel-reservation" data-token="${attr(key)}">Отменить мою бронь</button>`:''}</div></main>`);}
+async function adminFeedbackPage(marker=lastRenderToken){
+ const {items}=await api('/api/admin/feedback');
+ if(marker!==lastRenderToken)return;
+ const topic={idea:'Предложение',bug:'Ошибка',question:'Вопрос',other:'Другое'};
+ shell('<main class="container page"><div class="page-hero"><div><div class="section-label">Администрирование</div><h1>Обращения пользователей</h1><p>Последние 100 обращений. Только для администратора.</p></div></div>'+
+  (items.length?'<div class="feedback-inbox">'+items.map(item=>
+   '<article class="panel feedback-entry"><div class="panel-heading-actions"><h2>'+esc(topic[item.topic]||item.topic)+
+   '</h2><span class="chip">'+(item.status==='resolved'?'Закрыто':'Новое')+'</span></div>'+
+   '<p><strong>'+esc(item.name)+'</strong> · <a href="mailto:'+attr(item.email)+'">'+esc(item.email)+'</a></p>'+
+   '<p class="feedback-message">'+esc(item.message)+'</p>'+
+   '<div class="panel-heading-actions"><small>'+esc(item.created_at)+'</small>'+
+   '<button type="button" class="btn btn-soft btn-small" data-action="admin-feedback-status" data-id="'+item.id+
+   '" data-status="'+(item.status==='resolved'?'new':'resolved')+'">'+(item.status==='resolved'?'Вернуть в новые':'Отметить решённым')+'</button></div></article>'
+  ).join('')+'</div>':'<div class="panel"><p>Сообщений пока нет.</p></div>')+'</main>');
+}
 async function santasPage(marker=lastRenderToken){if(!currentUser){shell(`<main class="container page"><div class="page-hero"><div><div class="section-label">Под прикрытием</div><h1>Тайный Санта</h1><p>Чтобы организовать игру, нужно войти. Участникам регистрация не требуется</p></div><button class="btn btn-dark" data-open="login">Войти ${ico('arrow')}</button></div>${emptyState('Собери компанию','Укажите бюджет, зовите друзей и проведите честную жеребьёвку','Создать игру','santa')}</main>`);return;}
  const {events}=await api('/api/santas');if(marker!==lastRenderToken)return;shell(`<main class="container page"><div class="page-hero"><div><div class="section-label">Секретная служба подарков</div><h1>Тайный Санта</h1><p>Здесь живут все твои секретные обмены подарками</p></div><div class="btn-row"><button class="btn btn-dark" data-open="santa">Новая игра ${ico('plus')}</button></div></div>${events.length?`<div class="santa-grid">${events.map(e=>`<div class="santa-list-card"><a class="card-hitarea" href="/santa/${e.id}" data-nav="/santa/${e.id}" aria-label="Открыть игру ${attr(e.title)}"></a><span class="sparkle-deco">✳</span><div class="section-label">${e.status==='drawn'?'Жеребьёвка проведена':'Собираем компанию'}</div><h3>${esc(e.title)}</h3><p>${esc(e.description||'Собираем друзей для хороших сюрпризов')}</p><div class="list-bottom"><span>${ico('users')} ${e.participant_count} участников · ${dateRu(e.exchange_date)}</span><button class="text-link" data-nav="/santa/${e.id}">Открыть ${ico('arrow')}</button></div></div>`).join('')}</div>`:emptyState('Пока без секретов','Первую игру создать проще, чем выбрать подарочную бумагу','Создать игру','santa')}</main>`);}
 let loadedSanta=null;
@@ -453,13 +477,19 @@ async function santaGamePage(id,marker=lastRenderToken,participantToken=null){
  const e=d.event;
  if(memberView)id=e.id;
  const gameWishes=memberView?d.wishes:(d.my_wishes||[]);
+  const myPrefs=memberView?d.preferences:d.my_preferences;
  activeGameContext={base:memberView?'/api/participant/'+participantToken:'/api/santas/'+id,
   event:e,richEnabled:d.rich_enabled!==false,own:gameWishes,memberView,memberId:memberView?d.participant.id:null,currentUserId:currentUser?.id,recipient:e.status==='drawn'?(memberView?d.assignment?.wish_cards:d.my_assignment?.wish_cards)||[]:[]};
  const people=d.participants;
  const selects=(id,label)=>selectField(label,id,people.map(p=>[p.id,p.name]),null);
  shell(`<main class="container page"><div class="guest-topline">${memberView? `${ico('lock')} Личный кабинет участника <span>/</span> <strong>${esc(d.participant.name)}</strong>`:`<button class="text-link" data-nav="/santas">${ico('back')} Все игры</button> <span>/</span> <span>${esc(e.title)}</span>`}</div><div class="page-hero"><div><div class="section-label">${e.status==='drawn'?'Жеребьёвка проведена':'Приглашаем участников'}</div><h1>${esc(e.title)}</h1><p>${esc(e.description||'Праздник начинается с маленькой тайны')}</p></div><span class="chip ${e.status==='drawn'?'chip-green':'chip-lilac'}">${ico(e.status==='drawn'?'check':'users')} ${e.status==='drawn'?'Игра началась':'Приём открыт'}</span></div><div class="santa-detail-layout"><div>
  <div class="panel"><div class="panel-heading-actions"><h2>Участники <span class="chip" data-santa-roster-count>${people.length}</span></h2>${!memberView&&e.status==='open'?'<button class="btn btn-soft btn-small" data-action="add-player">'+ico('plus')+' Добавить участника</button>':''}</div><div class="person-list" data-santa-roster>${people.map(p=>santaRosterPerson(p,activeGameContext)).join('')}</div>${e.status==='open'?`<div class="divider-line"></div><p class="note">Пригласи друзей по общей ссылке. Каждый сможет присоединиться без регистрации и получит собственную личную ссылку</p><div class="share-field"><input class="input" aria-label="Ссылка-приглашение" readonly value="${attr(getLink(`/join/${e.invite_key}`))}"><button class="btn btn-dark btn-small" data-action="copy" data-url="${attr(getLink(`/join/${e.invite_key}`))}">${ico('copy')} Копировать</button></div>`:''}</div>
- <div class="panel"><div class="panel-heading-actions"><h2>Мои пожелания</h2>${!memberView||currentUser?`<button class="btn btn-soft btn-small" data-action="import-own-wishes" ${memberView?`data-key="${attr(participantToken)}"`:`data-id="${id}"`}>${ico('plus')} Из вишлиста</button>`:''}</div><p class="note">Твои пожелания увидит только тот, кому выпадет тебя одаривать</p><div class="my-wishes-list">${wishesMarkup(gameWishes)}</div>
+ <div class="panel"><div class="panel-heading-actions"><h2>Мои пожелания</h2>${!memberView||currentUser?`<button class="btn btn-soft btn-small" data-action="import-own-wishes" ${memberView?`data-key="${attr(participantToken)}"`:`data-id="${id}"`}>${ico('plus')} Из вишлиста</button>`:''}</div><p class="note">Твои пожелания увидит только тот, кому выпадет тебя одаривать</p>
+  <form class="form participant-preferences" id="santa-preferences-form">
+    ${textArea('Что хотелось бы','wanted','Любимые цвета, увлечения, идеи',myPrefs?.wanted||'')}
+    ${textArea('Чего не хотелось бы','unwanted','Что точно не подходит',myPrefs?.unwanted||'')}
+    <button type="submit" class="btn btn-soft btn-small">Сохранить пожелания</button>
+  </form><div class="my-wishes-list">${wishesMarkup(gameWishes)}</div>
  ${d.rich_enabled!==false?`<button class="btn btn-dark btn-small" type="button" data-action="add-game-gift">${ico('plus')} Добавить подарок</button>`:
  `<form class="form" id="legacy-santa-wish-form"><div class="share-field"><input class="input" name="title" required maxlength="130" placeholder="Название подарка"><button class="btn btn-dark btn-small" type="submit">Добавить ${ico('plus')}</button></div></form><p class="note">Подробные карточки появятся после обновления игры</p>`}</div>
  ${!memberView&&e.status==='open'?`<div class="panel"><h2>Исключения</h2><p class="note">Укажи пары, которые не должны выпадать друг другу. Ограничения работают направленно: «А → Б» означает, что А не может дарить Б</p><div class="rules-list" style="margin:17px 0">${d.exclusions.length?d.exclusions.map(r=>`<span class="rule-chip">${esc(people.find(p=>p.id===r.giver_id)?.name||'?')} → ${esc(people.find(p=>p.id===r.receiver_id)?.name||'?')} <button title="Убрать ограничение" data-action="remove-rule" data-from="${r.giver_id}" data-to="${r.receiver_id}">×</button></span>`).join(''):'<span class="muted">Пока нет исключений</span>'}</div><form class="form" id="rule-form"><div class="form-grid">${selects('giver_id','Кто дарит')}${selects('receiver_id','Кому нельзя дарить')}</div><button class="btn btn-soft btn-small" type="submit">${ico('plus')} Добавить ограничение</button></form></div>`:''}
@@ -478,7 +508,14 @@ async function santaGamePage(id,marker=lastRenderToken,participantToken=null){
  <form id="game-chat-form" class="game-chat-form"><label for="game-chat-input" class="sr-only">Текст сообщения</label><input id="game-chat-input" class="input" name="message" placeholder="Напиши сообщение" maxlength="500" autocomplete="off" required><button class="btn btn-dark btn-small" type="submit">Отправить ${ico('arrow')}</button></form>
  <button class="text-link game-chat-refresh" type="button" data-chat-refresh>Обновить сообщения</button>
  </section>`:`<section class="panel"><h2>Чаты игры</h2><p class="note">Чаты появятся после обновления игры. Остальные возможности доступны</p></section>`}</main>`);
- document.getElementById('rule-form')?.addEventListener('submit',async ev=>{ev.preventDefault();try{await api(`/api/santas/${id}/exclusions`,{method:'POST',body:readForm(ev.currentTarget)});notice('Исключение добавлено');await render();}catch(err){notice(err.message,true)}});
+ document.getElementById('santa-preferences-form')?.addEventListener('submit',async ev=>{
+   ev.preventDefault();const form=ev.currentTarget,button=form.querySelector('button');
+   button.disabled=true;
+   try{await api(activeGameContext.base+'/preferences',{method:'PATCH',body:readForm(form)});
+    notice('Пожелания сохранены');
+   }catch(err){notice(err.message,true)}finally{button.disabled=false;}
+  });
+  document.getElementById('rule-form')?.addEventListener('submit',async ev=>{ev.preventDefault();try{await api(`/api/santas/${id}/exclusions`,{method:'POST',body:readForm(ev.currentTarget)});notice('Исключение добавлено');await render();}catch(err){notice(err.message,true)}});
  setupGameChat(activeGameContext);
  setupSantaRoster(activeGameContext);
  document.getElementById('legacy-santa-wish-form')?.addEventListener('submit',async ev=>{
@@ -493,7 +530,15 @@ async function santaGamePage(id,marker=lastRenderToken,participantToken=null){
 }
 async function myWishesForAdmin(id){const res=await api(`/api/santas/${id}/my-wishes`);return wishesMarkup(res.wishes);}
 function secretCard(assignment,organizer,identifier){if(!assignment||!assignment.revealed)return `<div class="secret-card">${envelopeArt()}<h2>Твой получатель ждёт внутри</h2><p>Никто, кроме тебя, не увидит это имя</p><button class="btn btn-dark" data-action="reveal" data-mode="${organizer?'owner':'participant'}" data-key="${attr(identifier)}">Узнать, кому я дарю ${ico('spark')}</button></div>`;
- return `<div class="secret-card revealed"><div class="recipient-summary">${ico('check')}<div><div class="recipient-eyebrow">Твой получатель</div><div class="recipient">${esc(assignment.receiver_name)}</div></div></div><div class="recipient-wishes"><strong>Пожелания получателя</strong>${assignment.wish_cards?.length?wishesMarkup(assignment.wish_cards,'recipient'):'<p class="recipient-empty">Пока без пожеланий - можно придумать сюрприз самому</p>'}</div></div>`;}
+ return `<div class="secret-card revealed"><div class="recipient-summary">${ico('check')}<div><div class="recipient-eyebrow">Твой получатель</div><div class="recipient">${esc(assignment.receiver_name)}</div></div></div><div class="recipient-wishes">
+  ${preferenceSummary(assignment.preferences)}
+  <strong>Подарки получателя</strong>${assignment.wish_cards?.length?wishesMarkup(assignment.wish_cards,'recipient'):'<p class="recipient-empty">Пока без пожеланий - можно придумать сюрприз самому</p>'}</div></div>`;}
+function preferenceSummary(preferences){
+ const text=(label,value)=>value?'<div class="game-gift-note"><strong>'+label+'</strong><p>'+esc(value)+'</p></div>':'';
+ return '<div class="participant-preferences-summary">'+
+  (text('Что хотелось бы',preferences?.wanted)+text('Чего не хотелось бы',preferences?.unwanted)||
+   '<p class="note">Получатель пока не оставил общих пожеланий</p>')+'</div>';
+}
 async function invitePage(key,marker=lastRenderToken){const {event:e,already_joined}=await api(`/api/invites/${key}`);if(marker!==lastRenderToken)return;shell(`<main class="container page"><div class="invite-card"><div class="invite-icon">${envelopeArt()}</div><div class="section-label" style="text-align:center">Тебя зовут в игру!</div><h1>${esc(e.title)}</h1><p>${esc(e.description||'Кто-то хочет устроить вам небольшой праздник')}</p><div class="invite-info"><div class="info-tile"><small>Когда обмениваемся</small><strong>${dateRu(e.exchange_date)}</strong></div><div class="info-tile"><small>Бюджет</small><strong>${money(e.budget_cents,e.currency)}</strong></div></div>${e.rules?`<div class="details-box"><strong>Правила от организатора</strong><p>${esc(e.rules)}</p></div>`:''}${already_joined?'<div class="alert">Ты уже участвуешь в этой игре. Повторное вступление не требуется</div>':e.status==='open'?`<form class="invite-form" id="join-form"><h3>Как тебя зовут?</h3><div class="field"><label for="join-name">Твоё имя</label><input id="join-name" name="name" maxlength="50" required placeholder="Например, Маша"></div><button class="btn btn-dark" type="submit">Присоединиться ${ico('arrow')}</button><p class="note" style="margin-top:15px">После вступления получишь личную ссылку - сохрани её, чтобы вернуться в игру</p></form>`:`<div class="alert">Жеребьёвка уже состоялась. Новые участники присоединиться не могут</div>`}</div></main>`);
  document.getElementById('join-form')?.addEventListener('submit',async ev=>{ev.preventDefault();const btn=ev.currentTarget.querySelector('button');btn.disabled=true;try{const r=await api(`/api/invites/${key}/join`,{method:'POST',body:readForm(ev.currentTarget)});nav(`/p/${r.participant_token}`);notice('Ты в игре! Сохрани личную ссылку');}catch(err){notice(err.message,true);btn.disabled=false;}});
 }
@@ -662,6 +707,10 @@ async function dispatch(action,el){try{
  if(action==='sample-list'){if(!isDemo){listModal();return;}if(!currentUser){const r=await api('/api/demo-login',{method:'POST',body:{}});currentUser=r.user;}const {lists}=await api('/api/lists');if(lists.length)nav(`/w/${lists[lists.length-1].share_key}`);else nav('/lists');}
  if(action==='copy')await clipboard(el.dataset.url);
  if(action==='contact-developer')contactDeveloperModal();
+  if(action==='admin-feedback-status'){
+   await api('/api/admin/feedback/'+el.dataset.id,{method:'PATCH',body:{status:el.dataset.status}});
+   await adminFeedbackPage();return;
+  }
  if(action==='scroll-game-gifts'){const track=el.closest('.game-gifts-carousel')?.querySelector('.game-gifts-track');if(track)track.scrollBy({left:(el.dataset.direction==='prev'?-1:1)*Math.max(180,track.clientWidth*.7),behavior:'smooth'});}
  if(action==='edit-list')listModal(loadedList.list);
  if(action==='add-game-gift')gameGiftModal();
@@ -737,7 +786,7 @@ async function render(){const marker=++lastRenderToken;try{
   return;
  }
  if(!((path==='/lists'&&cachedOwnerValue('/api/lists')) || (path==='/santas'&&cachedOwnerValue('/api/santas'))))loading();
- if(path==='/lists')await listsPage();else if(/^\/list\/\d+$/.test(path))await ownerListPage(path.split('/')[2]);else if(/^\/w\/[A-Za-z0-9_-]+$/.test(path))await publicListPage(path.split('/')[2]);else if(/^\/r\/[A-Za-z0-9_-]+$/.test(path))await reservationPage(path.split('/')[2]);else if(path==='/santas')await santasPage();else if(/^\/santa\/\d+$/.test(path))await santaAdminPage(path.split('/')[2]);else if(/^\/join\/[A-Za-z0-9_-]+$/.test(path))await invitePage(path.split('/')[2]);else if(/^\/p\/[A-Za-z0-9_-]+$/.test(path))await participantPage(path.split('/')[2]);else errorView(new Error('Похоже, такой страницы ещё нет'),'Страница потерялась');
+ if(path==='/lists')await listsPage();else if(/^\/list\/\d+$/.test(path))await ownerListPage(path.split('/')[2]);else if(/^\/w\/[A-Za-z0-9_-]+$/.test(path))await publicListPage(path.split('/')[2]);else if(/^\/r\/[A-Za-z0-9_-]+$/.test(path))await reservationPage(path.split('/')[2]);else if(path==='/santas')await santasPage();else if(path==='/admin/feedback')await adminFeedbackPage();else if(/^\/santa\/\d+$/.test(path))await santaAdminPage(path.split('/')[2]);else if(/^\/join\/[A-Za-z0-9_-]+$/.test(path))await invitePage(path.split('/')[2]);else if(/^\/p\/[A-Za-z0-9_-]+$/.test(path))await participantPage(path.split('/')[2]);else errorView(new Error('Похоже, такой страницы ещё нет'),'Страница потерялась');
  }catch(err){if(marker===lastRenderToken)errorView(err,err.message?.includes('404')?'Не найдена':'Страница не загрузилась');}}
 document.addEventListener('click',async ev=>{
  const reveal=ev.target.closest('[data-password-visibility]');
