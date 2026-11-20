@@ -510,17 +510,21 @@ async function santaGamePage(id,marker=lastRenderToken,participantToken=null){
  shell(`<main class="container page"><div class="guest-topline">${memberView? `${ico('lock')} Личный кабинет участника <span>/</span> <strong>${esc(d.participant.name)}</strong>`:`<button class="text-link" data-nav="/santas">${ico('back')} Все игры</button> <span>/</span> <span>${esc(e.title)}</span>`}</div><div class="page-hero"><div><div class="section-label">${e.status==='drawn'?'Жеребьёвка проведена':'Приглашаем участников'}</div><h1>${esc(e.title)}</h1><p>${esc(e.description||'Праздник начинается с маленькой тайны')}</p></div><span class="chip ${e.status==='drawn'?'chip-green':'chip-lilac'}">${ico(e.status==='drawn'?'check':'users')} ${e.status==='drawn'?'Игра началась':'Приём открыт'}</span></div><div class="santa-detail-layout"><div>
  <div class="panel"><div class="panel-heading-actions"><h2>Участники <span class="chip" data-santa-roster-count>${people.length}</span></h2>${!memberView&&e.status==='open'?'<button class="btn btn-soft btn-small" data-action="add-player">'+ico('plus')+' Добавить участника</button>'+(isPreview?'':'<button class="btn btn-soft btn-small" data-social-action="invite-friends">Пригласить друзей</button>'):''}</div><div class="person-list" data-santa-roster>${people.map(p=>santaRosterPerson(p,activeGameContext)).join('')}</div>${e.status==='open'?`<div class="divider-line"></div><p class="note">Пригласи друзей по общей ссылке. Каждый сможет присоединиться без регистрации и получит собственную личную ссылку</p><div class="share-field"><input class="input" aria-label="Ссылка-приглашение" readonly value="${attr(getLink(`/join/${e.invite_key}`))}"><button class="btn btn-dark btn-small" data-action="copy" data-url="${attr(getLink(`/join/${e.invite_key}`))}">${ico('copy')} Копировать</button></div>`:''}</div>
  <div class="panel"><div class="panel-heading-actions"><h2>Мои пожелания</h2>${!memberView||currentUser?`<button class="btn btn-soft btn-small" data-action="import-own-wishes" ${memberView?`data-key="${attr(participantToken||'')}"`:`data-id="${id}"`}>${ico('plus')} Из вишлиста</button>`:''}</div><p class="note">Твои пожелания увидит только твой тайный Санта</p>
-  <form class="form participant-preferences" id="santa-preferences-form">
-    ${textArea('Что хотелось бы','wanted','Любимые цвета, увлечения, идеи',myPrefs?.wanted||'')}
-    ${textArea('Чего не хотелось бы','unwanted','Что точно не подходит',myPrefs?.unwanted||'')}
-    <button type="submit" class="btn btn-soft btn-small">Сохранить пожелания</button>
-  </form><div class="my-wishes-list">${wishesMarkup(gameWishes)}</div>
+  <div class="santa-preferences-display" id="santa-preferences-display">
+    <div data-preferences-summary>${preferenceSummary(myPrefs)}</div>
+    <button type="button" class="btn btn-soft btn-small" data-action="edit-santa-preferences">${ico('edit')} ${myPrefs?.wanted||myPrefs?.unwanted?'Изменить пожелания':'Добавить пожелания'}</button>
+   </div>
+   <form class="form participant-preferences" id="santa-preferences-form" hidden>
+     ${textArea('Что хотелось бы','wanted','Любимые цвета, увлечения, идеи',myPrefs?.wanted||'')}
+     ${textArea('Чего не хотелось бы','unwanted','Что точно не подходит',myPrefs?.unwanted||'')}
+     <div class="btn-row"><button type="button" class="btn btn-soft btn-small" data-action="cancel-santa-preferences">Отмена</button><button type="submit" class="btn btn-dark btn-small">Сохранить пожелания</button></div>
+   </form><div class="my-wishes-list">${wishesMarkup(gameWishes)}</div>
  ${d.rich_enabled!==false?`<button class="btn btn-dark btn-small" type="button" data-action="add-game-gift">${ico('plus')} Добавить подарок</button>`:
  `<form class="form" id="legacy-santa-wish-form"><div class="share-field"><input class="input" name="title" required maxlength="130" placeholder="Название подарка"><button class="btn btn-dark btn-small" type="submit">Добавить ${ico('plus')}</button></div></form><p class="note">Подробные карточки появятся после обновления игры</p>`}</div>
  ${!memberView&&e.status==='open'?`<div class="panel"><h2>Исключения</h2><p class="note">Укажи пары, которые не должны выпадать друг другу. Ограничения работают направленно: «А → Б» означает, что А не может дарить Б</p><div class="rules-list" style="margin:17px 0">${d.exclusions.length?d.exclusions.map(r=>`<span class="rule-chip">${esc(people.find(p=>p.id===r.giver_id)?.name||'?')} → ${esc(people.find(p=>p.id===r.receiver_id)?.name||'?')} <button title="Убрать ограничение" data-action="remove-rule" data-from="${r.giver_id}" data-to="${r.receiver_id}">×</button></span>`).join(''):'<span class="muted">Пока нет исключений</span>'}</div><form class="form" id="rule-form"><div class="form-grid">${selects('giver_id','Кто дарит')}${selects('receiver_id','Кому нельзя дарить')}</div><button class="btn btn-soft btn-small" type="submit">${ico('plus')} Добавить ограничение</button></form></div>`:''}
  </div><div><div class="panel"><div class="panel-heading-actions"><h2>О событии</h2>${!memberView?`<button class="btn btn-soft btn-small" data-action="edit-santa">${ico('edit')} Изменить</button>`:''}</div><div class="details-box santa-event-details"><p>${ico('calendar')} <strong>Дата:</strong> ${dateRu(e.exchange_date)}</p><p>${ico('gift')} <strong>Бюджет:</strong> ${money(e.budget_cents,e.currency)}</p><p>${ico('users')} <strong>Участников:</strong> <span data-santa-event-count>${people.length}</span></p>${e.rules?`<div class="divider-line"></div><strong>Правила:</strong><p>${esc(e.rules)}</p>`:''}</div></div>
  ${!memberView&&e.status==='open'?`<div class="panel"><h2>Время раскрыть карты?</h2><p class="note">После жеребьёвки приглашения, состав и исключения будут заморожены. Каждый увидит только своего получателя</p><div class="alert">${ico('info')} Понадобится минимум 3 участника. Желательно, чтобы все успели присоединиться</div><button class="btn btn-dark" style="width:100%" data-action="draw" ${people.length<3?'disabled':''}>Провести жеребьёвку ${ico('spark')}</button></div>`:`<div class="panel"><h2>Кому ты даришь</h2>${e.status==='drawn'?secretCard(memberView?d.assignment:d.my_assignment,!memberView,memberView?participantToken:id):`<div class="secret-card">${envelopeArt()}<h2>Пока храним интригу</h2><p>Организатор ещё собирает всех участников. После жеребьёвки здесь появится конверт с твоим получателем</p></div>`}</div>`}
- ${memberView?`<div class="panel"><h2>Твоя личная ссылка</h2><p class="note">Не пересылай никому: по ней открывается твой секрет. Сохрани в закладки</p><div class="share-field"><input class="input" readonly value="${attr(getLink(`/p/${participantToken}`))}" aria-label="Личная ссылка"><button class="btn btn-dark btn-small" data-action="copy" data-url="${attr(getLink(`/p/${participantToken}`))}">${ico('copy')} Копировать</button></div></div>`:''}
+ ${memberView?`<div class="panel"><h2>Твоя личная ссылка</h2><p class="note">Не пересылай никому: по ней открывается твой секрет. Сохрани в закладки</p>${!d.participant.user_id&&!isPreview?`<div class="game-save-account"><p>Сохрани игру в аккаунте, чтобы открывать её из раздела «Тайный Санта» без этой ссылки.</p><button class="btn btn-dark btn-small" type="button" data-action="claim-game" data-token="${attr(participantToken)}">${ico("check")} Сохранить игру в аккаунте</button></div>`:""}<div class="share-field"><input class="input" readonly value="${attr(getLink(`/p/${participantToken}`))}" aria-label="Личная ссылка"><button class="btn btn-dark btn-small" data-action="copy" data-url="${attr(getLink(`/p/${participantToken}`))}">${ico('copy')} Копировать</button></div></div>`:''}
  </div></div>
  ${d.rich_enabled!==false?`<section class="panel game-chat-panel" id="game-chat" aria-label="Чаты игры">
  <div class="panel-heading-actions"><h2>Чаты игры</h2></div>
@@ -537,6 +541,7 @@ async function santaGamePage(id,marker=lastRenderToken,participantToken=null){
    ev.preventDefault();const form=ev.currentTarget,button=form.querySelector('button');
    button.disabled=true;
    try{await api(activeGameContext.base+'/preferences',{method:'PATCH',body:readForm(form)});
+    if(form.isConnected){const summary=document.querySelector('#santa-preferences-display');if(summary){summary.querySelector('[data-preferences-summary]').innerHTML=preferenceSummary(readForm(form));summary.hidden=false;}form.hidden=true;}
     notice('Пожелания сохранены');
    }catch(err){notice(err.message,true)}finally{button.disabled=false;}
   });
@@ -615,7 +620,11 @@ function loginModal(mode='login'){
    const payload=readForm(form);
    const result=await api(register?'/api/register':'/api/login',{method:'POST',body:payload});
    if(result.pending_confirmation){confirmationModal(payload.email);return;}
-   currentUser=result.user;broadcastSessionChange();notice(register?'Аккаунт создан!':'С возвращением!');nav('/',{force:true});
+   currentUser=result.user;broadcastSessionChange();
+    if(pendingGameClaim){const claim=pendingGameClaim;pendingGameClaim=null;
+     try{await api('/api/participant/'+encodeURIComponent(claim)+'/claim',{method:'POST',body:{}});notice('Игра сохранена в аккаунте');nav('/santas',{force:true});}
+     catch(error){notice('Ты вошёл, но игру привязать не удалось: '+error.message,true);nav('/santas',{force:true});}return;}
+    notice(register?'Аккаунт создан!':'С возвращением!');nav('/',{force:true});
   },
   footer:(register?'Уже есть аккаунт?':'Нет аккаунта?')+
    ' <button type="button" data-open="'+(register?'login':'register')+'">'+(register?'Войти':'Зарегистрироваться')+'</button>'+
@@ -760,6 +769,9 @@ async function importOwnWishesModal(el){
 function reserveModal(id,key){modal({title:'Забронировать подарок',subtitle:'Владелец списка не узнает, что ты выбрал. Сохрани приватную ссылку для отмены',content:`${field('Как тебя зовут?','guest_name','Например, Маша','text','',true,'maxlength="50"')}`,submitLabel:'Забронировать',onSubmit:async form=>{const r=await api(`/api/public/${key}/reserve/${id}`,{method:'POST',body:readForm(form)});nav(`/r/${r.manage_token}`);notice('Подарок за тобой!');}});}
 async function confirmAction(title,subtitle,handler,label='Удалить'){modal({title,subtitle,content:'<div class="alert alert-error">Это действие нельзя отменить</div>',submitLabel:label,onSubmit:handler});}
 async function dispatch(action,el){try{
+ if(action==='edit-santa-preferences'){const f=document.getElementById('santa-preferences-form'),d=document.getElementById('santa-preferences-display');if(f&&d){f.hidden=false;d.hidden=true;}return;}
+ if(action==='cancel-santa-preferences'){const f=document.getElementById('santa-preferences-form'),d=document.getElementById('santa-preferences-display');if(f&&d){f.reset();f.hidden=true;d.hidden=false;}return;}
+ if(action==='claim-game'){const token=el.dataset.token;if(!token)return;if(!currentUser){pendingGameClaim=token;loginModal('login');return;}await api('/api/participant/'+encodeURIComponent(token)+'/claim',{method:'POST',body:{}});notice('Игра сохранена в аккаунте');nav('/santas',{force:true});return;}
  if(action==='reset-preview'){window.SHURSH_PREVIEW_RESET?.();return;}
  if(action==='logout'){await api('/api/logout',{method:'POST',body:{}});currentUser=null;broadcastSessionChange();notice('Ты вышел из аккаунта');nav('/',{force:true});}
  if(action==='demo-login'){const r=await api('/api/demo-login',{method:'POST',body:{}});currentUser=r.user;closeModal();notice('Демо-аккаунт открыт');nav('/lists');}
@@ -814,6 +826,7 @@ sessionChannel?.addEventListener('message',event=>{
  clearOwnerDataCache();currentUser=null;renderStarted=false;render();
 });
 let renderStarted=false;
+let pendingGameClaim=null;
 let authReturnNotice = null;
 let authReturnError = false;
 let confirmationToken = null;

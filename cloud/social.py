@@ -4,7 +4,7 @@ No new outbound integrations or background jobs.
 """
 import re
 from uuid import UUID
-from server import ApiError, req, optional
+from server import ApiError, req, optional, token_hash
 
 def _uuid(value):
     try:
@@ -245,6 +245,25 @@ def handle(handler, method, path, con):
         _notify(con,other,'wish_request','Друг просит подарить ему: '+wish['title'],
                 '/w/'+wish['share_key'],user['id'])
         return 201,{'ok':True},None
+
+    # Possession of a private capability permits binding an unclaimed player.
+    match=re.fullmatch(r'/api/participant/([A-Za-z0-9_-]{43})/claim',path)
+    if match and method=='POST':
+        user=handler.auth(con)
+        participant=con.execute('SELECT id,event_id,user_id FROM participants WHERE access_hash=?',
+                                (token_hash(match.group(1)),)).fetchone()
+        if not participant:
+            raise ApiError(404,'Личная ссылка недействительна')
+        if participant['user_id'] is not None:
+            if participant['user_id']==user['id']:
+                return 200,{'ok':True,'event_id':participant['event_id']},None
+            raise ApiError(409,'Этот участник уже привязан к другому аккаунту')
+        if con.execute('SELECT id FROM participants WHERE event_id=? AND user_id=?',
+                       (participant['event_id'],user['id'])).fetchone():
+            raise ApiError(409,'Ты уже участвуешь в этой игре')
+        con.execute('UPDATE participants SET user_id=? WHERE id=? AND user_id IS NULL',
+                    (user['id'],participant['id']))
+        return 200,{'ok':True,'event_id':participant['event_id']},None
 
     # Authenticated game members can revisit the same game without keeping
     # a bearer URL in localStorage. Member-only projections are enforced by UID.
