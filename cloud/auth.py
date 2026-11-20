@@ -6,10 +6,12 @@ from urllib.request import Request, urlopen
 from urllib.parse import urlencode, urlsplit
 
 from server import ApiError
+from cloud.environment import assert_staging_target
 
 
 def auth_request(action, **payload):
-    url = os.environ.get('SUPABASE_URL', '').rstrip('/')
+    assert_staging_target(require_database=False)
+    url= os.environ.get('SUPABASE_URL', '').rstrip('/')
     key = os.environ.get('SUPABASE_PUBLISHABLE_KEY', '')
     if not url.startswith('https://') or not key:
         raise RuntimeError('Supabase Auth is not configured')
