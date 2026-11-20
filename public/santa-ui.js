@@ -93,41 +93,61 @@ function gameGiftModal(edit=null){
 function setupGameChat(state){
  const root=document.querySelector('#game-chat');if(!root)return;
  if(gameChatTimer){clearInterval(gameChatTimer);gameChatTimer=null;}
- let room='general',loading=false,pendingRefresh=false,lastContent='',messages=[];
+ let room='general',renderedKey='';
+ const roomCache=new Map(),inflight=new Map();
  const list=root.querySelector('.game-chat-messages');
- const apiRoom=()=>state.base+'/messages/'+room;
  const markup=m=>'<div class="chat-message '+(m.mine?'chat-mine':'')+'"><div class="chat-meta">'+
    esc(m.author)+'</div><p>'+esc(m.message)+'</p></div>';
- const paint=()=>{
-  list.innerHTML=messages.length?messages.map(markup).join(''):'<p class="note">Сообщений пока нет. Начни разговор!</p>';
-  list.scrollTop=list.scrollHeight;
+ const showRoom=(name)=>{
+  const entry=roomCache.get(name);
+  const key=name+':'+(entry?.signature||'pending');
+  if(renderedKey===key)return;
+  renderedKey=key;
+  list.innerHTML=entry?(entry.messages.length?entry.messages.map(markup).join(''):
+   '<p class="note">Сообщений пока нет. Начни разговор!</p>'):
+   '<div class="chat-loading" role="status"><span class="skeleton-bar"></span><span class="skeleton-bar"></span></div>';
+  if(entry)list.scrollTop=list.scrollHeight;
  };
- const load=async()=>{
-  if(!root.isConnected)return;
-  if(loading){pendingRefresh=true;return;}
-  loading=true;const requestedRoom=room;
-  try{
-   const result=await api(apiRoom());
-   if(!root.isConnected||requestedRoom!==room||room!==result.room)return;
-   const signature=JSON.stringify(result.messages.map(m=>m.id));
-   if(signature!==lastContent){messages=result.messages;lastContent=signature;paint();}
-  }catch(err){
-   if(root.isConnected&&requestedRoom===room)notice(err.message,true);
-  }finally{
-   loading=false;
-   if(pendingRefresh&&root.isConnected){pendingRefresh=false;load();}
-  }
+ const load=({force=false}={})=>{
+  if(!root.isConnected)return Promise.resolve();
+  const requestedRoom=room,existing=roomCache.get(requestedRoom);
+  // Room switching must never wait for a different room's slow request.
+  // A warm room reopens synchronously from its own memory snapshot.
+  if(!force&&existing&&Date.now()-existing.fetchedAt<12000)return Promise.resolve();
+  if(inflight.has(requestedRoom))return inflight.get(requestedRoom);
+  const request=(async()=>{
+   try{
+    const result=await api(state.base+'/messages/'+requestedRoom);
+    if(!root.isConnected||result.room!==requestedRoom)return;
+    const messages=Array.isArray(result.messages)?result.messages:[];
+    const signature=JSON.stringify(messages.map(m=>[m.id,m.author,m.message,m.mine]));
+    roomCache.set(requestedRoom,{messages,signature,fetchedAt:Date.now()});
+    if(room===requestedRoom)showRoom(room);
+   }catch(err){
+    if(root.isConnected&&room===requestedRoom&&!roomCache.has(requestedRoom)){
+     list.innerHTML='<p class="note">Не удалось загрузить сообщения. Попробуй обновить чат</p>';
+     notice(err.message,true);
+    }
+   }
+  })();
+  inflight.set(requestedRoom,request);
+  void request.finally(()=>{if(inflight.get(requestedRoom)===request)inflight.delete(requestedRoom);});
+  return request;
  };
  root.addEventListener('click',ev=>{
   const tab=ev.target.closest('[data-chat-room]');
   if(tab){
-   room=tab.dataset.chatRoom;lastContent='';messages=[];
+   const next=tab.dataset.chatRoom;
+   if(next===room)return;
+   room=next;
    root.querySelectorAll('[data-chat-room]').forEach(b=>{
-    const selected=b===tab;b.classList.toggle('active',selected);b.setAttribute('aria-pressed',String(selected));
+    const selected=b===tab;
+    if(b.classList.contains('active')!==selected)b.classList.toggle('active',selected);
+    if(b.getAttribute('aria-pressed')!==String(selected))b.setAttribute('aria-pressed',String(selected));
    });
-   list.innerHTML='<p class="note">Загружаем сообщения…</p>';load();
+   showRoom(room);void load();
   }
-  if(ev.target.closest('[data-chat-refresh]'))load();
+  if(ev.target.closest('[data-chat-refresh]'))void load({force:true});
  });
  root.querySelector('#game-chat-form').addEventListener('submit',async ev=>{
   ev.preventDefault();
@@ -136,21 +156,23 @@ function setupGameChat(state){
   const targetRoom=room;
   button.disabled=true;
   try{
-   const sent=await api(apiRoom(),{method:'POST',body:data});
+   const sent=await api(state.base+'/messages/'+targetRoom,{method:'POST',body:data});
    form.reset();
-   if(root.isConnected&&room===targetRoom&&sent.message){
-    if(!messages.some(m=>m.id===sent.message.id)){
-     messages=[...messages,sent.message].slice(-60);
-     lastContent=JSON.stringify(messages.map(m=>m.id));paint();
+   if(root.isConnected&&sent.message){
+    const before=roomCache.get(targetRoom)?.messages||[];
+    if(!before.some(m=>m.id===sent.message.id)){
+     const messages=[...before,sent.message].slice(-60);
+     roomCache.set(targetRoom,{messages,signature:JSON.stringify(messages.map(m=>[m.id,m.author,m.message,m.mine])),fetchedAt:Date.now()});
     }
-   }else if(root.isConnected)load();
+    if(room===targetRoom)showRoom(room);
+   }else if(root.isConnected)void load({force:true});
   }catch(err){notice(err.message,true)}
   finally{button.disabled=false;}
  });
- load();
+ showRoom(room);void load();
  gameChatTimer=setInterval(()=>{
   if(!root.isConnected){clearInterval(gameChatTimer);gameChatTimer=null;return;}
-  if(document.visibilityState==='visible')load();
+  if(document.visibilityState==='visible')void load({force:true});
  },15000);
 }
 
@@ -173,7 +195,7 @@ function setupSantaRoster(state){
  const root=document.querySelector('[data-santa-roster]');if(!root)return;
  if(gameRosterTimer){clearInterval(gameRosterTimer);gameRosterTimer=null;}
  const route=state.base+'/roster';
- let running=false,previous=null,failures=0;
+ let running=false,previous=JSON.stringify((state.participants||[]).map(p=>[p.id,p.name,p.wish_count,p.is_organizer])),failures=0;
  const update=async()=>{
   if(!root.isConnected){clearInterval(gameRosterTimer);gameRosterTimer=null;return;}
   if(document.visibilityState==='hidden'||running)return;

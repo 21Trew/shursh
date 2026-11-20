@@ -90,18 +90,14 @@ async function socialProfilePage(uid,marker=lastRenderToken){
 async function socialOwnProfilePage(marker=lastRenderToken){
  if(!currentUser){loginModal();return;}
  const data=await api('/api/profile/me');if(marker!==lastRenderToken)return;
- const p=data.profile,lists=data.lists||[];
+ const p=data.profile;
  shell('<main class="container page social-page social-profile-page">'+
   '<div class="social-page-heading"><span class="section-label">Твоя визитная карточка</span><h1>Мой профиль</h1>'+
-  '<p>Имя, никнейм, аватар и открытые вишлисты видят другие. Почта остаётся приватной.</p></div>'+
+  '<p>Имя, никнейм и аватар видят другие. Почта остаётся приватной</p></div>'+
   '<section class="panel profile-main-card">'+socialIdentity(p)+
-  '<div class="profile-actions"><span class="profile-visibility">'+(p.discoverable?'В поиске друзей':'Скрыт из поиска')+'</span>'+
+  '<div class="profile-actions">'+
   '<button type="button" class="btn btn-dark btn-small" data-social-action="edit-profile">'+ico('edit')+' Редактировать профиль</button>'+
   '<button type="button" class="btn btn-soft btn-small" data-nav="/users/'+attr(p.id)+'">Как видят друзья</button></div></section>'+
-  '<section class="panel profile-public-lists"><div class="panel-heading-actions"><h2>Мои открытые вишлисты <span class="chip">'+lists.length+'</span></h2>'+
-  '<button class="btn btn-soft btn-small" data-nav="/lists">Управлять списками</button></div>'+
-  (lists.length?'<div class="profile-list-links">'+lists.map(l=>'<button class="profile-list-link" data-nav="/list/'+attr(l.id)+'"><span>'+esc(l.title)+'</span><small>'+l.wish_count+' желаний</small>'+ico('arrow')+'</button>').join('')+'</div>':
-   '<p class="note">Создай вишлист с доступом по ссылке — он появится в твоём профиле.</p>')+'</section>'+
   '<section class="panel profile-security"><div><h2>Вход и безопасность</h2><p class="note">Почта не отображается в публичном профиле</p><div class="account-email">'+esc(p.email||'')+'</div></div>'+
   '<div class="profile-actions"><button class="btn btn-soft btn-small" data-social-action="change-email">Изменить почту</button>'+
   '<button class="btn btn-soft btn-small" data-social-action="change-password">Изменить пароль</button></div></section></main>');

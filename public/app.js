@@ -44,7 +44,7 @@ function getLink(path){return isPreview?location.href.split('#')[0]+'#'+path:loc
 /* Owner-only tabs preserve their live DOM between navigations.
    Capability/bearer URLs are deliberately excluded. */
 const ownerTabViews=new Map();
-const OWNER_VIEW_TTL=90000;
+const OWNER_VIEW_TTL=10*60*1000;
 const OWNER_VIEW_LIMIT=6;
 let renderedOwnerTab=null;
 function ownerTab(path){return !!currentUser&&['/','/lists','/santas','/friends','/profile','/notifications'].includes(path);}
@@ -53,7 +53,7 @@ function clearOwnerTabViews(paths=null){
  for(const path of paths)ownerTabViews.delete(path);
 }
 function rememberOwnerTab(){
- if(!ownerTab(renderedOwnerTab)||app.querySelector('.dashboard-skeleton'))return;
+ if(!ownerTab(renderedOwnerTab)||app.querySelector('.dashboard-skeleton, .route-skeleton'))return;
  const node=app.querySelector('#page-view > main');
  if(!node)return;
  node.remove();ownerTabViews.delete(renderedOwnerTab);ownerTabViews.set(renderedOwnerTab,{node,expires:Date.now()+OWNER_VIEW_TTL});
@@ -342,7 +342,7 @@ function heroArt(){return `<svg viewBox="0 0 570 535" aria-hidden="true" role="p
 function santaArt(){return `<svg viewBox="0 0 600 430" aria-hidden="true"><path d="M5 210c70-180 229-206 353-138s202 176 220 266v92H0Z" fill="#f3d1c2"/><g transform="translate(60 70) rotate(-12 110 145)"><rect x="25" y="32" width="195" height="232" rx="17" fill="#f5e8ce" stroke="#2c292b" stroke-width="4"/><path d="M45 72h150m-150 31h105m-105 31h130" stroke="#d5baa5" stroke-width="6" stroke-linecap="round"/><circle cx="122" cy="195" r="33" fill="#eeb5a0" stroke="#2c292b" stroke-width="3"/><path d="m106 197 12 12 24-26" stroke="#2c292b" stroke-width="5" fill="none"/></g><g transform="translate(310 91) rotate(13 110 125)"><rect x="18" y="25" width="202" height="230" rx="17" fill="#d4c5ef" stroke="#2c292b" stroke-width="4"/><path d="M19 45 119 139 219 45M19 250l71-91m129 91-72-91" stroke="#2c292b" stroke-width="4" fill="none"/><circle cx="118" cy="150" r="33" fill="#f8c18a" stroke="#2c292b" stroke-width="4"/><path d="M107 152c0-9 7-12 11-4 4-8 12-5 11 4-2 7-11 12-11 12s-11-5-11-12" fill="#fff"/></g><path d="M277 47v29m-14-14h29m204 217 7 17 17 8-17 7-7 17-8-17-17-7 17-8Z" stroke="#2c292b" stroke-width="3" fill="#f2d990"/></svg>`;}
 function stepArt(num){if(num===1)return `<svg viewBox="0 0 130 112">${fallbackArt('book').replace(/viewBox="[^"]*"/,'viewBox="0 0 170 160"')}</svg>`;if(num===2)return `<svg viewBox="0 0 130 112"><rect x="13" y="28" width="104" height="67" rx="10" fill="#fff" stroke="#29292b" stroke-width="3"/><path d="m15 40 50 38 50-38" stroke="#29292b" stroke-width="3" fill="none"/><circle cx="67" cy="73" r="15" fill="#e5bcf0" stroke="#29292b" stroke-width="2"/><path d="M62 72c1-5 5-5 6-1 4-6 9-2 7 3l-7 7Z" fill="#e27f9a"/></svg>`;return `<svg viewBox="0 0 130 112"><rect x="23" y="36" width="86" height="65" fill="#f1b0ac" stroke="#29292b" stroke-width="3"/><rect x="16" y="27" width="100" height="18" fill="#ffdc98" stroke="#29292b" stroke-width="3"/><path d="M65 28v72M65 28c-27 1-25-24-12-23 10 1 12 20 12 23Zm0 0c25-1 24-24 11-23-9 1-11 20-11 23Z" fill="#e5d1f4" stroke="#29292b" stroke-width="3"/></svg>`;}
 function header(){const path=currentPath();return `<header class="site-header"><div class="container topbar"><a class="logo" href="/" data-nav="/" aria-label="Шурш! Главная">шурш<span>!</span></a>${currentUser?`<nav class="nav" aria-label="Главная навигация"><a href="/" data-nav="/" class="${path==='/'?'active':''}">${currentUser?'Кабинет':'Главная'}</a><a href="/lists" data-nav="/lists" class="${path.startsWith('/lists')||path.startsWith('/list/')?'active':''}">Вишлисты</a><a href="/santas" data-nav="/santas" class="${path.startsWith('/santas')||path.startsWith('/santa/')?'active':''}">Тайный Санта</a>${!isPreview?`<a href="/friends" data-nav="/friends" class="${path==='/friends'?'active':''}">Друзья</a><a href="/profile" data-nav="/profile" class="${path==='/profile'||path.startsWith('/users/')?'active':''}">Профиль</a>${currentUser.is_admin?`<a href="/admin" data-nav="/admin" class="${path.startsWith('/admin')?'active':''}">Админка</a>`:''}`:''}</nav>`:""}<div class="header-actions">${currentUser?`<span class="user-name">Привет, ${esc(currentUser.name)}!</span><button class="header-bell ${path==='/notifications'?'active':''}" type="button" data-nav="/notifications" title="Уведомления" aria-label="Уведомления">${ico('bell',21)}<span class="nav-unread" data-notification-count hidden></span></button><button class="btn btn-ghost" data-action="logout" title="Выйти">${ico('logout')} Выйти</button>`:`<button class="btn btn-ghost" data-open="login">Войти</button>`}</div></div></header>${isPreview?`<div class="preview-ribbon"><div class="container">Интерактивное демо · данные хранятся только в этом браузере · ссылки не работают на других устройствах <button type="button" data-action="reset-preview">Сбросить демо</button></div></div>`:''}`;}
-function footer(){return `<footer class="container footer"><div><a class="logo" data-nav="/" href="/">шурш<span>!</span></a><small>Место для хотелок и сюрпризов</small></div>${currentUser?`<nav><a data-nav="/lists" href="/lists">Вишлисты</a><a data-nav="/santas" href="/santas">Тайный Санта</a>${!isPreview?`<a data-nav="/friends" href="/friends">Друзья</a>`:""}</nav>`:""}<p class="footer-credit">Сделано с заботой о сюрпризах <span aria-hidden="true">·</span> <button class="footer-developer" type="button" data-action="contact-developer">L-code</button></p></footer>`;}
+function footer(){return `<footer class="container footer"><div><a class="logo" data-nav="/" href="/">шурш<span>!</span></a><small>Место для хотелок и сюрпризов</small></div><p class="footer-credit">Сделано с заботой о сюрпризах <span aria-hidden="true">·</span> <button class="footer-developer" type="button" data-action="contact-developer">L-code</button></p></footer>`;}
 let shellUserSignature='';
 function shell(body){
  const identity=(currentUser?.id??'guest')+':'+(currentUser?.name??'')+':'+!!currentUser?.is_admin+':'+isDemo+':'+isPreview;
@@ -412,7 +412,7 @@ function dashboardLoading(){
   '<div class="btn-row"><button class="btn btn-dark" data-open="list">Новый вишлист '+ico('plus')+'</button>'+
   '<button class="btn btn-peach" data-open="santa">Создать Тайного Санту '+ico('gift')+'</button></div></div>'+
   '<div class="dashboard-welcome-art" aria-hidden="true">'+fallbackArt('gift')+'</div></section>'+
-  '<section class="dashboard-skeleton" role="status" aria-live="polite">Загружаем твои списки и игры…</section></main>');
+  '<section class="dashboard-skeleton" role="status" aria-label="Загружаем списки и игры"><div class="skeleton-cards"><div class="skeleton-card"></div><div class="skeleton-card"></div></div></section></main>');
 }
 async function dashboardPage(marker=lastRenderToken){
  if(!currentUser){home();return;}
@@ -434,7 +434,17 @@ function loading(){
  renderedOwnerTab=null;
  const view=app.querySelector('#page-view');
  if(view&&renderStarted){
-  app.classList.add('route-loading');view.setAttribute('aria-busy','true');return;
+  // The old view has been detached. Render a lightweight loading skeleton
+  // rather than leaving a blank screen for the duration of the API call.
+  app.classList.add('route-loading');
+  view.setAttribute('aria-busy','true');
+  view.innerHTML='<main class="container page route-skeleton" role="status" aria-label="Загружаем страницу">'+
+    '<div class="skeleton-bar skeleton-kicker"></div>'+
+    '<div class="skeleton-bar skeleton-title"></div>'+
+    '<div class="skeleton-bar skeleton-subtitle"></div>'+
+    '<div class="skeleton-cards"><div class="skeleton-card"></div><div class="skeleton-card"></div></div>'+
+    '</main>';
+  return;
  }
  app.innerHTML=header()+'<div class="loading-screen"><div class="loading-mark">шурш<span>!</span></div><div class="loading-line"></div></div>';
 }
@@ -490,7 +500,7 @@ async function adminFeedbackPage(marker=lastRenderToken){
   ).join('')+'</div>':'<div class="panel"><p>Сообщений пока нет</p></div>')+'</main>');
 }
 async function santasPage(marker=lastRenderToken){if(!currentUser){shell(`<main class="container page"><div class="page-hero"><div><div class="section-label">Под прикрытием</div><h1>Тайный Санта</h1><p>Чтобы организовать игру, нужно войти. Участникам регистрация не требуется</p></div><button class="btn btn-dark" data-open="login">Войти ${ico('arrow')}</button></div>${emptyState('Собери компанию','Укажите бюджет, зовите друзей и проведите честную жеребьёвку','Создать игру','santa')}</main>`);return;}
- const {events}=await api('/api/santas');if(marker!==lastRenderToken)return;shell(`<main class="container page"><div class="page-hero"><div><div class="section-label">Секретная служба подарков</div><h1>Тайный Санта</h1><p>Здесь живут все твои секретные обмены подарками</p></div><div class="btn-row"><button class="btn btn-dark" data-open="santa">Новая игра ${ico('plus')}</button></div></div>${events.length?`<div class="santa-grid">${events.map(e=>`<div class="santa-list-card"><a class="card-hitarea" href="/santa/${e.id}" data-nav="/santa/${e.id}" aria-label="Открыть игру ${attr(e.title)}"></a><span class="sparkle-deco">✳</span><div class="section-label">${e.status==='drawn'?'Жеребьёвка проведена':'Собираем компанию'}</div><h3>${esc(e.title)}</h3><p>${esc(e.description||'Собираем друзей для хороших сюрпризов')}</p><div class="list-bottom"><span>${ico('users')} ${e.participant_count} участников · ${dateRu(e.exchange_date)}</span><button class="text-link" data-nav="/santa/${e.id}">Открыть ${ico('arrow')}</button></div></div>`).join('')}</div>`:emptyState('Пока без секретов','Первую игру создать проще, чем выбрать подарочную бумагу','Создать игру','santa')}</main>`);}
+ const {events}=await api('/api/santas');if(marker!==lastRenderToken)return;shell(`<main class="container page"><div class="page-hero"><div><div class="section-label">Секретная служба подарков</div><h1>Тайный Санта</h1><p>Здесь живут все твои секретные обмены подарками</p></div><div class="btn-row"><button class="btn btn-dark" data-open="santa">Новая игра ${ico('plus')}</button></div></div>${events.length?`<div class="santa-grid">${events.map(e=>`<div class="santa-list-card"><a class="card-hitarea" href="/santa/${e.id}" data-nav="/santa/${e.id}" aria-label="Открыть игру ${attr(e.title)}"></a><span class="sparkle-deco" aria-hidden="true">${ico("spark",72)}</span><div class="section-label">${e.status==='drawn'?'Жеребьёвка проведена':'Собираем компанию'}</div><h3>${esc(e.title)}</h3><p>${esc(e.description||'Собираем друзей для хороших сюрпризов')}</p><div class="list-bottom"><span>${ico('users')} ${e.participant_count} участников · ${dateRu(e.exchange_date)}</span><button class="text-link" data-nav="/santa/${e.id}">Открыть ${ico('arrow')}</button></div></div>`).join('')}</div>`:emptyState('Пока без секретов','Первую игру создать проще, чем выбрать подарочную бумагу','Создать игру','santa')}</main>`);}
 let loadedSanta=null;
 let activeGameContext=null;
 let gameChatTimer=null;
@@ -515,7 +525,7 @@ async function santaGamePage(id,marker=lastRenderToken,participantToken=null){
  const gameWishes=memberView?d.wishes:(d.my_wishes||[]);
   const myPrefs=memberView?d.preferences:d.my_preferences;
  activeGameContext={base:memberView?(memberBase||'/api/participant/'+participantToken):'/api/santas/'+id,
-  event:e,richEnabled:d.rich_enabled!==false,own:gameWishes,memberView,memberId:memberView?d.participant.id:null,currentUserId:currentUser?.id,recipient:e.status==='drawn'?(memberView?d.assignment?.wish_cards:d.my_assignment?.wish_cards)||[]:[]};
+  event:e,richEnabled:d.rich_enabled!==false,own:gameWishes,memberView,memberId:memberView?d.participant.id:null,currentUserId:currentUser?.id,recipient:e.status==='drawn'?(memberView?d.assignment?.wish_cards:d.my_assignment?.wish_cards)||[]:[],participants:d.participants};
  const people=d.participants;
  const selects=(id,label)=>selectField(label,id,people.map(p=>[p.id,p.name]),null);
  shell(`<main class="container page"><div class="guest-topline">${memberView? `${ico('lock')} Личный кабинет участника <span>/</span> <strong>${esc(d.participant.name)}</strong>`:`<button class="text-link" data-nav="/santas">${ico('back')} Все игры</button> <span>/</span> <span>${esc(e.title)}</span>`}</div><div class="page-hero"><div><div class="section-label">${e.status==='drawn'?'Жеребьёвка проведена':'Приглашаем участников'}</div><h1>${esc(e.title)}</h1><p>${esc(e.description||'Праздник начинается с маленькой тайны')}</p></div><span class="chip ${e.status==='drawn'?'chip-green':'chip-lilac'}">${ico(e.status==='drawn'?'check':'users')} ${e.status==='drawn'?'Игра началась':'Приём открыт'}</span></div><div class="santa-detail-layout"><div>

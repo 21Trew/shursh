@@ -236,3 +236,73 @@ def test_pr4_six_tabs_dom_http_timings_and_all_viewports(browser_http):
                           if x["width"] == width and x["phase"] == phase])]
     }
     print("SHURSH_PR4_UI_AUDIT="+json.dumps(summary,ensure_ascii=False))
+
+
+@pytest.mark.browser
+def test_pr4_profile_mobile_sheet_and_footer(browser_http):
+    """Protect removal of profile cruft and bottom sheet position at 375px."""
+    with sync_playwright() as play:
+        browser = play.chromium.launch(headless=True, args=["--no-sandbox"])
+        try:
+            page = browser.new_page(viewport={"width":375,"height":812},
+                                    reduced_motion="reduce")
+            page.goto(browser_http + "/")
+            browser_login(page)
+            page.locator('header [data-nav="/profile"]').click()
+            expect(page.locator("main h1").first).to_have_text("Мой профиль")
+            expect(page.locator(".profile-public-lists")).to_have_count(0)
+            expect(page.locator(".profile-visibility")).to_have_count(0)
+            expect(page.locator(".social-page-heading")).to_contain_text(
+                "Почта остаётся приватной"
+            )
+            assert "Почта остаётся приватной." not in page.locator(
+                ".social-page-heading"
+            ).inner_text()
+            expect(page.locator("footer nav")).to_have_count(0)
+            expect(page.locator("header .header-bell")).to_be_visible()
+            assert page.locator("header .header-bell").evaluate(
+                "(el) => getComputedStyle(el).borderTopWidth"
+            ) == "0px"
+            page.locator('[data-social-action="edit-profile"]').click()
+            expect(page.locator(".modal")).to_be_visible()
+            box = page.locator(".modal").bounding_box()
+            assert box is not None and abs(box["y"] + box["height"] - 812) <= 2, box
+            assert box["x"] <= 2 and box["width"] >= 373, box
+        finally:
+            browser.close()
+
+
+@pytest.mark.browser
+def test_pr4_santa_illustration_and_panels(browser_http):
+    """The gift-card ornament must remain SVG; never render as a system emoji."""
+    import re
+    from uuid import uuid4
+    with sync_playwright() as play:
+        browser = play.chromium.launch(headless=True, args=["--no-sandbox"])
+        try:
+            page = browser.new_page(viewport={"width":390,"height":844},
+                                    reduced_motion="reduce")
+            page.goto(browser_http + "/")
+            browser_login(page)
+            page.locator('button[data-open="santa"]').first.click()
+            page.locator("#fld-title").fill("UI polish "+uuid4().hex[:7])
+            page.locator(
+                '#modal-form button[type="submit"], .modal-fixed-footer button[type="submit"]'
+            ).click()
+            expect(page).to_have_url(re.compile(r"/santa/\d+$"))
+            expect(page.locator("#game-chat")).to_be_visible()
+            cards = page.locator(".santa-detail-layout > div:first-child > .panel")
+            assert cards.count() >= 2
+            first = cards.nth(0).bounding_box()
+            second = cards.nth(1).bounding_box()
+            assert first and second
+            assert second["y"]-first["y"]-first["height"] >= 12, (
+                "Missing Santa panel gap",first,second
+            )
+            page.locator('header [data-nav="/santas"]').click()
+            expect(page.locator(".santa-list-card")).to_have_count(1)
+            expect(page.locator(".santa-list-card .sparkle-deco svg")).to_have_count(1)
+            assert "✳" not in page.locator(".santa-list-card").first.inner_text()
+            assert page.evaluate("document.documentElement.scrollWidth <= innerWidth + 2")
+        finally:
+            browser.close()
