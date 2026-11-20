@@ -116,6 +116,16 @@ def api(route):
         # The read-only /api/me session check needs no generic rate write.
         if path not in ('/api/me','/api/login','/api/register','/api/logout'):
             handler.throttled('api', 180)
+        # Avoid a second PostgreSQL connection/transaction while a chat write
+        # holds the advisory write lock.
+        if request.method=='POST' and re.fullmatch(
+            r'/api/(?:santas/\d+|participant/[A-Za-z0-9_-]+)/messages/(?:general|to-recipient|from-santa)',path
+        ):
+            handler.throttled('chat',20)
+            handler._chat_rate_checked=True
+        if path=='/api/feedback' and request.method=='POST':
+            handler.throttled('feedback',5,600)
+            handler._feedback_rate_checked=True
         write = request.method not in ('GET','HEAD')
         # Auth calls use their own transactions; they do not take the global
         # business lock while waiting for Supabase Auth over the network.
