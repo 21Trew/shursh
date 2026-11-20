@@ -1,0 +1,180 @@
+/* Шурш! — Social pages. Backend owns access controls and notification privacy. */
+'use strict';
+let socialUnreadLast=0;
+let socialUnreadBusy=false;
+async function socialRefreshBadge(force=false){
+ if(isPreview||!currentUser||document.visibilityState==='hidden')return;
+ if(socialUnreadBusy||(!force&&Date.now()-socialUnreadLast<120000))return;
+ socialUnreadBusy=true;socialUnreadLast=Date.now();
+ try{
+  const data=await api('/api/notifications/unread');
+  document.querySelectorAll('[data-notification-count]').forEach(el=>{
+   const amount=Number(data.unread||0);
+   el.textContent=amount?String(Math.min(99,amount)):'';
+   el.hidden=!amount;
+  });
+ }catch{ /* A background badge failure must never block navigation. */ }
+ finally{socialUnreadBusy=false;}
+}
+setInterval(()=>{if(typeof currentUser!=='undefined')socialRefreshBadge();},120000);
+document.addEventListener('visibilitychange',()=>{if(!document.hidden)socialRefreshBadge(true);});
+
+function socialUserCard(user,actions=''){
+ return '<div class="social-person"><button class="social-person-link" type="button" data-nav="/users/'+attr(user.id)+'">'+
+  '<span class="avatar">'+esc((user.name||'?').slice(0,1).toUpperCase())+'</span>'+
+  '<span class="social-person-name">'+esc(user.name)+'</span></button>'+actions+'</div>';
+}
+async function socialFriendsPage(marker=lastRenderToken){
+ if(!currentUser){loginModal();return;}
+ const data=await api('/api/friends');if(marker!==lastRenderToken)return;
+ shell('<main class="container page social-page"><div class="page-hero"><div><div class="section-label">Вместе приятнее</div>'+
+  '<h1>Друзья</h1><p>Ищи знакомых, делись доступными вишлистами и приглашай в игры</p></div></div>'+
+  '<section class="panel social-search"><h2>Найти человека</h2><form id="social-search-form" class="share-field">'+
+  '<input class="input" name="q" minlength="2" maxlength="40" required placeholder="Имя друга" aria-label="Найти пользователя по имени">'+
+  '<button class="btn btn-dark btn-small" type="submit">Найти</button></form>'+
+  '<div id="social-search-results" aria-live="polite"></div></section>'+
+  (data.incoming.length?'<section class="panel"><h2>Заявки тебе <span class="chip">'+data.incoming.length+'</span></h2>'+
+   data.incoming.map(u=>socialUserCard(u,
+    '<div class="btn-row"><button class="btn btn-dark btn-small" data-social-action="accept" data-user-id="'+attr(u.id)+'">Принять</button>'+
+    '<button class="btn btn-soft btn-small" data-social-action="decline" data-user-id="'+attr(u.id)+'">Отклонить</button></div>')).join('')+'</section>':'')+
+  '<section class="panel"><h2>Мои друзья <span class="chip">'+data.friends.length+'</span></h2>'+
+  (data.friends.length?data.friends.map(u=>socialUserCard(u,
+    '<button class="btn btn-soft btn-small" data-social-action="unfriend" data-user-id="'+attr(u.id)+'">Убрать</button>')).join(''):
+    '<p class="note">Пока никого нет. Найди друга и отправь заявку</p>')+'</section>'+
+  (data.outgoing.length?'<section class="panel"><h2>Отправленные заявки</h2>'+
+    data.outgoing.map(u=>socialUserCard(u,'<span class="chip">Ожидает ответа</span>')).join('')+'</section>':'')+
+  '</main>');
+ document.querySelector('#social-search-form')?.addEventListener('submit',async ev=>{
+  ev.preventDefault();
+  const input=ev.currentTarget.elements.q;
+  const results=document.querySelector('#social-search-results');
+  results.textContent='Ищем…';
+  try{
+   const {users}=await api('/api/users/search?q='+encodeURIComponent(input.value.trim()));
+   results.innerHTML=users.length?users.map(u=>socialUserCard(u,
+    '<button type="button" class="btn btn-soft btn-small" data-social-action="add" data-user-id="'+attr(u.id)+'">В друзья</button>')).join(''):'<p class="note">Ничего не найдено. Проверь имя</p>';
+  }catch(err){results.textContent=err.message;}
+ });
+}
+async function socialProfilePage(uid,marker=lastRenderToken){
+ if(!currentUser){loginModal();return;}
+ const data=await api('/api/users/'+encodeURIComponent(uid));if(marker!==lastRenderToken)return;
+ const p=data.profile,relation=data.relationship;
+ let action='';
+ if(relation==='none')action='<button class="btn btn-dark btn-small" data-social-action="add" data-user-id="'+attr(uid)+'">Добавить в друзья</button>';
+ if(relation==='incoming')action='<button class="btn btn-dark btn-small" data-social-action="accept" data-user-id="'+attr(uid)+'">Принять заявку</button>';
+ if(relation==='outgoing')action='<span class="chip">Заявка отправлена</span>';
+ if(relation==='friends')action='<span class="chip chip-green">Вы друзья</span>';
+ if(relation==='self')action='<button class="btn btn-soft btn-small" data-nav="/profile">Редактировать профиль</button>';
+ shell('<main class="container page social-page"><div class="social-profile-hero"><div class="avatar">'+esc(p.name.slice(0,1).toUpperCase())+'</div>'+
+  '<div><div class="section-label">Профиль</div><h1>'+esc(p.name)+'</h1><p>'+esc(p.bio||'Пока ничего о себе')+'</p></div>'+action+'</div>'+
+  '<section class="dashboard-section"><div class="dashboard-section-head"><h2>Вишлисты <span class="chip">'+data.lists.length+'</span></h2></div>'+
+  (data.lists.length?'<div class="cards-grid">'+data.lists.map(list=>
+   '<article class="list-card"><a class="card-hitarea" href="/w/'+attr(list.share_key)+'" data-nav="/w/'+attr(list.share_key)+'" aria-label="Открыть список '+attr(list.title)+'"></a>'+
+   '<div class="list-cover cover-'+attr(list.theme)+'">'+fallbackArt('gift')+'</div>'+
+   '<div class="list-info"><h3>'+esc(list.title)+'</h3><p>'+esc(list.description||'Список подарков')+'</p>'+
+   '<div class="list-bottom"><span>'+list.wish_count+' желаний</span><button class="text-link" data-nav="/w/'+attr(list.share_key)+'">Посмотреть '+ico('arrow')+'</button></div></div></article>').join('')+'</div>':
+   '<div class="panel"><p class="note">'+(relation==='friends'||relation==='self'?'Пока нет доступных вишлистов':'Вишлисты доступны после добавления в друзья')+'</p></div>')+'</section></main>');
+}
+async function socialOwnProfilePage(marker=lastRenderToken){
+ if(!currentUser){loginModal();return;}
+ const res=await api('/api/profile/me');if(marker!==lastRenderToken)return;
+ const p=res.profile;
+ shell('<main class="container page social-page"><div class="page-hero"><div><div class="section-label">Твой профиль</div><h1>О себе</h1>'+
+  '<p>Имя видят другие пользователи, но твоя почта никому не показывается</p></div></div>'+
+  '<section class="panel"><div class="social-profile-hero"><div class="avatar">'+esc(p.name.slice(0,1).toUpperCase())+'</div>'+
+  '<div><h2>'+esc(p.name)+'</h2><p>'+esc(p.bio||'Добавь пару слов о себе')+'</p></div></div>'+
+  '<p class="note">Поиск по имени: '+(p.discoverable?'включён':'выключен')+'</p>'+
+  '<div class="btn-row"><button class="btn btn-dark btn-small" data-social-action="edit-profile">Редактировать</button>'+
+  '<button class="btn btn-soft btn-small" data-nav="/users/'+attr(p.id)+'">Посмотреть профиль</button></div></section></main>');
+}
+async function socialEditProfileModal(){
+ const d=await api('/api/profile/me'),p=d.profile;
+ modal({title:'Редактировать профиль',subtitle:'Покажи друзьям, кто ты и какие сюрпризы любишь',
+  content:field('Имя','name','Имя','text',p.name,true,'maxlength="40"')+
+   textArea('О себе','bio','Например, люблю книги и настолки',p.bio||'')+
+   '<label class="switch-label"><input type="checkbox" name="discoverable"'+(p.discoverable?' checked':'')+'> Показывать мой профиль в поиске</label>',
+  submitLabel:'Сохранить',onSubmit:async form=>{
+   const data=readForm(form);data.discoverable=form.elements.discoverable.checked;
+   await api('/api/profile/me',{method:'PATCH',body:data});
+   currentUser.name=data.name;
+   notice('Профиль обновлён');await socialOwnProfilePage();
+  }});
+ const bio=modalRoot.querySelector('#fld-bio');if(bio)bio.maxLength=500;
+}
+async function socialNotificationsPage(marker=lastRenderToken){
+ if(!currentUser){loginModal();return;}
+ const res=await api('/api/notifications');if(marker!==lastRenderToken)return;
+ shell('<main class="container page social-page"><div class="page-hero"><div><div class="section-label">Новости друзей и игр</div>'+
+  '<h1>Уведомления</h1><p>Новые подарки, приглашения и события Тайного Санты</p></div></div>'+
+  '<section class="panel notification-feed">'+(res.items.length?res.items.map(n=>
+   '<div class="notification-item'+(n.read_at?'':' unread')+'">'+
+   '<button class="notification-open" data-social-action="open-notification" data-id="'+n.id+'" data-path="'+attr(n.target_path)+'">'+
+   '<strong>'+esc(n.message)+'</strong><small>'+esc(new Date(n.created_at).toLocaleString('ru-RU'))+'</small></button>'+
+   (!n.read_at?'<button class="btn btn-soft btn-small" data-social-action="read-notification" data-id="'+n.id+'">Прочитано</button>':'')+
+   '</div>').join(''):'<p class="note">Пока всё спокойно. Как только появятся новости, они будут здесь</p>')+
+  '</section></main>');
+ socialRefreshBadge(true);
+}
+async function socialAdminPage(marker=lastRenderToken){
+ if(!currentUser?.is_admin){errorView(new Error('Доступ только администратору'));return;}
+ const {stats}=await api('/api/admin/overview');if(marker!==lastRenderToken)return;
+ const labels={users:'Активных профилей',wishlists:'Вишлистов',wishes:'Подарков',events:'Игр',friends:'Дружеских связей',notifications:'Уведомлений',new_feedback:'Новых обращений'};
+ shell('<main class="container page social-page"><div class="page-hero"><div><div class="section-label">Шурш! / управление</div>'+
+  '<h1>Админка</h1><p>Общие показатели без раскрытия личных переписок и бронирований</p></div></div>'+
+  '<div class="social-stat-grid">'+Object.entries(labels).map(([key,label])=>'<article class="panel"><strong>'+Number(stats[key]||0)+'</strong><span>'+label+'</span></article>').join('')+'</div>'+
+  '<button class="btn btn-dark" data-nav="/admin/feedback">Обращения пользователей '+ico('arrow')+'</button></main>');
+}
+async function socialInviteFriendsModal(){
+ if(!currentUser||!loadedSanta?.event||loadedSanta.event.status!=='open')return;
+ const {friends}=await api('/api/friends');
+ if(!friends.length){notice('Сначала добавь друзей',true);nav('/friends');return;}
+ modal({title:'Позвать друзей в игру',subtitle:'Друг получит приглашение в уведомлениях',
+  content:selectField('Кого пригласить','friend_id',friends.map(x=>[x.id,x.name]),friends[0].id),
+  submitLabel:'Отправить приглашение',onSubmit:async form=>{
+   const uid=readForm(form).friend_id;
+   await api('/api/santas/'+loadedSanta.event.id+'/invite-friend/'+encodeURIComponent(uid),{method:'POST',body:{}});
+   notice('Приглашение отправлено');await render();
+  }});
+}
+async function socialAskGiftModal(wishId){
+ if(!currentUser){loginModal();return;}
+ const {friends}=await api('/api/friends');
+ if(!friends.length){notice('Чтобы попросить подарок, сначала добавь друга',true);nav('/friends');return;}
+ modal({title:'Попросить друга о подарке',subtitle:'Друг увидит пожелание и сможет забронировать подарок, если он свободен',
+  content:selectField('Кому отправить просьбу','friend_id',friends.map(f=>[f.id,f.name]),friends[0].id),
+  submitLabel:'Попросить',onSubmit:async form=>{
+   const uid=readForm(form).friend_id;
+   await api('/api/wishes/'+wishId+'/request-friend/'+encodeURIComponent(uid),{method:'POST',body:{}});
+   notice('Просьба отправлена'); 
+  }});
+}
+document.addEventListener('click',async e=>{
+ const target=e.target.closest('[data-social-action]');if(!target)return;
+ e.preventDefault();
+ const action=target.dataset.socialAction,uid=target.dataset.userId;
+ target.disabled=true;
+ try{
+  if(action==='edit-profile'){await socialEditProfileModal();return;}
+  if(action==='invite-friends'){await socialInviteFriendsModal();return;}
+  if(action==='ask-gift'){await socialAskGiftModal(target.dataset.wishId);return;}
+  if(action==='open-notification'){
+   await api('/api/notifications/'+target.dataset.id+'/read',{method:'POST',body:{}});
+   socialUnreadLast=0;nav(target.dataset.path||'/');return;
+  }
+  if(action==='read-notification'){
+   await api('/api/notifications/'+target.dataset.id+'/read',{method:'POST',body:{}});
+   socialUnreadLast=0;await socialNotificationsPage();return;
+  }
+  if(action==='add'||action==='accept'||action==='decline'||action==='unfriend'){
+   const method=action==='add'?'POST':action==='unfriend'?'DELETE':'PATCH';
+   const payload=(action==='accept'||action==='decline')?{action:action==='accept'?'accept':'decline'}:{};
+   await api('/api/friends/'+encodeURIComponent(uid),{method,body:payload});
+   socialUnreadLast=0;
+   notice(action==='add'?'Заявка в друзья отправлена':action==='accept'?'Теперь вы друзья':action==='decline'?'Заявка отклонена':'Друг удалён');
+   if(currentPath()==='/friends')await socialFriendsPage();
+   else if(/^\/users\//.test(currentPath()))await socialProfilePage(uid);
+  }
+ }catch(err){notice(err.message,true);}
+ finally{if(target.isConnected)target.disabled=false;}
+});
