@@ -659,8 +659,35 @@ def test_browser_register_wishlist_reservation_and_isolation(browser_http):
             expect(page.locator('main h1')).to_have_text(title)
 
             page.locator('button[data-open="wish"]').first.click()
+            page.set_viewport_size({'width':390,'height':700})
+            expect(page.locator('.wish-edit-modal .modal-fixed-header')).to_be_visible()
+            expect(page.locator('.wish-edit-modal .modal-fixed-footer')).to_be_visible()
+            assert page.locator('.modal-fixed-footer button[type="submit"]').get_attribute('form') == 'modal-form'
+            positions=page.evaluate("""() => {
+              const head=document.querySelector('.modal-fixed-header');
+              const foot=document.querySelector('.modal-fixed-footer');
+              const scroller=document.querySelector('.wish-edit-modal .modal-scroll-area');
+              const initial=[head.getBoundingClientRect().top,foot.getBoundingClientRect().bottom];
+              scroller.scrollTop=scroller.scrollHeight;
+              const after=[head.getBoundingClientRect().top,foot.getBoundingClientRect().bottom];
+              return {initial,after,scrolled:scroller.scrollTop>0,
+                      inside:foot.getBoundingClientRect().bottom<=innerHeight+1};
+            }""")
+            assert positions['scrolled'], 'Long mobile wish form should scroll'
+            assert positions['inside'], 'Submit footer must stay inside viewport'
+            assert all(abs(a-b)<2 for a,b in zip(positions['initial'],positions['after']))
+            page.locator('.wish-edit-modal [data-select-id="fld-priority"]').click()
+            popup=page.evaluate("""() => {
+              const menu=document.querySelector('.ui-select-menu').getBoundingClientRect();
+              const trigger=document.querySelector('[data-select-id="fld-priority"]').getBoundingClientRect();
+              return {gap:Math.min(Math.abs(menu.bottom-trigger.top),Math.abs(menu.top-trigger.bottom)),
+                      onscreen:menu.top>=0&&menu.bottom<=innerHeight+1};
+            }""")
+            assert popup['gap']<14 and popup['onscreen'], 'Select popup must touch its anchor'
+            page.locator('.ui-select-menu [data-ui-index="1"]').click()
             page.locator('#fld-title').fill(wish)
-            page.locator('#modal-form button[type="submit"], .modal-fixed-footer button[type="submit"]').click()
+            page.locator('.modal-fixed-footer button[type="submit"]').click()
+            page.set_viewport_size({'width':1366,'height':900})
             expect(page.locator('.wishlist-grid')).to_contain_text(wish)
             share = page.locator('button[data-action="copy"][data-url*="/w/"]').get_attribute('data-url')
             assert share.startswith(browser_http + '/w/')
