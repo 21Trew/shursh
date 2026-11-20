@@ -156,7 +156,7 @@ function modal({title,subtitle='',content='',onSubmit=null,submitLabel='Сохр
  modalRoot.innerHTML=`<div class="modal-backdrop" data-backdrop><div class="modal" role="dialog" aria-modal="true" aria-label="${attr(title)}"><button class="modal-close" type="button" data-close aria-label="Закрыть">×</button><div class="modal-scroll-area"><h2>${esc(title)}</h2>${subtitle?`<p class="modal-subtitle">${esc(subtitle)}</p>`:''}<form class="form" id="modal-form">${content}${onSubmit?`<div class="form-actions"><button type="button" class="btn btn-soft" data-close>Отмена</button><button type="submit" class="btn btn-dark">${esc(submitLabel)} ${ico('arrow')}</button></div>`:''}</form>${footer?`<div class="modal-foot">${footer}</div>`:''}</div></div></div>`;
  enhanceSelects(modalRoot);
  document.body.style.overflow='hidden';const bd=modalRoot.querySelector('[data-backdrop]');bd.addEventListener('click',e=>{if(e.target===bd)closeModal()});modalRoot.querySelectorAll('[data-close]').forEach(b=>b.addEventListener('click',closeModal));
- if(onSubmit){modalRoot.querySelector('form').addEventListener('submit',async e=>{e.preventDefault();const btn=e.currentTarget.querySelector('[type=submit]');btn.disabled=true;try{const submitted=e.currentTarget;await onSubmit(submitted);if(modalRoot.querySelector('form')===submitted)closeModal();}catch(err){notice(err.message,true)}finally{if(btn.isConnected)btn.disabled=false;}});}
+ if(onSubmit){modalRoot.querySelector('form').addEventListener('submit',async e=>{e.preventDefault();const btn=e.currentTarget.querySelector('[type=submit]')||modalRoot.querySelector('.modal-fixed-footer [type=submit]');btn.disabled=true;try{const submitted=e.currentTarget;await onSubmit(submitted);if(modalRoot.querySelector('form')===submitted)closeModal();}catch(err){notice(err.message,true)}finally{if(btn.isConnected)btn.disabled=false;}});}
  // No delayed autofocus: it can steal focus while the user types in the
  // password field, silently redirecting keystrokes to email after 10 ms.
  modalRoot.querySelector('input:not([type=hidden]),textarea,.ui-select-trigger,select:not(.ui-select-native)')?.focus({preventScroll:true});
@@ -209,13 +209,18 @@ function openUiSelect(select,button){
  const portal=document.body;
  portal.appendChild(list);
  const r=button.getBoundingClientRect(),height=window.innerHeight,width=window.innerWidth;
+ // Position the popup using its actual content height, not the maximum
+ // scrolling height (which detached two-option menus from their triggers).
+ const desiredHeight=Math.min(244,opts.length*44+14);
  const below=Math.max(0,height-r.bottom-12),above=Math.max(0,r.top-12);
- const useAbove=below<Math.min(190,opts.length*44)&&above>below;
- const maxHeight=Math.max(58,Math.min(244,useAbove?above:below));
- list.style.width=Math.min(r.width,width-20)+'px';
- list.style.maxHeight=maxHeight+'px';
- list.style.left=Math.max(10,Math.min(r.left,width-Math.min(r.width,width-20)-10))+'px';
- list.style.top=Math.max(8,Math.min(height-maxHeight-8,useAbove?r.top-6-maxHeight:r.bottom+6))+'px';
+ const useAbove=below<desiredHeight&&above>below;
+ const available=useAbove?above:below;
+ const menuHeight=Math.max(0,Math.min(desiredHeight,available));
+ const menuWidth=Math.min(r.width,width-20);
+ list.style.width=menuWidth+'px';
+ list.style.maxHeight=menuHeight+'px';
+ list.style.left=Math.max(10,Math.min(r.left,width-menuWidth-10))+'px';
+ list.style.top=Math.max(8,Math.min(height-menuHeight-8,useAbove?r.top-6-menuHeight:r.bottom+6))+'px';
  let highlighted=Math.max(0,select.selectedIndex);
  const mark=(i)=>{
   if(!opts.length)return;
@@ -660,7 +665,23 @@ function wishModal(edit=null){
    await render();
   }
  });
- modalRoot.querySelector('.modal')?.classList.add('wish-edit-modal');
+ const dialog=modalRoot.querySelector('.modal');
+ dialog?.classList.add('wish-edit-modal');
+ // Keep heading and action buttons fixed while only the long form scrolls.
+ const scrollArea=dialog?.querySelector('.modal-scroll-area');
+ const heading=scrollArea?.querySelector(':scope > h2');
+ const actions=scrollArea?.querySelector('#modal-form > .form-actions');
+ if(scrollArea&&heading&&actions){
+  const fixedHeader=document.createElement('div');
+  fixedHeader.className='modal-fixed-header';
+  fixedHeader.appendChild(heading);
+  dialog.insertBefore(fixedHeader,scrollArea);
+  const fixedFooter=document.createElement('div');
+  fixedFooter.className='modal-fixed-footer';
+  actions.querySelector('[type="submit"]')?.setAttribute('form','modal-form');
+  fixedFooter.appendChild(actions);
+  dialog.appendChild(fixedFooter);
+ }
 
 }
 function fileToData(file){return new Promise((resolve,reject)=>{const r=new FileReader();r.onload=()=>resolve(r.result);r.onerror=()=>reject(new Error('Не получилось прочитать файл'));r.readAsDataURL(file)});}
