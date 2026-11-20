@@ -135,7 +135,7 @@ async function api(path,opts={}){
   const response=await fetch(path,{method,headers:{'Content-Type':'application/json'},
    credentials:'same-origin',body:opts.body?JSON.stringify(opts.body):undefined});
   const data=await response.json().catch(()=>({error:'Не удалось прочитать ответ сервера'}));
-  if(!response.ok)throw new Error(data.error||'Произошла ошибка');
+  if(!response.ok){const err=new Error(data.error||'Произошла ошибка');err.status=response.status;throw err;}
   if(method!=='GET')invalidateOwnerDataForMutation(path);
   return data;
  })();
@@ -322,8 +322,8 @@ function heroArt(){return `<svg viewBox="0 0 570 535" aria-hidden="true" role="p
  </g><g fill="#edc76c" stroke="#29292c" stroke-width="2"><path d="m161 343 7 19 20 6-20 7-7 20-7-20-20-7 20-6Z"/><path d="m444 310 6 14 14 6-14 6-6 15-5-15-15-6 15-6Z"/></g><path d="M130 252c-12-24-4-36 10-29 8 4 9 13 9 13s12-13 23-4c13 14-5 27-23 40Z" fill="#e98e86"/><path d="m460 212 13-3m-9-15 11-9" stroke="#27272b" stroke-width="3" stroke-linecap="round"/></svg>`;}
 function santaArt(){return `<svg viewBox="0 0 600 430" aria-hidden="true"><path d="M5 210c70-180 229-206 353-138s202 176 220 266v92H0Z" fill="#f3d1c2"/><g transform="translate(60 70) rotate(-12 110 145)"><rect x="25" y="32" width="195" height="232" rx="17" fill="#f5e8ce" stroke="#2c292b" stroke-width="4"/><path d="M45 72h150m-150 31h105m-105 31h130" stroke="#d5baa5" stroke-width="6" stroke-linecap="round"/><circle cx="122" cy="195" r="33" fill="#eeb5a0" stroke="#2c292b" stroke-width="3"/><path d="m106 197 12 12 24-26" stroke="#2c292b" stroke-width="5" fill="none"/></g><g transform="translate(310 91) rotate(13 110 125)"><rect x="18" y="25" width="202" height="230" rx="17" fill="#d4c5ef" stroke="#2c292b" stroke-width="4"/><path d="M19 45 119 139 219 45M19 250l71-91m129 91-72-91" stroke="#2c292b" stroke-width="4" fill="none"/><circle cx="118" cy="150" r="33" fill="#f8c18a" stroke="#2c292b" stroke-width="4"/><path d="M107 152c0-9 7-12 11-4 4-8 12-5 11 4-2 7-11 12-11 12s-11-5-11-12" fill="#fff"/></g><path d="M277 47v29m-14-14h29m204 217 7 17 17 8-17 7-7 17-8-17-17-7 17-8Z" stroke="#2c292b" stroke-width="3" fill="#f2d990"/></svg>`;}
 function stepArt(num){if(num===1)return `<svg viewBox="0 0 130 112">${fallbackArt('book').replace(/viewBox="[^"]*"/,'viewBox="0 0 170 160"')}</svg>`;if(num===2)return `<svg viewBox="0 0 130 112"><rect x="13" y="28" width="104" height="67" rx="10" fill="#fff" stroke="#29292b" stroke-width="3"/><path d="m15 40 50 38 50-38" stroke="#29292b" stroke-width="3" fill="none"/><circle cx="67" cy="73" r="15" fill="#e5bcf0" stroke="#29292b" stroke-width="2"/><path d="M62 72c1-5 5-5 6-1 4-6 9-2 7 3l-7 7Z" fill="#e27f9a"/></svg>`;return `<svg viewBox="0 0 130 112"><rect x="23" y="36" width="86" height="65" fill="#f1b0ac" stroke="#29292b" stroke-width="3"/><rect x="16" y="27" width="100" height="18" fill="#ffdc98" stroke="#29292b" stroke-width="3"/><path d="M65 28v72M65 28c-27 1-25-24-12-23 10 1 12 20 12 23Zm0 0c25-1 24-24 11-23-9 1-11 20-11 23Z" fill="#e5d1f4" stroke="#29292b" stroke-width="3"/></svg>`;}
-function header(){const path=currentPath();return `<header class="site-header"><div class="container topbar"><a class="logo" href="/" data-nav="/" aria-label="Шурш! Главная">шурш<span>!</span></a>${currentUser?`<nav class="nav" aria-label="Главная навигация"><a href="/" data-nav="/" class="${path==='/'?'active':''}">${currentUser?'Кабинет':'Главная'}</a><a href="/lists" data-nav="/lists" class="${path.startsWith('/lists')||path.startsWith('/list/')?'active':''}">Вишлисты</a><a href="/santas" data-nav="/santas" class="${path.startsWith('/santas')||path.startsWith('/santa/')?'active':''}">Тайный Санта</a></nav>`:""}<div class="header-actions">${currentUser?`<span class="user-name">Привет, ${esc(currentUser.name)}!</span><button class="btn btn-ghost" data-action="logout" title="Выйти">${ico('logout')} Выйти</button>`:`<button class="btn btn-ghost" data-open="login">Войти</button>`}</div></div></header>${isPreview?`<div class="preview-ribbon"><div class="container">Интерактивное демо · данные хранятся только в этом браузере · ссылки не работают на других устройствах <button type="button" data-action="reset-preview">Сбросить демо</button></div></div>`:''}`;}
-function footer(){return `<footer class="container footer"><div><a class="logo" data-nav="/" href="/">шурш<span>!</span></a><small>Место для хотелок и сюрпризов</small></div>${currentUser?`<nav><a data-nav="/lists" href="/lists">Вишлисты</a><a data-nav="/santas" href="/santas">Тайный Санта</a></nav>`:""}<p class="footer-credit">Сделано с заботой о сюрпризах <span aria-hidden="true">·</span> <button class="footer-developer" type="button" data-action="contact-developer">L-code</button></p></footer>`;}
+function header(){const path=currentPath();return `<header class="site-header"><div class="container topbar"><a class="logo" href="/" data-nav="/" aria-label="Шурш! Главная">шурш<span>!</span></a>${currentUser?`<nav class="nav" aria-label="Главная навигация"><a href="/" data-nav="/" class="${path==='/'?'active':''}">${currentUser?'Кабинет':'Главная'}</a><a href="/lists" data-nav="/lists" class="${path.startsWith('/lists')||path.startsWith('/list/')?'active':''}">Вишлисты</a><a href="/santas" data-nav="/santas" class="${path.startsWith('/santas')||path.startsWith('/santa/')?'active':''}">Тайный Санта</a>${!isPreview?`<a href="/friends" data-nav="/friends" class="${path==='/friends'?'active':''}">Друзья</a><a href="/notifications" data-nav="/notifications" class="${path==='/notifications'?'active':''}">Уведомления <span class="nav-unread" data-notification-count hidden></span></a><a href="/profile" data-nav="/profile" class="${path==='/profile'||path.startsWith('/users/')?'active':''}">Профиль</a>${currentUser.is_admin?`<a href="/admin" data-nav="/admin" class="${path.startsWith('/admin')?'active':''}">Админка</a>`:''}`:''}</nav>`:""}<div class="header-actions">${currentUser?`<span class="user-name">Привет, ${esc(currentUser.name)}!</span><button class="btn btn-ghost" data-action="logout" title="Выйти">${ico('logout')} Выйти</button>`:`<button class="btn btn-ghost" data-open="login">Войти</button>`}</div></div></header>${isPreview?`<div class="preview-ribbon"><div class="container">Интерактивное демо · данные хранятся только в этом браузере · ссылки не работают на других устройствах <button type="button" data-action="reset-preview">Сбросить демо</button></div></div>`:''}`;}
+function footer(){return `<footer class="container footer"><div><a class="logo" data-nav="/" href="/">шурш<span>!</span></a><small>Место для хотелок и сюрпризов</small></div>${currentUser?`<nav><a data-nav="/lists" href="/lists">Вишлисты</a><a data-nav="/santas" href="/santas">Тайный Санта</a>${!isPreview?`<a data-nav="/friends" href="/friends">Друзья</a>`:""}</nav>`:""}<p class="footer-credit">Сделано с заботой о сюрпризах <span aria-hidden="true">·</span> <button class="footer-developer" type="button" data-action="contact-developer">L-code</button></p></footer>`;}
 let shellUserSignature='';
 function shell(body){
  const identity=(currentUser?.id??'guest')+':'+(currentUser?.name??'')+':'+isDemo+':'+isPreview;
@@ -347,6 +347,7 @@ function shell(body){
  closeUiSelect();view.innerHTML=body;enhanceSelects(view);view.removeAttribute('aria-busy');app.classList.remove('route-loading');
  renderedOwnerTab=ownerTab(currentPath())?currentPath():null;
  document.title='Шурш! - вишлисты и Тайный Санта';
+ if(currentUser&&!isPreview&&typeof socialRefreshBadge==='function')void socialRefreshBadge();
 }
 
 function dashboardContent(data){
@@ -436,7 +437,7 @@ function showWishDetails(el){
  if(!wish)return;
  const image=wish.image_path?'<img class="wish-detail-image" src="'+attr(wish.image_path)+'" alt="'+attr(wish.title)+'">':
    '<div class="wish-detail-art">'+artFor(wish)+'</div>';
- const actions=mode==='owner'?'<button class="btn btn-soft" data-action="edit-wish" data-id="'+id+'">'+ico('edit')+' Редактировать</button>':
+ const actions=mode==='owner'?'<button class="btn btn-soft" data-action="edit-wish" data-id="'+id+'">'+ico('edit')+' Редактировать</button>'+(isPreview?'':'<button class="btn btn-soft" data-social-action="ask-gift" data-wish-id="'+id+'">'+ico('heart')+' Попросить друга</button>'):
    mode==='guest'&&!wish.reserved?'<button class="btn btn-dark" data-action="reserve" data-id="'+id+'" data-key="'+attr(key)+'">'+ico('gift')+' Забронировать</button>':'';
  const store=wish.shop_url?'<a class="btn btn-soft" href="'+attr(wish.shop_url)+'" target="_blank" rel="noopener noreferrer">В магазин '+ico('external')+'</a>':'';
  modal({title:wish.title,subtitle:money(wish.price_cents,wish.currency),
@@ -477,22 +478,30 @@ let gameChatTimer=null;
 let gameRosterTimer=null;
 async function santaAdminPage(id,marker=lastRenderToken){return santaGamePage(id,marker);}
 async function santaGamePage(id,marker=lastRenderToken,participantToken=null){
- const memberView=participantToken!==null;
+ let memberView=participantToken!==null,memberBase=null,d;
  if(!memberView&&!currentUser)throw new Error('Для управления игрой нужно войти');
- const d=await api(memberView?`/api/participant/${participantToken}`:`/api/santas/${id}`);
+ if(memberView)d=await api(`/api/participant/${participantToken}`);
+ else{
+  try{d=await api(`/api/santas/${id}`);}
+  catch(err){
+   if(err.status!==404||isPreview)throw err;
+   memberView=true;memberBase='/api/member/'+id;
+   d=await api(memberBase);
+  }
+ }
  if(marker!==lastRenderToken)return;
- if(!memberView)loadedSanta=d;
+ if(!memberView)loadedSanta=d;else loadedSanta=null;
  const e=d.event;
  if(memberView)id=e.id;
  const gameWishes=memberView?d.wishes:(d.my_wishes||[]);
   const myPrefs=memberView?d.preferences:d.my_preferences;
- activeGameContext={base:memberView?'/api/participant/'+participantToken:'/api/santas/'+id,
+ activeGameContext={base:memberView?(memberBase||'/api/participant/'+participantToken):'/api/santas/'+id,
   event:e,richEnabled:d.rich_enabled!==false,own:gameWishes,memberView,memberId:memberView?d.participant.id:null,currentUserId:currentUser?.id,recipient:e.status==='drawn'?(memberView?d.assignment?.wish_cards:d.my_assignment?.wish_cards)||[]:[]};
  const people=d.participants;
  const selects=(id,label)=>selectField(label,id,people.map(p=>[p.id,p.name]),null);
  shell(`<main class="container page"><div class="guest-topline">${memberView? `${ico('lock')} Личный кабинет участника <span>/</span> <strong>${esc(d.participant.name)}</strong>`:`<button class="text-link" data-nav="/santas">${ico('back')} Все игры</button> <span>/</span> <span>${esc(e.title)}</span>`}</div><div class="page-hero"><div><div class="section-label">${e.status==='drawn'?'Жеребьёвка проведена':'Приглашаем участников'}</div><h1>${esc(e.title)}</h1><p>${esc(e.description||'Праздник начинается с маленькой тайны')}</p></div><span class="chip ${e.status==='drawn'?'chip-green':'chip-lilac'}">${ico(e.status==='drawn'?'check':'users')} ${e.status==='drawn'?'Игра началась':'Приём открыт'}</span></div><div class="santa-detail-layout"><div>
- <div class="panel"><div class="panel-heading-actions"><h2>Участники <span class="chip" data-santa-roster-count>${people.length}</span></h2>${!memberView&&e.status==='open'?'<button class="btn btn-soft btn-small" data-action="add-player">'+ico('plus')+' Добавить участника</button>':''}</div><div class="person-list" data-santa-roster>${people.map(p=>santaRosterPerson(p,activeGameContext)).join('')}</div>${e.status==='open'?`<div class="divider-line"></div><p class="note">Пригласи друзей по общей ссылке. Каждый сможет присоединиться без регистрации и получит собственную личную ссылку</p><div class="share-field"><input class="input" aria-label="Ссылка-приглашение" readonly value="${attr(getLink(`/join/${e.invite_key}`))}"><button class="btn btn-dark btn-small" data-action="copy" data-url="${attr(getLink(`/join/${e.invite_key}`))}">${ico('copy')} Копировать</button></div>`:''}</div>
- <div class="panel"><div class="panel-heading-actions"><h2>Мои пожелания</h2>${!memberView||currentUser?`<button class="btn btn-soft btn-small" data-action="import-own-wishes" ${memberView?`data-key="${attr(participantToken)}"`:`data-id="${id}"`}>${ico('plus')} Из вишлиста</button>`:''}</div><p class="note">Твои пожелания увидит только твой тайный Санта</p>
+ <div class="panel"><div class="panel-heading-actions"><h2>Участники <span class="chip" data-santa-roster-count>${people.length}</span></h2>${!memberView&&e.status==='open'?'<button class="btn btn-soft btn-small" data-action="add-player">'+ico('plus')+' Добавить участника</button>'+(isPreview?'':'<button class="btn btn-soft btn-small" data-social-action="invite-friends">Пригласить друзей</button>'):''}</div><div class="person-list" data-santa-roster>${people.map(p=>santaRosterPerson(p,activeGameContext)).join('')}</div>${e.status==='open'?`<div class="divider-line"></div><p class="note">Пригласи друзей по общей ссылке. Каждый сможет присоединиться без регистрации и получит собственную личную ссылку</p><div class="share-field"><input class="input" aria-label="Ссылка-приглашение" readonly value="${attr(getLink(`/join/${e.invite_key}`))}"><button class="btn btn-dark btn-small" data-action="copy" data-url="${attr(getLink(`/join/${e.invite_key}`))}">${ico('copy')} Копировать</button></div>`:''}</div>
+ <div class="panel"><div class="panel-heading-actions"><h2>Мои пожелания</h2>${!memberView||currentUser?`<button class="btn btn-soft btn-small" data-action="import-own-wishes" ${memberView?`data-key="${attr(participantToken||'')}"`:`data-id="${id}"`}>${ico('plus')} Из вишлиста</button>`:''}</div><p class="note">Твои пожелания увидит только твой тайный Санта</p>
   <form class="form participant-preferences" id="santa-preferences-form">
     ${textArea('Что хотелось бы','wanted','Любимые цвета, увлечения, идеи',myPrefs?.wanted||'')}
     ${textArea('Чего не хотелось бы','unwanted','Что точно не подходит',myPrefs?.unwanted||'')}
@@ -693,7 +702,8 @@ async function importOwnWishesModal(el){
  const collection=await api('/api/santa/library');
  const lists=collection.lists||[];
  if(!lists.length){notice('Сначала создай собственный вишлист',true);return;}
- const endpoint=el.dataset.key?'/api/participant/'+el.dataset.key+'/wishes/import':
+ const endpoint=activeGameContext?.base.startsWith('/api/member/')?activeGameContext.base+'/wishes/import':
+   el.dataset.key?'/api/participant/'+el.dataset.key+'/wishes/import':
    '/api/santas/'+el.dataset.id+'/my-wishes/import';
  const options=lists.map(l=>'<option value="'+l.id+'">'+esc(l.title)+'</option>').join('');
  modal({title:'Добавить из вишлиста',subtitle:'Выбери список и подарки. Копируются название, описание, цена, ссылка и доступное фото',
@@ -814,7 +824,7 @@ async function render(){const marker=++lastRenderToken;try{
   return;
  }
  if(!((path==='/lists'&&cachedOwnerValue('/api/lists')) || (path==='/santas'&&cachedOwnerValue('/api/santas'))))loading();
- if(path==='/lists')await listsPage();else if(/^\/list\/\d+$/.test(path))await ownerListPage(path.split('/')[2]);else if(/^\/w\/[A-Za-z0-9_-]+$/.test(path))await publicListPage(path.split('/')[2]);else if(/^\/r\/[A-Za-z0-9_-]+$/.test(path))await reservationPage(path.split('/')[2]);else if(path==='/santas')await santasPage();else if(path==='/admin/feedback')await adminFeedbackPage();else if(/^\/santa\/\d+$/.test(path))await santaAdminPage(path.split('/')[2]);else if(/^\/join\/[A-Za-z0-9_-]+$/.test(path))await invitePage(path.split('/')[2]);else if(/^\/p\/[A-Za-z0-9_-]+$/.test(path))await participantPage(path.split('/')[2]);else errorView(new Error('Похоже, такой страницы ещё нет'),'Страница потерялась');
+ if(path==='/friends')await socialFriendsPage(marker);else if(path==='/profile')await socialOwnProfilePage(marker);else if(/^\/users\/[0-9a-fA-F-]{36}$/.test(path))await socialProfilePage(path.split('/')[2],marker);else if(path==='/notifications')await socialNotificationsPage(marker);else if(path==='/admin')await socialAdminPage(marker);else if(path==='/lists')await listsPage();else if(/^\/list\/\d+$/.test(path))await ownerListPage(path.split('/')[2]);else if(/^\/w\/[A-Za-z0-9_-]+$/.test(path))await publicListPage(path.split('/')[2]);else if(/^\/r\/[A-Za-z0-9_-]+$/.test(path))await reservationPage(path.split('/')[2]);else if(path==='/santas')await santasPage();else if(path==='/admin/feedback')await adminFeedbackPage();else if(/^\/santa\/\d+$/.test(path))await santaAdminPage(path.split('/')[2]);else if(/^\/join\/[A-Za-z0-9_-]+$/.test(path))await invitePage(path.split('/')[2]);else if(/^\/p\/[A-Za-z0-9_-]+$/.test(path))await participantPage(path.split('/')[2]);else errorView(new Error('Похоже, такой страницы ещё нет'),'Страница потерялась');
  }catch(err){if(marker===lastRenderToken)errorView(err,err.message?.includes('404')?'Не найдена':'Страница не загрузилась');}}
 document.addEventListener('click',async ev=>{
  const reveal=ev.target.closest('[data-password-visibility]');
