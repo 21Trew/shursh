@@ -41,11 +41,9 @@ def auth_request(action, **payload):
         if exc.code >= 500:
             raise ApiError(503, 'Сервис входа временно недоступен') from None
         if action == 'resend':
-            # Invalid/unknown/already-confirmed addresses get the same generic
-            # response. Provider credentials/configuration failures do not.
-            if exc.code in (400, 404, 422):
-                return {}
-            raise ApiError(503, 'Сервис подтверждения временно недоступен') from None
+            # Never claim an email was sent when GoTrue rejected the request,
+            # including invalid redirect URL configuration.
+            raise ApiError(503, 'Не удалось отправить письмо. Повтори позже') from None
         if action == 'login' and exc.code in (400, 403):
             # Only classify a typed provider error, never expose its raw body.
             try:
