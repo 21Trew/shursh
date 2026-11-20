@@ -55,7 +55,7 @@ class CloudRequest(Handler):
             self._user_loaded = True
             raw = self.request.cookies.get('shursh_sid', '')
             if re.fullmatch(r'[A-Za-z0-9_-]{43}', raw):
-                self._user = con.execute('''SELECT p.id,p.name,s.email FROM app_sessions s
+                self._user = con.execute('''SELECT p.id,p.name,p.avatar_emoji,p.handle,s.email FROM app_sessions s
                     JOIN profiles p ON p.id=s.user_id WHERE s.token_hash=? AND s.expires_at>?''',
                     (token_hash(raw), int(time.time()))).fetchone()
                 if self._user:
@@ -172,7 +172,7 @@ class CloudRequest(Handler):
             con.execute('DELETE FROM app_sessions WHERE token_hash=?',(token_hash(previous),))
         con.execute('INSERT INTO app_sessions(token_hash,user_id,email,expires_at) VALUES(?,?,?,?)',
                     (token_hash(value),uid,verified_email,now+SESSION_SECONDS))
-        rec = con.execute('SELECT id,name FROM profiles WHERE id=?',(uid,)).fetchone()
+        rec = con.execute('SELECT id,name,avatar_emoji,handle FROM profiles WHERE id=?',(uid,)).fetchone()
         admins={a.strip().casefold() for a in os.getenv('SHURSH_ADMIN_EMAILS','').split(',') if a.strip()}
         return 200, {'user': {**rec,'email':verified_email,
                  'is_admin':bool(admins and verified_email.casefold() in admins)}}, self.send_cookie(value)

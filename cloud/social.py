@@ -4,6 +4,8 @@ No new outbound integrations or background jobs.
 """
 import re
 from uuid import UUID
+
+PROFILE_EMOJIS = frozenset(["🎁","🎄","🐱","🦊","🐻","🐼","🐸","🦄","🐰","🧸","✨","🌸","🌼","🌙","⭐","🎮","🎨","📚","🎵","🚀","☕","🍓","💚"])
 from server import ApiError, req, optional, token_hash
 
 def _uuid(value):
@@ -40,7 +42,7 @@ def _notify(con, recipient, kind, message, url='/', actor=None):
                    VALUES(?,?,?,?,?)''',(recipient,actor,kind,message[:240],url[:300]))
 
 def _friends(con, current):
-    rows = con.execute('''SELECT p.id,p.name,p.bio FROM friendships f
+    rows = con.execute('''SELECT p.id,p.name,p.bio,p.handle,p.avatar_emoji FROM friendships f
          JOIN profiles p ON p.id=(CASE WHEN f.user_low=? THEN f.user_high ELSE f.user_low END)
          WHERE f.status='accepted' AND (f.user_low=? OR f.user_high=?)
          ORDER BY lower(p.name),p.id''',(current,current,current))
@@ -95,6 +97,22 @@ def handle(handler, method, path, con):
                 fields['name']=req(data['name'],'Имя',40)
             if 'bio' in data:
                 fields['bio']=optional(data['bio'],'О себе',500)
+            if 'handle' in data:
+                handle=data['handle']
+                if not isinstance(handle,str):
+                    raise ApiError(400,'Неверный никнейм')
+                handle=handle.strip().lower()
+                if handle and not re.fullmatch(r'[a-z][a-z0-9_]{2,19}',handle):
+                    raise ApiError(400,'Никнейм: 3–20 латинских символов, цифры и _; первая — буква')
+                if handle and con.execute('SELECT 1 FROM profiles WHERE lower(handle)=? AND id<>?',(handle,user['id'])).fetchone():
+                    raise ApiError(409,'Этот никнейм уже занят')
+                fields['handle']=handle or None
+            if 'avatar_emoji' in data:
+                if not isinstance(data['avatar_emoji'],str) or data['avatar_emoji'] not in PROFILE_EMOJIS:
+                    raise ApiError(400,'Выбери аватар из предложенных эмодзи')
+                fields['avatar_emoji']=data['avatar_emoji']
+            if 'city' in data:
+                fields['city']=optional(data['city'],'Город',60)
             if 'discoverable' in data:
                 if not isinstance(data['discoverable'],bool):
                     raise ApiError(400,'Неверная настройка видимости')
@@ -103,24 +121,29 @@ def handle(handler, method, path, con):
                 raise ApiError(400,'Нет изменений')
             con.execute('UPDATE profiles SET '+', '.join(k+'=?' for k in fields)+' WHERE id=?',
                         (*fields.values(),user['id']))
-        p=con.execute('SELECT id,name,bio,discoverable FROM profiles WHERE id=?',(user['id'],)).fetchone()
-        return 200,{'profile':dict(p)},None
+        p=con.execute('SELECT id,name,bio,discoverable,handle,avatar_emoji,city FROM profiles WHERE id=?',(user['id'],)).fetchone()
+        lists=con.execute("""SELECT l.id,l.title,l.description,l.occasion,l.theme,l.share_key,
+                            count(w.id) AS wish_count FROM wishlists l
+                            LEFT JOIN wishes w ON w.list_id=l.id
+                            WHERE l.owner_id=? AND l.visibility='link'
+                            GROUP BY l.id ORDER BY l.id DESC""",(user['id'],)).fetchall()
+        return 200,{'profile':{**dict(p),'email':user['email']},'lists':[dict(l) for l in lists]},None
 
     if path == '/api/users/search' and method=='GET':
         user=handler.auth(con)
         q=(handler.request.args.get('q') or '').strip()
         if len(q)<2 or len(q)>40:
             return 200,{'users':[]},None
-        rows=con.execute('''SELECT p.id,p.name FROM profiles p
-              WHERE p.discoverable=true AND p.id<>? AND p.name ILIKE ?
-              ORDER BY lower(p.name),p.id LIMIT 20''',(user['id'],'%'+q+'%'))
+        rows=con.execute('''SELECT p.id,p.name,p.handle,p.avatar_emoji FROM profiles p
+              WHERE p.discoverable=true AND p.id<>? AND (p.name ILIKE ? OR p.handle ILIKE ?)
+              ORDER BY lower(p.name),p.id LIMIT 20''',(user['id'],'%'+q+'%','%'+q.lstrip('@')+'%'))
         return 200,{'users':[dict(p) for p in rows]},None
 
     match=re.fullmatch(r'/api/users/([0-9a-fA-F-]{36})',path)
     if match and method=='GET':
         user=handler.auth(con)
         uid=_uuid(match.group(1))
-        profile=con.execute('SELECT id,name,bio,discoverable FROM profiles WHERE id=?',(uid,)).fetchone()
+        profile=con.execute('SELECT id,name,bio,discoverable,handle,avatar_emoji,city FROM profiles WHERE id=?',(uid,)).fetchone()
         state=_relationship(con,user['id'],uid)
         if not profile or (not profile['discoverable'] and state not in ('self','friends')):
             raise ApiError(404,'Профиль не найден')
@@ -132,20 +155,20 @@ def handle(handler, method, path, con):
                        WHERE l.owner_id=? AND l.visibility='link'
                        GROUP BY l.id ORDER BY l.id DESC''',(uid,))
             lists=[dict(r) for r in rows]
-        return 200,{'profile':{'id':profile['id'],'name':profile['name'],'bio':profile['bio']},
+        return 200,{'profile':{'id':profile['id'],'name':profile['name'],'bio':profile['bio'],'handle':profile['handle'],'avatar_emoji':profile['avatar_emoji'],'city':profile['city']},
                     'relationship':state,'lists':lists},None
 
     if path=='/api/friends' and method=='GET':
         user=handler.auth(con)
         rows=con.execute('''SELECT f.user_low,f.user_high,f.requested_by,f.status,
-                    p.id AS other_id,p.name AS other_name
+                    p.id AS other_id,p.name AS other_name,p.handle AS other_handle,p.avatar_emoji AS other_avatar_emoji
                     FROM friendships f
                     JOIN profiles p ON p.id=(CASE WHEN f.user_low=? THEN f.user_high ELSE f.user_low END)
                     WHERE f.user_low=? OR f.user_high=?
                     ORDER BY f.updated_at DESC''',(user['id'],user['id'],user['id']))
         friends=[];incoming=[];outgoing=[]
         for item in rows:
-            data={'id':item['other_id'],'name':item['other_name']}
+            data={'id':item['other_id'],'name':item['other_name'],'handle':item['other_handle'],'avatar_emoji':item['other_avatar_emoji']}
             if item['status']=='accepted':
                 friends.append(data)
             elif item['status']=='pending':
@@ -186,6 +209,9 @@ def handle(handler, method, path, con):
             if choice=='accept':
                 _notify(con,other,'friend_accept','Твою заявку в друзья приняли',f'/users/{user["id"]}',user['id'])
         else:
+            existing=con.execute('SELECT requested_by,status FROM friendships WHERE user_low=? AND user_high=?',(a,b)).fetchone()
+            if not existing or (existing['status']=='pending' and existing['requested_by']!=user['id']):
+                raise ApiError(404,'Исходящая заявка не найдена')
             con.execute('DELETE FROM friendships WHERE user_low=? AND user_high=?',(a,b))
         return 200,{'ok':True},None
 
