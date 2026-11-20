@@ -94,6 +94,16 @@ function cacheableOwnerRead(path){
 }
 function clearOwnerDataCache(){ownerCacheVersion++;ownerDataCache.clear();clearOwnerTabViews();}
 function invalidateOwnerDataForMutation(path){
+ // A social write may change one section, but must not discard unrelated views.
+ const isFriendWrite=/^\/api\/friends\//.test(path);
+ const isNotificationWrite=/^\/api\/notifications\/\d+\/read$/.test(path);
+ const isAccountWrite=path==='/api/profile/me'||/^\/api\/account\/(?:email|password)$/.test(path);
+ if(isFriendWrite||isNotificationWrite||isAccountWrite){
+  const tabs=isFriendWrite?['/friends']:isNotificationWrite?['/notifications']:['/profile'];
+  clearOwnerTabViews(tabs);
+  if(tabs.includes(renderedOwnerTab))renderedOwnerTab=null;
+  return;
+ }
  // Chat, profile notes and support do not affect dashboard/list snapshots.
  // Clearing all cached owner views after every message caused needless work.
  if(/^\/api\/(?:santas\/\d+|participant\/[^/]+)\/(?:messages\/|preferences$)/.test(path)
@@ -102,7 +112,7 @@ function invalidateOwnerDataForMutation(path){
  // and changing a Santa event does not change owned wishlists.
  const listMutation=/^\/api\/(?:lists|wishes)(?:\/|$)/.test(path);
  const santaMutation=/^\/api\/santas(?:\/|$)/.test(path) ||
-  /^\/api\/participant\/[^/]+\/wishes$/.test(path) ||
+  /^\/api\/participant\/[^/]+\/(?:wishes|claim)$/.test(path) ||
   /^\/api\/invites\/[^/]+\/join$/.test(path);
  if(!listMutation&&!santaMutation){clearOwnerDataCache();return;}
  const invalidTabs=['/'].concat(listMutation?['/lists']:[]).concat(santaMutation?['/santas']:[]);
