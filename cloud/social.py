@@ -213,6 +213,11 @@ def handle(handler, method, path, con):
             if not existing or (existing['status']=='pending' and existing['requested_by']!=user['id']):
                 raise ApiError(404,'Исходящая заявка не найдена')
             con.execute('DELETE FROM friendships WHERE user_low=? AND user_high=?',(a,b))
+            if existing['status']=='pending':
+                # Suppress only this outstanding unread friend-request alert.
+                con.execute("""DELETE FROM social_notifications
+                       WHERE recipient_id=? AND actor_id=? AND kind='friend_request'
+                         AND read_at IS NULL""",(other,user['id']))
         return 200,{'ok':True},None
 
     if path=='/api/notifications' and method=='GET':

@@ -1615,6 +1615,8 @@ def test_profile_identity_emoji_handles_friend_cancel_and_privacy(application):
     call(owner,'DELETE',f'/api/friends/{friend_id}',{},404)
     assert call(friend,'GET','/api/friends').json['outgoing']
     call(friend,'DELETE',f'/api/friends/{owner_id}',{},200)
+    assert not any(n['kind']=='friend_request' and n['read_at'] is None
+                   for n in call(owner,'GET','/api/notifications').json['items'])
     assert not call(friend,'GET','/api/friends').json['outgoing']
     assert not call(owner,'GET','/api/friends').json['incoming']
     call(owner,'PATCH','/api/profile/me',{'name':'Owner','handle':'',
@@ -1707,5 +1709,39 @@ def test_browser_social_tabs_cache_notification_bell_and_mobile_heading(browser_
             expect(page.locator('main')).to_have_attribute('data-same-node','friends')
             assert sum('/api/friends' in u for u in requests)==1,requests
             assert page.evaluate('document.documentElement.scrollWidth<=innerWidth+2')
+        finally:
+            browser.close()
+
+
+@pytest.mark.browser
+def test_browser_santa_preferences_readonly_until_edit_and_mobile_density(browser_http):
+    """Editor remains closed until requested and saves inline without whole-page render."""
+    from playwright.sync_api import sync_playwright, expect
+    from uuid import uuid4
+    with sync_playwright() as play:
+        browser=play.chromium.launch(headless=True,args=['--no-sandbox'])
+        try:
+            page=browser.new_page(viewport={'width':375,'height':760})
+            page.goto(browser_http+'/')
+            browser_login(page)
+            page.locator('button[data-open="santa"]').first.click()
+            page.locator('#fld-title').fill('Mobile preferences '+uuid4().hex[:6])
+            page.locator('#modal-form button[type="submit"], .modal-fixed-footer button[type="submit"]').click()
+            expect(page).to_have_url(__import__('re').compile(r'/santa/\d+$'))
+            expect(page.locator('#santa-preferences-display')).to_be_visible()
+            expect(page.locator('#santa-preferences-form')).to_be_hidden()
+            expect(page.locator('#santa-preferences-display')).to_contain_text('Что хотелось бы')
+            expect(page.locator('#santa-preferences-display')).to_contain_text('Чего не хотелось бы')
+            page.locator('[data-action="edit-santa-preferences"]').click()
+            expect(page.locator('#santa-preferences-form')).to_be_visible()
+            expect(page.locator('#santa-preferences-display')).to_be_hidden()
+            page.locator('#santa-preferences-form [name="wanted"]').fill('Настольные игры')
+            page.locator('#santa-preferences-form [name="unwanted"]').fill('Настойки')
+            page.locator('#santa-preferences-form button[type="submit"]').click()
+            expect(page.locator('#santa-preferences-form')).to_be_hidden()
+            expect(page.locator('#santa-preferences-display')).to_contain_text('Настольные игры')
+            expect(page.locator('#santa-preferences-display')).to_contain_text('Настойки')
+            assert page.evaluate('document.documentElement.scrollWidth<=innerWidth+2')
+            assert page.evaluate('document.querySelector("#game-chat").getBoundingClientRect().width <= innerWidth')
         finally:
             browser.close()
