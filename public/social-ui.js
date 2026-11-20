@@ -77,9 +77,9 @@ async function socialProfilePage(uid,marker=lastRenderToken){
  if(relation==='outgoing')action='<div class="social-request-actions"><span class="chip">Заявка отправлена</span><button class="btn btn-soft btn-small" data-social-action="cancel" data-user-id="'+attr(uid)+'">Отменить заявку</button></div>';
  if(relation==='friends')action='<span class="chip chip-green">Вы друзья</span>';
  if(relation==='self')action='<button class="btn btn-soft btn-small" data-nav="/profile">Редактировать профиль</button>';
- shell('<main class="container page social-page"><div class="social-profile-hero"><div class="avatar">'+esc(p.name.slice(0,1).toUpperCase())+'</div>'+
-  '<div><div class="section-label">Профиль</div><h1>'+esc(p.name)+'</h1><p>'+esc(p.bio||'Пока ничего о себе')+'</p></div>'+action+'</div>'+
-  '<section class="dashboard-section"><div class="dashboard-section-head"><h2>Вишлисты <span class="chip">'+data.lists.length+'</span></h2></div>'+
+ shell('<main class="container page social-page social-profile-page"><div class="social-profile-hero profile-main-card">'+socialIdentity(p)+
+   '<div class="profile-actions">'+action+'</div></div>'+
+   '<section class="dashboard-section"><div class="dashboard-section-head"><h2>Вишлисты <span class="chip">'+data.lists.length+'</span></h2></div>'+
   (data.lists.length?'<div class="cards-grid">'+data.lists.map(list=>
    '<article class="list-card"><a class="card-hitarea" href="/w/'+attr(list.share_key)+'" data-nav="/w/'+attr(list.share_key)+'" aria-label="Открыть список '+attr(list.title)+'"></a>'+
    '<div class="list-cover cover-'+attr(list.theme)+'">'+fallbackArt('gift')+'</div>'+
