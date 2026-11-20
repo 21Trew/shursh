@@ -454,7 +454,7 @@ async function adminFeedbackPage(marker=lastRenderToken){
  const {items}=await api('/api/admin/feedback');
  if(marker!==lastRenderToken)return;
  const topic={idea:'Предложение',bug:'Ошибка',question:'Вопрос',other:'Другое'};
- shell('<main class="container page"><div class="page-hero"><div><div class="section-label">Администрирование</div><h1>Обращения пользователей</h1><p>Последние 100 обращений. Только для администратора.</p></div></div>'+
+ shell('<main class="container page"><div class="page-hero"><div><div class="section-label">Администрирование</div><h1>Обращения пользователей</h1><p>Последние 100 обращений. Только для администратора</p></div></div>'+
   (items.length?'<div class="feedback-inbox">'+items.map(item=>
    '<article class="panel feedback-entry"><div class="panel-heading-actions"><h2>'+esc(topic[item.topic]||item.topic)+
    '</h2><span class="chip">'+(item.status==='resolved'?'Закрыто':'Новое')+'</span></div>'+
@@ -463,7 +463,7 @@ async function adminFeedbackPage(marker=lastRenderToken){
    '<div class="panel-heading-actions"><small>'+esc(item.created_at)+'</small>'+
    '<button type="button" class="btn btn-soft btn-small" data-action="admin-feedback-status" data-id="'+item.id+
    '" data-status="'+(item.status==='resolved'?'new':'resolved')+'">'+(item.status==='resolved'?'Вернуть в новые':'Отметить решённым')+'</button></div></article>'
-  ).join('')+'</div>':'<div class="panel"><p>Сообщений пока нет.</p></div>')+'</main>');
+  ).join('')+'</div>':'<div class="panel"><p>Сообщений пока нет</p></div>')+'</main>');
 }
 async function santasPage(marker=lastRenderToken){if(!currentUser){shell(`<main class="container page"><div class="page-hero"><div><div class="section-label">Под прикрытием</div><h1>Тайный Санта</h1><p>Чтобы организовать игру, нужно войти. Участникам регистрация не требуется</p></div><button class="btn btn-dark" data-open="login">Войти ${ico('arrow')}</button></div>${emptyState('Собери компанию','Укажите бюджет, зовите друзей и проведите честную жеребьёвку','Создать игру','santa')}</main>`);return;}
  const {events}=await api('/api/santas');if(marker!==lastRenderToken)return;shell(`<main class="container page"><div class="page-hero"><div><div class="section-label">Секретная служба подарков</div><h1>Тайный Санта</h1><p>Здесь живут все твои секретные обмены подарками</p></div><div class="btn-row"><button class="btn btn-dark" data-open="santa">Новая игра ${ico('plus')}</button></div></div>${events.length?`<div class="santa-grid">${events.map(e=>`<div class="santa-list-card"><a class="card-hitarea" href="/santa/${e.id}" data-nav="/santa/${e.id}" aria-label="Открыть игру ${attr(e.title)}"></a><span class="sparkle-deco">✳</span><div class="section-label">${e.status==='drawn'?'Жеребьёвка проведена':'Собираем компанию'}</div><h3>${esc(e.title)}</h3><p>${esc(e.description||'Собираем друзей для хороших сюрпризов')}</p><div class="list-bottom"><span>${ico('users')} ${e.participant_count} участников · ${dateRu(e.exchange_date)}</span><button class="text-link" data-nav="/santa/${e.id}">Открыть ${ico('arrow')}</button></div></div>`).join('')}</div>`:emptyState('Пока без секретов','Первую игру создать проще, чем выбрать подарочную бумагу','Создать игру','santa')}</main>`);}
