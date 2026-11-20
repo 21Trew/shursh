@@ -159,6 +159,15 @@ def transaction(write=False, *, rate_limit=False):
                 _timed_execute(connection, _TX_SETTINGS_READ, statement_count=4)
             else:
                 _timed_execute(connection, _TX_SETTINGS, statement_count=3)
+            # Verify a marker held only by the Staging database BEFORE
+            # running the rate limiter, business writes or any other query.
+            # The backend role has SELECT on this single marker table.
+            if os.environ.get('SHURSH_ENV') == 'staging':
+                marker=_timed_execute(connection,
+                    "SELECT project_ref FROM shursh_env.environment_identity "
+                    "WHERE singleton=true AND environment='staging'").fetchone()
+                if not marker or marker['project_ref'] != 'vwhzhbsaspbelkvnjjho':
+                    raise RuntimeError('Staging database identity mismatch')
             if write and not rate_limit:
                 _timed_execute(connection, 'SELECT pg_advisory_xact_lock(%s)',(WRITE_LOCK,))
             yield DB(connection)
