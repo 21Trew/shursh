@@ -779,8 +779,13 @@ const authFragment=new URLSearchParams(location.hash.slice(1));
 if(!isPreview && ['access_token','refresh_token','error','error_code','error_description']
     .some(key=>authFragment.has(key))){
  confirmationToken=authFragment.get('access_token');
- authReturnError=authFragment.has('error')||authFragment.has('error_code')||authFragment.has('error_description')||!confirmationToken;
- if(authReturnError)authReturnNotice='Ссылка подтверждения недействительна или истекла';
+ const callbackType=authFragment.get('type');
+ authReturnError=authFragment.has('error')||authFragment.has('error_code')||authFragment.has('error_description')||!confirmationToken||
+  (callbackType!==null&&callbackType!=='signup'&&callbackType!=='email');
+ if(authReturnError){
+  confirmationToken=null;
+  authReturnNotice='Ссылка подтверждения недействительна или истекла';
+ }
  // Remove all provider credentials from URL before performing requests,
  // navigating or drawing any UI. Do not store tokens in localStorage.
  history.replaceState(null,'',location.pathname+location.search);
