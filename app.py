@@ -104,6 +104,14 @@ def api(route):
         # Auth's upstream HTTP request must not run inside a DB transaction:
         # retain transactional session writes, but release the rate limiter
         # socket before the external request.
+        if path == '/api/auth/resend' and request.method == 'POST':
+            result=handler.resend_confirmation()
+            return response(result[1],result[0],result[2])
+        if path == '/api/auth/complete' and request.method == 'POST':
+            prepared=handler.prepare_confirmation()
+            with db.transaction(write=True,rate_limit=True) as con:
+                result=handler.finish_auth(con,prepared)
+            return response(result[1],result[0],result[2])
         if path in ('/api/register','/api/login') and request.method=='POST':
             prepared=handler.prepare_auth(path)
             if prepared is None:
