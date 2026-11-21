@@ -1138,6 +1138,13 @@ if(!isPreview)(async()=>{
    const result=await api('/api/auth/complete',{method:'POST',body:{access_token:token}});
    currentUser=result.user;broadcastSessionChange();
    authReturnNotice='Почта подтверждена! Ты вошёл в аккаунт';
+   if(pendingGameClaim){
+    const claim=pendingGameClaim;
+    try{
+     await api('/api/participant/'+encodeURIComponent(claim)+'/claim',{method:'POST',body:{}});
+     clearPendingGameClaim();authReturnNotice='Почта подтверждена! Игра сохранена в аккаунте';
+    }catch(_error){authReturnNotice='Почта подтверждена. Открой личную ссылку игры, чтобы сохранить её в аккаунте';}
+   }
   }catch(_error){
    // Never include token, provider response or URL in UI or logs.
    authReturnError=true;
