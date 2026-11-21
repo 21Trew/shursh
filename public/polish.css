@@ -476,3 +476,19 @@
 @media(hover:hover){
  .game-gift-card:not(:hover):not(:focus-within) .game-gift-overlay-actions button{pointer-events:none}
 }
+
+/* Native, accessible gift-card button owns both the image and title.
+   Decorative children cannot intercept a click on their own parent. */
+.game-gift-card>.game-gift-primary{
+ position:relative;inset:auto;z-index:1;display:flex;flex-direction:column;
+ width:100%;min-height:100%;padding:0;margin:0;border:0;
+ border-radius:inherit;background:transparent;text-align:left;color:inherit;
+ white-space:normal;box-shadow:none;transform:none;overflow:hidden
+}
+.game-gift-card>.game-gift-primary:hover,.game-gift-card>.game-gift-primary:active{
+ box-shadow:none;transform:none;background:transparent
+}
+.game-gift-primary .wish-image,.game-gift-primary .wish-content{width:100%;flex-shrink:0}
+.game-gift-primary .wish-content{flex:1;display:flex;flex-direction:column}
+.game-gift-card .game-gift-overlay-actions{position:absolute;top:7px;right:7px;z-index:5}
+.game-gift-card .game-gift-overlay-actions .btn{position:relative;z-index:6}

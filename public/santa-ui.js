@@ -6,10 +6,10 @@ function gameWishCard(w,source='own'){
  const actions=mine?'<div class="game-gift-overlay-actions"><button type="button" class="btn btn-soft" data-action="edit-game-gift" data-id="'+w.id+'" aria-label="Изменить подарок" title="Изменить">'+ico('edit')+'</button>'+
   '<button type="button" class="btn btn-soft" data-action="delete-game-gift" data-id="'+w.id+'" aria-label="Удалить подарок" title="Удалить">'+ico('trash')+'</button></div>':'';
  return '<article class="wish-card game-gift-card">'+
-  '<button type="button" class="card-hitarea" data-action="show-game-gift" data-id="'+w.id+'" data-source="'+source+'" aria-label="Подробнее о подарке '+attr(w.title)+'"></button>'+
-  '<div class="wish-image">'+image+actions+'</div>'+
-  '<div class="wish-content"><h3>'+esc(w.title)+'</h3>'+
-  '</div></article>';
+  '<button type="button" class="card-hitarea game-gift-primary" data-action="show-game-gift" data-id="'+w.id+'" data-source="'+source+'" aria-label="Подробнее о подарке '+attr(w.title)+'">'+
+  '<div class="wish-image">'+image+'</div>'+
+  '<div class="wish-content"><h3>'+esc(w.title)+'</h3></div></button>'+
+  actions+'</article>';
 }
 function wishesMarkup(wishes,source='own'){
  if(!wishes?.length)return '<span class="muted note">Пока нет подарков. Добавь конкретные идеи и пожелания</span>';
