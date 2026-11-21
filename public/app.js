@@ -145,7 +145,7 @@ function seedOwnerCache(path,value){
  ownerDataCache.set(path,{value,expires:Date.now()+ownerCacheTTL(path)});
  if(path==='/api/dashboard'&&value?.user){
   if(Array.isArray(value.lists))ownerDataCache.set('/api/lists',{value:{lists:value.lists},expires:Date.now()+ownerCacheTTL('/api/lists')});
-  if(Array.isArray(value.events))ownerDataCache.set('/api/santas',{value:{events:value.events},expires:Date.now()+ownerCacheTTL('/api/santas')});
+  if(Array.isArray(value.events))ownerDataCache.set('/api/santas',{value:{events:value.events,invitations:value.invitations||[]},expires:Date.now()+ownerCacheTTL('/api/santas')});
  }
 }
 function cachedOwnerValue(path){

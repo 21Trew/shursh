@@ -187,8 +187,9 @@ class CloudRequest(Handler):
             if user is None:
                 return 200, {'user': None, 'demo': False, 'lists': [], 'events': []}, None
             lists = super().handle_api('GET', '/api/lists', con)[1]['lists']
-            events = social.handle(self, 'GET', '/api/santas', con)[1]['events']
-            return 200, {'user': user, 'demo': False, 'lists': lists, 'events': events}, None
+            santa = social.handle(self, 'GET', '/api/santas', con)[1]
+            return 200, {'user': user, 'demo': False, 'lists': lists,
+                         'events': santa['events'], 'invitations': santa['invitations']}, None
         if method == 'POST' and path == '/api/logout':
             raw = self.request.cookies.get('shursh_sid','')
             if re.fullmatch(r'[A-Za-z0-9_-]{43}',raw):
