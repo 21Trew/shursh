@@ -443,17 +443,25 @@ function header(){const path=currentPath();return `<header class="site-header"><
 function footer(){return `<footer class="container footer"><div><a class="logo" data-nav="/" href="/">шурш<span>!</span></a><small>Место для хотелок и сюрпризов</small></div><p class="footer-credit">Сделано с заботой о сюрпризах <span aria-hidden="true">·</span> <button class="footer-developer" type="button" data-action="contact-developer">L-code</button></p></footer>`;}
 let shellUserSignature='';
 let headerScrollQueued=false;
+let headerIsCondensed=false;
 function updateScrollTopButton(){
  const btn=document.getElementById('scroll-to-top');
  if(btn){const visible=scrollY>440;btn.classList.toggle('is-visible',visible);btn.tabIndex=visible?0:-1;btn.setAttribute('aria-hidden',String(!visible));}
+}
+// A fixed overlay cannot change document scroll height. Hysteresis prevents
+// flip-flopping near the collapse threshold without any extra DOM reads.
+function syncHeaderDensity(){
+ const next=headerIsCondensed?scrollY>36:scrollY>100;
+ if(next===headerIsCondensed)return;
+ headerIsCondensed=next;
+ document.querySelector('.site-header')?.classList.toggle('is-condensed',next);
 }
 window.addEventListener('scroll',()=>{
  updateScrollTopButton();
  if(headerScrollQueued)return;
  headerScrollQueued=true;
  requestAnimationFrame(()=>{
-  headerScrollQueued=false;
-  document.querySelector('.site-header')?.classList.toggle('is-condensed',scrollY>48);
+  headerScrollQueued=false;syncHeaderDensity();
  });
 },{passive:true});
 
@@ -504,6 +512,7 @@ function shell(body){
  }else if(shellUserSignature!==identity){
   const head=app.querySelector('.site-header');
   if(head)head.outerHTML=header();
+  app.querySelector('.site-header')?.classList.toggle('is-condensed',headerIsCondensed);
   shellUserSignature=identity;
  }else{
   const path=currentPath();

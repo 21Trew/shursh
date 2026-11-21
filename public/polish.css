@@ -228,3 +228,124 @@
 .santa-memory-empty{display:grid;justify-items:center;gap:8px;padding:42px 16px;border:1px dashed #d6c6b4;border-radius:20px;background:#fbf6ee;color:#625b57;text-align:center}
 .santa-memory-empty p{max-width:350px;margin:0}
 @media(max-width:760px){.santa-memory-panel .panel-heading-actions{align-items:stretch;flex-direction:column}.santa-memory-upload{align-self:flex-start}.santa-memory-photo{max-height:390px}}
+
+
+/* UX release: fixed header does not reflow the document when condensed. */
+#app{padding-top:90px}
+.site-header{position:fixed!important;top:0;left:0;right:0;width:100%;z-index:30;
+ background:var(--paper);height:90px;contain:layout style;transition:height .16s ease,box-shadow .18s ease}
+.site-header.is-condensed{height:62px}
+.site-header.is-condensed .topbar{height:62px}
+@media(max-width:760px){
+ #app{padding-top:70px}
+ #app:has(.site-header .nav){padding-top:139px}
+ .site-header{height:auto;min-height:69px}
+ .site-header.is-condensed{height:62px;min-height:62px}
+ .site-header.is-condensed .topbar{height:62px!important;min-height:62px!important}
+}
+
+/* All tabs use the identical brush-stroke geometry as header navigation.
+   Borders, pill shadows and opaque button fills have deliberately been removed. */
+.wishlist-view-tabs,.wishlist-filters,.notification-tabs,.game-chat-tabs,.santa-state-tabs{
+ display:flex;align-items:center;flex-wrap:wrap;gap:10px
+}
+.santa-state-tabs{margin:8px 0 22px}
+.wishlist-view-tabs button,.notification-tabs button,.wishlist-filters .filter-chip,
+.game-chat-tabs button,.santa-state-tabs button{
+ position:relative;z-index:0;isolation:isolate;flex:0 0 auto;
+ display:inline-flex;align-items:center;justify-content:center;gap:7px;
+ min-height:44px;padding:10px 12px;margin:0;border:0!important;border-radius:7px;
+ background:transparent!important;color:var(--ink)!important;
+ font-family:var(--body);font-size:14px;font-weight:750;line-height:1.25;
+ box-shadow:none!important;outline-offset:5px;
+ transition:color .18s ease,opacity .18s ease!important
+}
+.wishlist-view-tabs button::before,.notification-tabs button::before,
+.wishlist-filters .filter-chip::before,.game-chat-tabs button::before,
+.santa-state-tabs button::before{
+ content:'';position:absolute;z-index:-1;left:-3px;right:-3px;top:49%;
+ width:auto;height:63%;inset-inline:-3px;
+ background:#f5cf83;opacity:0;transform:translateY(-50%) rotate(-1deg) scaleX(0);
+ transform-origin:0 50%;border-radius:46% 19% 32% 27% / 33% 48% 27% 52%;
+ clip-path:polygon(0 7%,97% 0,100% 78%,90% 100%,3% 93%);
+ transition:transform .3s cubic-bezier(.18,.74,.24,1),opacity .16s ease
+}
+.wishlist-view-tabs button.active::before,.notification-tabs button.active::before,
+.wishlist-filters .filter-chip.active::before,.game-chat-tabs button[aria-pressed="true"]::before,
+.santa-state-tabs button.active::before{
+ opacity:.98;transform:translateY(-50%) rotate(-1deg) scaleX(1);
+ animation:shursh-marker-stroke .35s cubic-bezier(.2,.7,.17,1) both
+}
+.wishlist-view-tabs button:not(.active):hover::before,.notification-tabs button:not(.active):hover::before,
+.wishlist-filters .filter-chip:not(.active):hover::before,.game-chat-tabs button[aria-pressed="false"]:hover::before,
+.santa-state-tabs button:not(.active):hover::before{
+ opacity:.45;transform:translateY(-50%) rotate(-1deg) scaleX(1)
+}
+.wishlist-view-tabs button:hover,.notification-tabs button:hover,.wishlist-filters .filter-chip:hover,
+.game-chat-tabs button:hover,.santa-state-tabs button:hover{
+ transform:none!important;background:transparent!important;box-shadow:none!important
+}
+.wishlist-view-tabs button.active,.notification-tabs button.active,.wishlist-filters .filter-chip.active,
+.game-chat-tabs button[aria-pressed="true"],.santa-state-tabs button.active{border:0!important}
+.santa-state-tabs .tab-count{font-size:11px;font-weight:800;color:#655c57}
+.santa-state-empty{text-align:center;padding:46px 18px;border-radius:24px;border:1px dashed #ded4c7;background:#fcf8ef}
+.santa-state-empty h3{font-family:var(--heading);font-size:19px;line-height:1.5}
+.santa-state-empty p{color:var(--muted);margin-top:8px;font-size:14px}
+[data-santa-card-state][hidden],.santa-state-empty[hidden]{display:none!important}
+
+/* Deterministic pastel palette, independent of list order and filtering. */
+.dashboard-santa-card.santa-tone-apricot,.santa-list-card.santa-tone-apricot{
+ background:#f8e7dc;border-color:#edcdbb
+}
+.dashboard-santa-card.santa-tone-lilac,.santa-list-card.santa-tone-lilac{
+ background:#eee7f5;border-color:#dcd0ea
+}
+.dashboard-santa-card.santa-tone-mint,.santa-list-card.santa-tone-mint{
+ background:#e6f2e9;border-color:#c9ddce
+}
+.dashboard-santa-card.santa-tone-butter,.santa-list-card.santa-tone-butter{
+ background:#f8efd6;border-color:#e6d8af
+}
+.dashboard-santa-card.santa-tone-apricot .dashboard-santa-symbol{color:#aa7056}
+.dashboard-santa-card.santa-tone-lilac .dashboard-santa-symbol{color:#8570a4}
+.dashboard-santa-card.santa-tone-mint .dashboard-santa-symbol{color:#568b72}
+.dashboard-santa-card.santa-tone-butter .dashboard-santa-symbol{color:#9a833f}
+.shared-santa-grid{grid-template-columns:repeat(2,minmax(0,1fr));gap:16px}
+.shared-santa-grid .dashboard-santa-card{min-width:0;min-height:235px}
+.shared-santa-grid .dashboard-santa-card .text-link,
+.dashboard-santa-card .dashboard-card-footer .text-link{
+ color:#29272b;font-weight:800;position:relative;z-index:2
+}
+.shared-santa-grid .dashboard-card-footer{border-top-color:rgba(55,42,49,.16)}
+.shared-santa-grid .dashboard-card-footer span{color:#474044}
+.shared-santa-grid .dashboard-santa-card .section-label{color:#514b51}
+.shared-santa-grid .dashboard-santa-card .text-link:hover{text-decoration:underline}
+
+/* Desktop notifications belong directly under the bell rather than in a centered modal. */
+@media(min-width:761px){
+ .modal-backdrop.notification-popover{
+  align-items:flex-start!important;justify-content:flex-end!important;overflow:hidden;
+  padding:var(--notification-top,76px) var(--notification-right,22px) 14px 12px!important;
+  background:rgba(39,39,43,.16)
+ }
+ .modal-backdrop.notification-popover .modal{
+  margin:0!important;flex:0 1 auto;max-height:calc(100dvh - var(--notification-top,76px) - 14px)!important;
+  width:min(510px,calc(100vw - 24px))!important;max-width:510px!important;
+  border-radius:22px;box-shadow:0 22px 58px rgba(41,34,40,.21)
+ }
+ .modal-backdrop.notification-popover .modal-fixed-header{padding-block:20px 13px}
+ .modal-backdrop.notification-popover .modal-scroll-area{padding-block:16px 18px}
+}
+@media(max-width:760px){
+ .notification-tabs{gap:2px;justify-content:flex-start}
+ .notification-tabs button{padding:10px 7px;font-size:12px}
+ .shared-santa-grid{grid-template-columns:1fr}
+ .santa-state-tabs{gap:7px}
+ .santa-state-tabs button{padding-inline:10px}
+}
+@media(prefers-reduced-motion:reduce){
+ .wishlist-view-tabs button.active::before,.notification-tabs button.active::before,
+ .wishlist-filters .filter-chip.active::before,.game-chat-tabs button[aria-pressed="true"]::before,
+ .santa-state-tabs button.active::before{animation:none!important;clip-path:none!important}
+ .site-header{transition:none!important}
+}
