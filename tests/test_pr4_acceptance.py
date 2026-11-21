@@ -713,7 +713,8 @@ def test_ui_component_flat_surface_screenshot_regression():
         ("button-danger","button","btn btn-danger"),
         ("card-panel","article","panel"),
         ("card-list","article","list-card"),
-        ("card-santa","article","santa-list-card"),
+        ("card-santa-even","article","santa-list-card"),
+        ("card-santa-odd","article","santa-list-card"),
         ("field-input","input","input"),
         ("field-textarea","textarea","input"),
         ("field-select","select","input"),
@@ -784,7 +785,14 @@ def test_ui_component_flat_surface_screenshot_regression():
                     assert computed["button-dark"]["borderRadius"]=="100px"
                     assert computed["card-panel"]["borderRadius"]=="24px"
                     assert computed["card-list"]["borderRadius"]=="25px"
-                    assert computed["card-santa"]["borderRadius"]=="26px"
+                    for variant,border in (
+                        ("card-santa-even","rgb(212, 201, 231)"),
+                        ("card-santa-odd","rgb(234, 215, 198)")
+                    ):
+                        assert computed[variant]["borderRadius"]=="26px"
+                        assert computed[variant]["borderColor"]==border, (
+                            engine,width,variant,computed[variant]
+                        )
                     for name in ("field-input","field-textarea","field-select"):
                         assert computed[name]["borderRadius"]=="13px",(
                             engine,width,name,computed[name]
