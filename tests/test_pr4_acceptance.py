@@ -917,6 +917,12 @@ def test_pr4_p1_mobile_contrast_touch_targets_and_scroll_cue(browser_https):
                         # every tab, including the active marker, at both scroll
                         # ends; a gradient cannot occlude the active tab.
                         for side,tag in (("right","::after"),("left","::before")):
+                            if side=="right":
+                                nav.evaluate("el => {el.scrollLeft=0}")
+                                expect(nav).to_have_class(re.compile("nav-scroll-more-right"))
+                            else:
+                                nav.evaluate("el => {el.scrollLeft=el.scrollWidth}")
+                                expect(nav).to_have_class(re.compile("nav-scroll-more-left"))
                             geometry=page.evaluate("""pseudo => {
                                 const topbar=document.querySelector('.topbar');
                                 const nav=topbar.querySelector('.nav');
