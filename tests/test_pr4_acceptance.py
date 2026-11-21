@@ -414,7 +414,7 @@ def test_ui_gallery_layout_and_interaction_regression():
                 assert values["panel"]["x"] >= -1, values
                 assert values["panel"]["right"] <= width + 1, values
                 # Interactive UI: toast and tabs (no re-render of unrelated cards).
-                page.locator('[data-gallery-toast]').click()
+                page.locator('[data-gallery-toast]').first.click()
                 expect(page.locator("#toast-root .toast")).to_have_text("Создан новый вишлист")
                 page.locator('#gallery-nav-2').click()
                 expect(page.locator('#gallery-nav-2')).to_have_attribute("aria-selected", "true")
