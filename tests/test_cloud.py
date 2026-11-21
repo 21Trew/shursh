@@ -883,7 +883,7 @@ def test_browser_card_clicks_and_santa_settings(browser_http):
             target.focus()
             owner.keyboard.press('Enter')
             expect(owner).to_have_url(re.compile(r'/list/\d+'))
-            owner.locator('header .nav [data-nav="/"]').click()
+            owner.locator('header .logo[data-nav="/"]').click()
             owner.locator('main button[data-open="santa"]').first.click()
             owner.locator('#fld-title').fill('Санта без дублей')
             owner.locator('#modal-form button[type="submit"], .modal-fixed-footer button[type="submit"]').click()
@@ -913,7 +913,7 @@ def test_browser_card_clicks_and_santa_settings(browser_http):
             owner.locator('#modal-form button[type="submit"], .modal-fixed-footer button[type="submit"]').click()
             expect(owner.locator('.my-wishes-list')).to_contain_text('Настольная игра')
 
-            owner.locator('header .nav [data-nav="/"]').click()
+            owner.locator('header .logo[data-nav="/"]').click()
             owner.locator('.dashboard-santa-card .card-hitarea').first.click(position={'x':35,'y':35})
             expect(owner).to_have_url(re.compile(r'/santa/\d+'))
             owner.locator('header .nav [data-nav="/santas"]').click()
