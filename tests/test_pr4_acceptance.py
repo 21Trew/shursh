@@ -464,7 +464,7 @@ def test_ui_gallery_stable_palette_screenshot_baseline_chromium_webkit():
     assert baseline.size==(96,192)
     with sync_playwright() as play:
         for engine in ("chromium","webkit"):
-            browser=getattr(play,engine).launch(headless=True,args=["--no-sandbox"])
+            browser=getattr(play,engine).launch(headless=True,args=["--no-sandbox"] if engine=="chromium" else [])
             try:
                 for width in (375,390,768,1024,1440):
                     context=browser.new_context(
@@ -507,7 +507,7 @@ def test_webkit_responsive_ui_gallery_visual_and_keyboard():
     gallery=Path(__file__).resolve().parents[1]/"tools"/"ui-gallery.html"
     errors=[]
     with sync_playwright() as play:
-        browser=play.webkit.launch(headless=True,args=["--no-sandbox"])
+        browser=play.webkit.launch(headless=True)
         try:
             for width in (375,390,768,1024,1440):
                 context=browser.new_context(
@@ -556,7 +556,7 @@ def test_webkit_mobile_six_tabs_and_create_flows(browser_http):
     import re
     errors=[]
     with sync_playwright() as play:
-        browser=play.webkit.launch(headless=True,args=["--no-sandbox"])
+        browser=play.webkit.launch(headless=True)
         try:
             for width in (375,390):
                 context=browser.new_context(
