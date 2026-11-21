@@ -197,7 +197,7 @@ def image(filename):
 @app.get('/')
 @app.get('/<path:route>')
 def frontend(route=''):
-    if route in ('app.js','santa-ui.js','social-ui.js','styles.css','favicon.svg'):
+    if route in ('app.js','santa-ui.js','social-ui.js','styles.css','polish.css','favicon.svg'):
         return send_from_directory(ROOT/'public',route)
     # Serve only known app routes; never include the simulator or repository files.
     if route in ('','index.html','lists','santas','friends','profile','notifications','admin','admin/feedback') or re.fullmatch(r'(?:list|santa)/[0-9]{1,16}|(?:w|r|join|p)/[A-Za-z0-9_-]{1,128}|users/[0-9a-fA-F-]{36}',route):
