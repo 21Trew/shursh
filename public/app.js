@@ -250,12 +250,12 @@ function modal({title,subtitle='',content='',onSubmit=null,submitLabel='Сохр
   if(extra)footerRail.append(extra);
   dialog.append(footerRail);
  }
- enhanceSelects(modalRoot);
+ enhanceSelects(modalRoot);enhanceCalendars(modalRoot);
  document.body.style.overflow='hidden';const bd=modalRoot.querySelector('[data-backdrop]');bd.addEventListener('click',e=>{if(e.target===bd)closeModal()});modalRoot.querySelectorAll('[data-close]').forEach(b=>b.addEventListener('click',closeModal));
  if(onSubmit){modalRoot.querySelector('form').addEventListener('submit',async e=>{e.preventDefault();const btn=e.currentTarget.querySelector('[type=submit]')||modalRoot.querySelector('.modal-fixed-footer [type=submit]');btn.disabled=true;try{const submitted=e.currentTarget;await onSubmit(submitted);if(modalRoot.querySelector('form')===submitted)closeModal();}catch(err){notice(err.message,true)}finally{if(btn.isConnected)btn.disabled=false;}});}
  // No delayed autofocus: it can steal focus while the user types in the
  // password field, silently redirecting keystrokes to email after 10 ms.
- modalRoot.querySelector('input:not([type=hidden]),textarea,.ui-select-trigger,select:not(.ui-select-native)')?.focus({preventScroll:true});
+ // Fields focus on the first intentional click; avoid noisy autofocus rings.
 }
 function contactDeveloperModal(){
  modal({title:'Написать разработчику',subtitle:'Есть идея, вопрос или нашли ошибку? Напишите прямо здесь',
@@ -270,8 +270,8 @@ function contactDeveloperModal(){
   }});
  const message=modalRoot.querySelector('#fld-message');if(message){message.required=true;message.minLength=5;message.maxLength=3000;}
 }
-function closeModal(){closeUiSelect();modalRoot.replaceChildren();document.body.style.overflow='';}
-document.addEventListener('keydown',e=>{if(e.key==='Escape'){if(uiSelectOpen){e.preventDefault();closeUiSelect(true);}else closeModal();}});
+function closeModal(){closeCalendar();closeUiSelect();modalRoot.replaceChildren();document.body.style.overflow='';}
+document.addEventListener('keydown',e=>{if(e.key==='Escape'){if(activeCalendar){e.preventDefault();closeCalendar(true);}else if(uiSelectOpen){e.preventDefault();closeUiSelect(true);}else closeModal();}});
 document.addEventListener('click',e=>{
  const picker=e.target.closest('input[type="date"]');
  if(picker&&!picker.disabled&&typeof picker.showPicker==='function'){
@@ -412,6 +412,77 @@ const closeOnScrollIntent=e=>{
 document.addEventListener('wheel',closeOnScrollIntent,{passive:true,capture:true});
 document.addEventListener('touchmove',closeOnScrollIntent,{passive:true,capture:true});
 window.addEventListener('resize',()=>closeUiSelect());
+
+
+/* Shared date picker; native input retains the value for FormData. */
+let activeCalendar=null;
+function closeCalendar(refocus=false){
+ if(!activeCalendar)return;
+ const {popup,button}=activeCalendar;activeCalendar=null;popup.remove();
+ button.setAttribute('aria-expanded','false');
+ if(refocus&&button.isConnected)button.focus({preventScroll:true});
+}
+function enhanceCalendars(root){
+ root.querySelectorAll('input[type="date"]:not([data-ui-calendar])').forEach(input=>{
+  input.dataset.uiCalendar='true';input.classList.add('ui-calendar-native');
+  const button=document.createElement('button');button.type='button';button.className='ui-calendar-trigger';
+  button.setAttribute('aria-label',input.closest('.field')?.querySelector('label')?.textContent||'Дата');
+  button.setAttribute('aria-haspopup','dialog');button.setAttribute('aria-expanded','false');
+  input.insertAdjacentElement('afterend',button);
+  const iso=date=>[date.getFullYear(),String(date.getMonth()+1).padStart(2,'0'),String(date.getDate()).padStart(2,'0')].join('-');
+  const parse=value=>{
+   if(!/^\d{4}-\d\d-\d\d$/.test(value||''))return null;
+   const [y,m,d]=value.split('-').map(Number),dt=new Date(y,m-1,d,12);
+   return dt.getFullYear()===y&&dt.getMonth()+1===m&&dt.getDate()===d?dt:null;
+  };
+  const sync=()=>{
+   const date=parse(input.value);
+   button.innerHTML='<span>'+(date?new Intl.DateTimeFormat('ru-RU',{day:'2-digit',month:'2-digit',year:'numeric'}).format(date):'Выбери дату')+'</span>'+ico('calendar');
+  };
+  input.addEventListener('change',sync);
+  button.addEventListener('click',()=>{
+   if(activeCalendar?.button===button){closeCalendar();return;}
+   closeCalendar();const date=parse(input.value)||new Date();
+   const popup=document.createElement('div');popup.className='ui-calendar-popover';
+   popup.setAttribute('role','dialog');popup.setAttribute('aria-label','Календарь');
+   const state={popup,button,year:date.getFullYear(),month:date.getMonth()};activeCalendar=state;
+   button.setAttribute('aria-expanded','true');modalRoot.append(popup);
+   const choose=value=>{
+    if(value&&((input.min&&value<input.min)||(input.max&&value>input.max)))return;
+    input.value=value;input.dispatchEvent(new Event('change',{bubbles:true}));closeCalendar(true);
+   };
+   const draw=()=>{
+    const first=new Date(state.year,state.month,1,12);
+    const days=new Date(state.year,state.month+1,0).getDate(),skip=(first.getDay()+6)%7;
+    let cells='<span></span>'.repeat(skip);
+    for(let day=1;day<=days;day++){
+     const value=iso(new Date(state.year,state.month,day,12));
+     const disabled=(input.min&&value<input.min)||(input.max&&value>input.max);
+     cells+='<button type="button" class="ui-calendar-day" data-date="'+value+'"'+(input.value===value?' aria-selected="true"':'')+(value===iso(new Date())?' data-today="true"':'')+(disabled?' disabled':'')+'>'+day+'</button>';
+    }
+    popup.innerHTML='<div class="ui-calendar-toolbar"><button type="button" data-shift="-1" aria-label="Предыдущий месяц">‹</button><strong>'+
+     esc(new Intl.DateTimeFormat('ru-RU',{month:'long',year:'numeric'}).format(first))+
+     '</strong><button type="button" data-shift="1" aria-label="Следующий месяц">›</button></div>'+
+     '<div class="ui-calendar-days">'+['Пн','Вт','Ср','Чт','Пт','Сб','Вс'].map(d=>'<span>'+d+'</span>').join('')+'</div>'+
+     '<div class="ui-calendar-grid">'+cells+'</div><div class="ui-calendar-actions"><button type="button" data-clear>Очистить</button><button type="button" data-today>Сегодня</button></div>';
+    const r=button.getBoundingClientRect(),h=popup.getBoundingClientRect().height;
+    popup.style.left=Math.max(8,Math.min(r.left,innerWidth-320))+'px';
+    popup.style.top=(r.bottom+h+8<innerHeight?r.bottom+6:Math.max(8,r.top-h-6))+'px';
+   };
+   popup.addEventListener('click',event=>{
+    const b=event.target.closest('button');if(!b||b.disabled)return;
+    if(b.dataset.shift){const next=new Date(state.year,state.month+Number(b.dataset.shift),1,12);state.year=next.getFullYear();state.month=next.getMonth();draw();}
+    else if(b.dataset.date)choose(b.dataset.date);
+    else if(b.hasAttribute('data-clear'))choose('');
+    else if(b.hasAttribute('data-today'))choose(iso(new Date()));
+   });
+   draw();
+  });sync();
+ });
+}
+document.addEventListener('pointerdown',event=>{if(activeCalendar&&!activeCalendar.popup.contains(event.target)&&!activeCalendar.button.contains(event.target))closeCalendar();});
+document.addEventListener('scroll',event=>{if(activeCalendar&&!activeCalendar.popup.contains(event.target))closeCalendar();},{capture:true,passive:true});
+window.addEventListener('resize',()=>closeCalendar());
 
 function selectField(label,name,options,selected){return `<div class="field"><label for="fld-${name}">${esc(label)}</label><select id="fld-${name}" name="${name}">${options.map(([value,text])=>`<option value="${attr(value)}" ${String(value)===String(selected)?'selected':''}>${esc(text)}</option>`).join('')}</select></div>`;}
 function readForm(form){return Object.fromEntries(new FormData(form).entries());}
@@ -561,7 +632,7 @@ function dashboardContent(data){
   '<section class="dashboard-welcome"><div><div class="section-label">Твоё пространство</div><h1>С возвращением, <em>'+name+'!</em></h1>'+
   '<p>Хорошие сюрпризы начинаются здесь. Есть новые идеи подарков?</p>'+
   '<div class="btn-row"><button class="btn btn-dark" data-open="list">Новый вишлист '+ico('plus')+'</button>'+
-  '<button class="btn btn-peach santa-create-cta" data-open="santa">Тайный Санта +</button></div></div>'+
+  '<button class="btn btn-dark santa-create-cta" data-open="santa">Тайный Санта ${ico("plus")}</button></div></div>'+
   '<div class="dashboard-welcome-art" aria-hidden="true">'+fallbackArt('gift')+'</div></section>'+
   '<section class="dashboard-section"><div class="dashboard-section-head"><div><div class="section-label">01 / Вишлисты</div>'+
   '<h2>Твои желания</h2></div><button class="text-link" data-nav="/lists">Все списки '+ico('arrow')+'</button></div>'+
@@ -582,7 +653,7 @@ function dashboardLoading(){
   '<div class="section-label">Твоё пространство</div><h1>С возвращением, <em>'+name+'!</em></h1>'+
   '<p>Хорошие сюрпризы начинаются здесь</p>'+
   '<div class="btn-row"><button class="btn btn-dark" data-open="list">Новый вишлист '+ico('plus')+'</button>'+
-  '<button class="btn btn-peach santa-create-cta" data-open="santa">Тайный Санта +</button></div></div>'+
+  '<button class="btn btn-dark santa-create-cta" data-open="santa">Тайный Санта ${ico("plus")}</button></div></div>'+
   '<div class="dashboard-welcome-art" aria-hidden="true">'+fallbackArt('gift')+'</div></section>'+
   '<section class="dashboard-skeleton" role="status" aria-label="Загружаем списки и игры"><div class="skeleton-cards"><div class="skeleton-card"></div><div class="skeleton-card"></div></div></section></main>');
 }
@@ -902,7 +973,7 @@ async function santaGamePage(id,marker=lastRenderToken,participantToken=null){
   event:e,richEnabled:d.rich_enabled!==false,own:gameWishes,memberView,memberId:memberView?d.participant.id:null,currentUserId:currentUser?.id,recipient:e.status!=='open'?(memberView?d.assignment?.wish_cards:d.my_assignment?.wish_cards)||[]:[],participants:d.participants};
  const people=d.participants;
  const selects=(id,label)=>selectField(label,id,people.map(p=>[p.id,p.name]),null);
- shell(`<main class="container page"><div class="guest-topline">${memberView? `${ico('lock')} Личный кабинет участника <span>/</span> <strong>${esc(d.participant.name)}</strong>`:`<button class="text-link" data-nav="/santas">${ico('back')} Все игры</button> <span>/</span> <span>${esc(e.title)}</span>`}</div><div class="page-hero"><div><div class="section-label">${e.status==='finished'?'Игра завершена':e.status==='drawn'?'Жеребьёвка проведена':'Приглашаем участников'}</div><h1>${esc(e.title)}</h1><p>${esc(e.description||'Праздник начинается с маленькой тайны')}</p></div><div class="santa-game-status">${!memberView&&e.status==='drawn'?'<button type="button" class="btn btn-soft btn-small" data-action="finish-santa">Завершить игру '+ico('check')+'</button>':''}<span class="chip ${e.status!=='open'?'chip-green':'chip-lilac'}">${ico(e.status!=='open'?'check':'users')} ${e.status==='finished'?'Игра завершена':e.status==='drawn'?'Игра началась':'Приём открыт'}</span></div></div><div class="santa-detail-layout"><div>
+ shell(`<main class="container page"><div class="guest-topline">${memberView? `${ico('lock')} Личный кабинет участника <span>/</span> <strong>${esc(d.participant.name)}</strong>`:`<button class="text-link" data-nav="/santas">${ico('back')} Все игры</button> <span>/</span> <span>${esc(e.title)}</span>`}</div><div class="page-hero"><div><div class="section-label">${e.status==='finished'?'Игра завершена':e.status==='drawn'?'Жеребьёвка проведена':'Приглашаем участников'}</div><h1>${esc(e.title)}</h1><p>${esc(e.description||'Праздник начинается с маленькой тайны')}</p></div><div class="santa-game-status">${!memberView?'<button type="button" class="btn btn-soft btn-small" data-action="delete-santa">'+ico('trash')+' Удалить игру</button>':''}${!memberView&&e.status!=='finished'?'<button type="button" class="btn btn-soft btn-small" data-action="finish-santa">Завершить игру '+ico('check')+'</button>':''}<span class="chip ${e.status!=='open'?'chip-green':'chip-lilac'}">${ico(e.status!=='open'?'check':'users')} ${e.status==='finished'?'Игра завершена':e.status==='drawn'?'Игра началась':'Приём открыт'}</span></div></div><div class="santa-detail-layout"><div>
  <div class="panel"><div class="panel-heading-actions"><h2>Участники <span class="chip" data-santa-roster-count>${people.length}</span></h2>${!memberView&&e.status==='open'?'<div class="santa-player-actions"><button class="btn btn-soft btn-small" data-action="add-player">'+ico('plus')+' Добавить участника</button>'+(isPreview?'':'<button class="btn btn-soft btn-small santa-invite-action" data-social-action="invite-friends">Пригласить друзей</button>')+'</div>':''}</div><div class="person-list" data-santa-roster>${people.map(p=>santaRosterPerson(p,activeGameContext)).join('')}</div>${e.status==='open'?`<div class="divider-line"></div><p class="note">Пригласи друзей по общей ссылке. Каждый сможет присоединиться без регистрации и получит собственную личную ссылку</p><div class="share-field"><input class="input" aria-label="Ссылка-приглашение" readonly value="${attr(getLink(`/join/${e.invite_key}`))}"><button class="btn btn-dark btn-small" data-action="copy" data-url="${attr(getLink(`/join/${e.invite_key}`))}">${ico('copy')} Копировать</button></div>`:''}</div>
  <div class="panel"><div class="panel-heading-actions"><h2>Мои пожелания</h2>${!memberView||currentUser?`<button class="btn btn-soft btn-small" data-action="import-own-wishes" ${memberView?`data-key="${attr(participantToken||'')}"`:`data-id="${id}"`}>${ico('plus')} Из вишлиста</button>`:''}</div><p class="note">Твои пожелания увидит только твой тайный Санта</p>
   <div class="santa-preferences-display" id="santa-preferences-display">
@@ -918,7 +989,7 @@ async function santaGamePage(id,marker=lastRenderToken,participantToken=null){
  `<form class="form" id="legacy-santa-wish-form"><div class="share-field"><input class="input" name="title" required maxlength="130" placeholder="Название подарка"><button class="btn btn-dark btn-small" type="submit">Добавить ${ico('plus')}</button></div></form><p class="note">Подробные карточки появятся после обновления игры</p>`}</div>
  ${!memberView&&e.status==='open'?`<div class="panel"><h2>Исключения</h2><p class="note">Укажи пары, которые не должны выпадать друг другу. Ограничения работают направленно: «А → Б» означает, что А не может дарить Б</p><div class="rules-list" style="margin:17px 0">${d.exclusions.length?d.exclusions.map(r=>`<span class="rule-chip">${esc(people.find(p=>p.id===r.giver_id)?.name||'?')} → ${esc(people.find(p=>p.id===r.receiver_id)?.name||'?')} <button title="Убрать ограничение" data-action="remove-rule" data-from="${r.giver_id}" data-to="${r.receiver_id}">×</button></span>`).join(''):'<span class="muted">Пока нет исключений</span>'}</div><form class="form" id="rule-form"><div class="form-grid">${selects('giver_id','Кто дарит')}${selects('receiver_id','Кому нельзя дарить')}</div><button class="btn btn-soft btn-small" type="submit">${ico('plus')} Добавить ограничение</button></form></div>`:''}
  </div><div><div class="panel"><div class="panel-heading-actions"><h2>О событии</h2>${!memberView?`<button class="btn btn-soft btn-small" data-action="edit-santa">${ico('edit')} Изменить</button>`:''}</div><div class="details-box santa-event-details"><p>${ico('calendar')} <strong>Дата:</strong> ${dateRu(e.exchange_date)}</p><p>${ico('gift')} <strong>Бюджет:</strong> ${money(e.budget_cents,e.currency)}</p><p>${ico('users')} <strong>Участники:</strong> <span data-santa-event-count>${people.length}</span></p>${e.rules?`<div class="divider-line"></div><strong>Правила:</strong><p>${esc(e.rules)}</p>`:''}</div></div>
- ${!memberView&&e.status==='open'?`<div class="panel"><h2>Время раскрыть карты?</h2><p class="note">После жеребьёвки приглашения, состав и исключения будут заморожены. Каждый увидит только своего получателя</p><div class="alert">${ico('info')} Понадобится минимум 3 участника. Желательно, чтобы все успели присоединиться</div><button class="btn btn-dark" style="width:100%" data-action="draw" ${people.length<3?'disabled':''}>Провести жеребьёвку ${ico('spark')}</button></div>`:`<div class="panel"><h2>Кому ты даришь</h2>${e.status!=='open'?secretCard(memberView?d.assignment:d.my_assignment,!memberView,memberView?participantToken:id):`<div class="secret-card">${envelopeArt()}<h2>Пока храним интригу</h2><p>Организатор ещё собирает всех участников. После жеребьёвки здесь появится конверт с твоим получателем</p></div>`}</div>`}
+ ${!memberView&&e.status==='open'?`<div class="panel"><h2>Время раскрыть карты?</h2><p class="note">После жеребьёвки приглашения, состав и исключения будут заморожены. Каждый увидит только своего получателя</p><div class="alert santa-draw-hint"><span class="santa-draw-hint-icon">${ico('info')}</span><span>Понадобится минимум 3 участника. Желательно, чтобы все успели присоединиться</span></div><button class="btn btn-dark" style="width:100%" data-action="draw" ${people.length<3?'disabled':''}>Провести жеребьёвку ${ico('spark')}</button></div>`:`<div class="panel"><h2>Кому ты даришь</h2>${e.status!=='open'?secretCard(memberView?d.assignment:d.my_assignment,!memberView,memberView?participantToken:id):`<div class="secret-card">${envelopeArt()}<h2>Пока храним интригу</h2><p>Организатор ещё собирает всех участников. После жеребьёвки здесь появится конверт с твоим получателем</p></div>`}</div>`}
  ${memberView?`<div class="panel"><h2>Твоя личная ссылка</h2><p class="note">Не пересылай никому: по ней открывается твой секрет. Сохрани в закладки</p>${!d.participant.user_id&&!isPreview?`<div class="game-save-account"><p>Сохрани игру в аккаунте, чтобы открывать её из раздела «Тайный Санта» без этой ссылки</p><button class="btn btn-dark btn-small" type="button" data-action="claim-game" data-token="${attr(participantToken)}">${ico("check")} Сохранить игру в аккаунте</button></div>`:""}<div class="share-field"><input class="input" readonly value="${attr(getLink(`/p/${participantToken}`))}" aria-label="Личная ссылка"><button class="btn btn-dark btn-small" data-action="copy" data-url="${attr(getLink(`/p/${participantToken}`))}">${ico('copy')} Копировать</button></div></div>`:''}
  </div></div>
  ${d.rich_enabled!==false?`<section class="panel game-chat-panel" id="game-chat" aria-label="Чаты игры">
@@ -929,8 +1000,8 @@ async function santaGamePage(id,marker=lastRenderToken,participantToken=null){
  ${e.status!=='open'?'<button class="btn btn-soft btn-small" type="button" data-chat-room="to-recipient" aria-pressed="false">Моему получателю</button><button class="btn btn-soft btn-small" type="button" data-chat-room="from-santa" aria-pressed="false">Моему дарителю</button>':''}
  </div>
  <div class="game-chat-messages" role="log" aria-live="polite"><p class="note">Загружаем сообщения…</p></div>
- <form id="game-chat-form" class="game-chat-form"><label for="game-chat-input" class="sr-only">Текст сообщения</label><input id="game-chat-input" class="input" name="message" placeholder="Напиши сообщение" maxlength="500" autocomplete="off" required><button class="btn btn-dark btn-small" type="submit">Отправить ${ico('arrow')}</button></form>
- <button class="text-link game-chat-refresh" type="button" data-chat-refresh>Обновить сообщения</button>
+ <form id="game-chat-form" class="game-chat-form"><label for="game-chat-input" class="sr-only">Текст сообщения</label><input id="game-chat-input" class="input" name="message" placeholder="Сообщение…" maxlength="500" autocomplete="off" required><button class="btn btn-dark btn-small game-chat-send" type="submit" aria-label="Отправить сообщение" title="Отправить">${ico('arrow',22)}</button></form>
+ 
  </section>`:`<section class="panel"><h2>Чаты игры</h2><p class="note">Чаты появятся после обновления игры. Остальные возможности доступны</p></section>`}${santaMemorySection(e,memberView)}</main>`);
  document.getElementById('santa-preferences-form')?.addEventListener('submit',async ev=>{
    ev.preventDefault();const form=ev.currentTarget,button=form.querySelector('button');
@@ -1218,10 +1289,16 @@ async function dispatch(action,el){try{
   notice('Ты в игре!');nav('/santas',{force:true});return;
  }
 
+ if(action==='delete-santa'){
+  const game=loadedSanta?.event;if(!game)return;
+  confirmAction('Удалить игру «'+game.title+'»?','Все участники, пожелания, чаты и фотографии будут удалены без возможности восстановления',async()=>{
+   await api('/api/santas/'+game.id,{method:'DELETE'});loadedSanta=null;notice('Игра удалена');nav('/santas',{force:true});
+  },'Удалить игру');return;
+ }
  if(action==='finish-santa'){
   const event=loadedSanta?.event;
-  if(!event||event.status!=='drawn')return;
-  modal({title:'Завершить Тайного Санту?',subtitle:'Сохраним жеребьёвку и историю, а игру перенесём в завершённые',
+  if(!event||event.status==='finished')return;
+  modal({title:'Завершить Тайного Санту?',subtitle:event.status==='open'?'Перенесём игру в завершённые без жеребьёвки и назначения получателей':'Сохраним жеребьёвку и историю, а игру перенесём в завершённые',
    content:'<div class="field"><label for="finish-santa-photo">Общее фото с участниками и подарками (необязательно)</label>'+
     '<div class="file-picker"><input id="finish-santa-photo" type="file" accept="image/jpeg,image/png,image/webp">'+
     '<p class="field-hint">Можно добавить сейчас или позже. Фото автоматически сожмём в WebP</p></div></div>',

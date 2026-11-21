@@ -315,3 +315,36 @@ def test_santa_game_gift_cards_and_anonymous_chats(server,owner):
     assert 'sender_id' not in message
     assert two.delete(server+f'/api/participant/{t2}/wishes/{wid}').status_code==404
     assert one.delete(server+f'/api/participant/{t1}/wishes/{wid}').status_code==200
+
+
+def test_santa_owner_can_finish_before_draw_and_delete_any_state(server, owner):
+    """Owner may archive an unplayed game or delete open/drawn/finished games."""
+    stranger = registered_buyer(server)
+    for initial in ('open', 'drawn', 'finished'):
+        created = owner.post(server + '/api/santas', json={'title': 'Удаляем ' + initial})
+        assert created.status_code == 201, created.text
+        eid = created.json()['id']
+        url = server + f'/api/santas/{eid}'
+        part = owner.post(url + '/participants', json={'name': 'Гость с доступом'})
+        assert part.status_code == 201, part.text
+        token = part.json()['participant_token']
+        assert stranger.delete(url).status_code == 404
+        assert requests.delete(url).status_code == 401
+        if initial in ('drawn', 'finished'):
+            assert owner.post(url + '/participants', json={'name': 'Третий'}).status_code == 201
+            assert owner.post(url + '/draw', json={}).status_code == 200
+        if initial == 'finished':
+            finished = owner.post(url + '/finish', json={})
+            assert finished.status_code == 200, finished.text
+            assert owner.get(url).json()['event']['status'] == 'finished'
+        if initial == 'open':
+            archived = owner.post(url + '/finish', json={})
+            assert archived.status_code == 200, archived.text
+            assert archived.json()['already_finished'] is False
+            assert owner.get(url).json()['event']['status'] == 'finished'
+            assert owner.post(url + '/draw', json={}).status_code == 409
+        deleted = owner.delete(url)
+        assert deleted.status_code == 200, deleted.text
+        assert owner.get(url).status_code == 404
+        assert requests.get(server + f'/api/participant/{token}').status_code == 404
+        assert owner.delete(url).status_code == 404

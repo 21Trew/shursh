@@ -456,7 +456,7 @@ class Handler(BaseHTTPRequestHandler):
     @staticmethod
     def santa_roster(con, eid):
         """Member-visible projection. Never include contact info or draw pairs."""
-        return [dict(r) for r in con.execute('''SELECT p.id,p.name,
+        return [dict(r) for r in con.execute('''SELECT p.id,p.name,p.user_id,
             count(pw.id) AS wish_count,
             CASE WHEN p.user_id=e.owner_id THEN 1 ELSE 0 END AS is_organizer
             FROM participants p JOIN santa_events e ON e.id=p.event_id
@@ -966,6 +966,14 @@ class Handler(BaseHTTPRequestHandler):
             return 200,{'participants':self.santa_roster(con,eid),
                         'status':game['status']},None
         match=re.fullmatch(r'/api/santas/(\d+)',path)
+        if match and method=='DELETE':
+            user=self.auth(con);eid=int(match.group(1))
+            event=con.execute('SELECT id FROM santa_events WHERE id=? AND owner_id=?',
+                              (eid,user['id'])).fetchone()
+            if not event: raise ApiError(404,'Игра не найдена')
+            # All game-related FK rows cascade; never delete another organizer's game.
+            con.execute('DELETE FROM santa_events WHERE id=? AND owner_id=?',(eid,user['id']))
+            return 200,{'ok':True},None
         if match and method=='PATCH':
             user=self.auth(con);eid=int(match.group(1));data=self.body()
             event=con.execute('SELECT * FROM santa_events WHERE id=? AND owner_id=?',
@@ -1159,8 +1167,10 @@ class Handler(BaseHTTPRequestHandler):
             if event['status']=='finished':
                 if photo: raise ApiError(409,'Игра уже завершена. Измени фото на странице игры')
                 return 200,{'ok':True,'already_finished':True},None
-            if event['status']!='drawn': raise ApiError(409,'Сначала проведи жеребьёвку')
-            con.execute("UPDATE santa_events SET status='finished' WHERE id=? AND status='drawn'",(eid,))
+            # An unplayed event may be archived without creating assignments.
+            if event['status'] not in ('open','drawn'):
+                raise ApiError(409,'Нельзя завершить игру')
+            con.execute("UPDATE santa_events SET status='finished' WHERE id=? AND status IN ('open','drawn')",(eid,))
             if photo:
                 con.execute('INSERT INTO santa_memories(event_id,image_data,updated_at) VALUES(?,?,?)',(eid,photo,now()))
             return 200,{'ok':True,'already_finished':False},None

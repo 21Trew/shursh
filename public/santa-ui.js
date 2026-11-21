@@ -9,9 +9,6 @@ function gameWishCard(w,source='own'){
   '<button type="button" class="card-hitarea" data-action="show-game-gift" data-id="'+w.id+'" data-source="'+source+'" aria-label="Подробнее о подарке '+attr(w.title)+'"></button>'+
   '<div class="wish-image">'+image+actions+'</div>'+
   '<div class="wish-content"><h3>'+esc(w.title)+'</h3>'+
-  (w.description?'<p class="wish-desc">'+esc(w.description)+'</p>':'')+
-  '<div class="game-gift-inline-price">'+money(w.price_cents,w.currency)+'</div>'+
-  (w.shop_url?'<span class="game-gift-store-hint">'+ico('external',14)+' Есть ссылка на магазин</span>':'')+
   '</div></article>';
 }
 function wishesMarkup(wishes,source='own'){
@@ -166,7 +163,8 @@ function santaRosterPerson(p,state){
  const organizer=!!p.is_organizer||(!state.memberView&&p.user_id===state.currentUserId);
  const mine=state.memberView&&p.id===state.memberId;
  const adminActions=!state.memberView&&state.event.status==='open'&&!organizer;
- return '<div class="person-row"><div class="avatar">'+esc(p.name.slice(0,1).toUpperCase())+
+ const profile=!!currentUser&&!!p.user_id;
+ return '<div class="person-row"'+(profile?' data-santa-profile="'+attr(p.user_id)+'" role="link" tabindex="0" title="Открыть профиль"':'')+'><div class="avatar">'+esc(p.name.slice(0,1).toUpperCase())+
   '</div><div class="person-main"><div class="person-topline"><strong class="person-name">'+esc(p.name)+'</strong>'+
   (mine?'<span class="chip">Ты</span>':'')+
   (organizer?'<span class="chip chip-peach organizer-label">Организатор</span>':'')+'</div><small>'+
@@ -179,7 +177,7 @@ function setupSantaRoster(state){
  const root=document.querySelector('[data-santa-roster]');if(!root)return;
  if(gameRosterTimer){clearInterval(gameRosterTimer);gameRosterTimer=null;}
  const route=state.base+'/roster';
- let running=false,previous=JSON.stringify((state.participants||[]).map(p=>[p.id,p.name,p.wish_count,p.is_organizer])),failures=0;
+ let running=false,previous=JSON.stringify((state.participants||[]).map(p=>[p.id,p.name,p.wish_count,p.is_organizer,p.user_id])),failures=0;
  const update=async()=>{
   if(!root.isConnected){clearInterval(gameRosterTimer);gameRosterTimer=null;return;}
   if(document.visibilityState==='hidden'||running)return;
@@ -193,7 +191,7 @@ function setupSantaRoster(state){
     await render();
     return;
    }
-   const signature=JSON.stringify(info.participants.map(p=>[p.id,p.name,p.wish_count,p.is_organizer]));
+   const signature=JSON.stringify(info.participants.map(p=>[p.id,p.name,p.wish_count,p.is_organizer,p.user_id]));
    if(signature===previous)return;
    previous=signature;
    root.innerHTML=info.participants.map(p=>santaRosterPerson(p,state)).join('');
@@ -213,3 +211,6 @@ function setupSantaRoster(state){
  };
  gameRosterTimer=setInterval(update,15000);
 }
+
+document.addEventListener('click',event=>{const row=event.target.closest('[data-santa-profile]');if(!row||event.target.closest('button,a,input,select,textarea'))return;event.preventDefault();nav('/users/'+row.dataset.santaProfile);});
+document.addEventListener('keydown',event=>{if((event.key!=='Enter'&&event.key!==' ')||!event.target.matches('[data-santa-profile]'))return;event.preventDefault();nav('/users/'+event.target.dataset.santaProfile);});
