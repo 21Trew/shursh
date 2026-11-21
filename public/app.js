@@ -986,10 +986,8 @@ async function confirmAction(title,subtitle,handler,label='Удалить'){moda
 async function dispatch(action,el){try{
  if(action==='accept-santa-invite'){
   if(!currentUser)return;
-  const result=await api('/api/invites/'+encodeURIComponent(el.dataset.key)+'/join',{method:'POST',body:{name:currentUser.name}});
-  if(result.participant_token){
-   await api('/api/participant/'+encodeURIComponent(result.participant_token)+'/claim',{method:'POST',body:{}}).catch(()=>{});
-  }
+  await api('/api/invites/'+encodeURIComponent(el.dataset.key)+'/join',{method:'POST',body:{name:currentUser.name}});
+  // Signed-in joins are already bound to the verified UID server-side.
   notice('Ты в игре!');nav('/santas',{force:true});return;
  }
 
