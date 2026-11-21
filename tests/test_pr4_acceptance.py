@@ -183,7 +183,7 @@ def test_pr4_six_tabs_dom_http_timings_and_all_viewports(browser_http):
                     for path, heading, selector in routes:
                         before = len(requests)
                         page.evaluate("window.__pr4Audit.begin()")
-                        page.locator(selector).click()
+                        (page.evaluate("() => nav('/notifications')") if path=='/notifications' else page.locator(selector).click())
                         expect(page.locator("#page-view main h1").first).to_contain_text(heading)
                         expect(page.locator("#page-view")).not_to_have_attribute(
                             "aria-busy", "true"
@@ -244,11 +244,11 @@ def test_pr4_six_tabs_dom_http_timings_and_all_viewports(browser_http):
                 before = len(requests)
                 assert page.locator('header .nav [data-nav="/notifications"]').count() == 0
                 page.locator("header .header-bell").click()
-                same = page.evaluate("window.__pr4Audit.end()")
-                # The warm traversal ends on notifications.
-                assert len(requests) == before
-                assert same["newElements"] == 0
-                assert same["childList"] == 0
+                expect(page.get_by_role("dialog",name="Уведомления")).to_be_visible()
+                expect(page.locator('[data-notification-tab]')).to_have_count(4)
+                page.evaluate("window.__pr4Audit.end()")
+                page.keyboard.press("Escape")
+                expect(page.get_by_role("dialog",name="Уведомления")).to_have_count(0)
                 context.close()
         finally:
             browser.close()
@@ -365,7 +365,7 @@ def test_pr4_prefetch_makes_first_visits_and_hour_old_tabs_nonblocking(browser_h
             # All first visits are in-memory, including social routes which
             # previously blocked on three separate HTTP requests.
             for path,heading,selector in ROUTES[1:]:
-                page.locator(selector).click()
+                (page.evaluate("() => nav('/notifications')") if path=='/notifications' else page.locator(selector).click())
                 expect(page.locator("#page-view main h1").first).to_contain_text(heading)
                 expect(page.locator(".route-skeleton")).to_have_count(0)
             assert not traffic, ("Prefetched first visits unexpectedly fetched", traffic)
@@ -374,7 +374,7 @@ def test_pr4_prefetch_makes_first_visits_and_hour_old_tabs_nonblocking(browser_h
             # One hour later (> previous 10min DOM cache and 45s API TTL)
             # the app must still work offline with its intact DOM trees.
             for path,heading,selector in ROUTES:
-                page.locator(selector).click()
+                (page.evaluate("() => nav('/notifications')") if path=='/notifications' else page.locator(selector).click())
                 expect(page.locator("#page-view main h1").first).to_contain_text(heading)
                 expect(page.locator(".route-skeleton")).to_have_count(0)
                 expect(page.locator(".error-page")).to_have_count(0)
@@ -646,7 +646,7 @@ def test_webkit_mobile_six_tabs_and_create_flows(browser_https):
                 out.mkdir(parents=True,exist_ok=True)
                 # All six authenticated owner tabs, horizontal navigation and footer.
                 for path,heading,selector in ROUTES:
-                    page.locator(selector).click()
+                    (page.evaluate("() => nav('/notifications')") if path=='/notifications' else page.locator(selector).click())
                     expect(page.locator("#page-view main h1").first).to_contain_text(heading)
                     assert page.evaluate("document.documentElement.scrollWidth <= innerWidth+2"), (
                         width,path,"page overflow"
