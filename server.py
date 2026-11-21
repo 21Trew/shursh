@@ -834,7 +834,7 @@ class Handler(BaseHTTPRequestHandler):
         if match and method=='POST':
             self.throttled('reserve',20)
             key,wid=match.group(1),int(match.group(2));data=self.body()
-            guest=req(data.get('guest_name'),'Имя дарителя',50)
+            guest=req(data.get('guest_name') or 'Анонимный даритель','Имя дарителя',50)
             con.execute('BEGIN IMMEDIATE')
             item=con.execute('''SELECT wishes.id,wishlists.owner_id FROM wishes JOIN wishlists
                          ON wishes.list_id=wishlists.id WHERE wishes.id=? AND wishlists.share_key=? AND wishlists.visibility='link' ''',

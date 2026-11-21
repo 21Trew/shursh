@@ -76,7 +76,17 @@ def handle(handler, method, path, con):
                         WHERE mine.event_id=e.id AND mine.user_id=?)
                     GROUP BY e.id ORDER BY e.id DESC''',
                     (user['id'],user['id'],user['id']))
-        return 200,{'events':[dict(e) for e in rows]},None
+        invitations=con.execute('''SELECT e.id,e.title,e.description,e.exchange_date,
+                      e.budget_cents,e.currency,e.invite_key
+                      FROM santa_friend_invitations i
+                      JOIN santa_events e ON e.id=i.event_id
+                      WHERE i.invited_user_id=? AND i.status='pending'
+                        AND e.status='open' AND NOT EXISTS(
+                            SELECT 1 FROM participants p
+                            WHERE p.event_id=e.id AND p.user_id=?)
+                      ORDER BY i.created_at DESC LIMIT 30''',(user['id'],user['id']))
+        return 200,{'events':[dict(e) for e in rows],
+                    'invitations':[dict(e) for e in invitations]},None
 
     if path == '/api/admin/overview' and method == 'GET':
         handler.is_site_admin(con)
@@ -158,6 +168,22 @@ def handle(handler, method, path, con):
         return 200,{'profile':{'id':profile['id'],'name':profile['name'],'bio':profile['bio'],'handle':profile['handle'],'avatar_emoji':profile['avatar_emoji'],'city':profile['city']},
                     'relationship':state,'lists':lists},None
 
+    if path=='/api/friends/wishlists' and method=='GET':
+        user=handler.auth(con)
+        rows=con.execute('''SELECT l.id,l.title,l.description,l.occasion,l.theme,
+                         l.share_key,p.name AS owner_name,p.avatar_emoji,
+                         count(w.id) AS wish_count
+                     FROM wishlists l
+                     JOIN profiles p ON p.id=l.owner_id
+                     JOIN friendships f ON f.status='accepted'
+                       AND ((f.user_low=? AND f.user_high=l.owner_id)
+                         OR (f.user_high=? AND f.user_low=l.owner_id))
+                     LEFT JOIN wishes w ON w.list_id=l.id
+                     WHERE l.visibility='link'
+                     GROUP BY l.id,p.id ORDER BY l.id DESC LIMIT 150''',
+                     (user['id'],user['id']))
+        return 200,{'lists':[dict(r) for r in rows]},None
+
     if path=='/api/friends' and method=='GET':
         user=handler.auth(con)
         rows=con.execute('''SELECT f.user_low,f.user_high,f.requested_by,f.status,
@@ -233,6 +259,11 @@ def handle(handler, method, path, con):
         count=con.execute('SELECT count(*) AS n FROM social_notifications WHERE recipient_id=? AND read_at IS NULL',
                           (user['id'],)).fetchone()['n']
         return 200,{'unread':count},None
+    if path=='/api/notifications/read-all' and method=='POST':
+        user=handler.auth(con)
+        con.execute('''UPDATE social_notifications SET read_at=now()
+                     WHERE recipient_id=? AND read_at IS NULL''',(user['id'],))
+        return 200,{'ok':True,'unread':0},None
     match=re.fullmatch(r'/api/notifications/(\d+)/read',path)
     if match and method=='POST':
         user=handler.auth(con)
