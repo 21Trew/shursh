@@ -59,5 +59,5 @@ def test_no_bad_hardcoded_number_noun_forms():
                  1 if 2<=number%10<=4 else 2)
             for variants in catalog.values():
                 for wrong in (set(variants)-{variants[idx]}):
-                    assert not re.search(r'(?<!\\d)'+str(number)+r'\\s+'+wrong+r'\\b',source), (
+                    assert not re.search(r'(?<!\d)'+str(number)+r'\s+'+wrong+r'\b',source), (
                         str(path),number,wrong)
