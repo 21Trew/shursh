@@ -1654,6 +1654,9 @@ def test_santa_private_link_claim_to_logged_in_account(application):
     assert len(personal_token)==43
     before=call(target,'GET','/api/santas').json['events']
     assert not any(x['id']==event_id for x in before)
+    # A matching name is not an identity proof: only a private capability can claim.
+    assert call(target,'GET','/api/santas').json['invitations']==[] or all(
+        x['id']!=event_id for x in call(target,'GET','/api/santas').json['invitations'])
     call(guest,'POST',f'/api/participant/{personal_token}/claim',{},401)
     call(target,'POST','/api/participant/invalid/claim',{},404)
     bound=call(target,'POST',f'/api/participant/{personal_token}/claim',{},200).json
@@ -1765,5 +1768,95 @@ def test_browser_santa_preferences_readonly_until_edit_and_mobile_density(browse
             expect(page.locator('#santa-preferences-display')).to_contain_text('Настойки')
             assert page.evaluate('document.documentElement.scrollWidth<=innerWidth+2')
             assert page.evaluate('document.querySelector("#game-chat").getBoundingClientRect().width <= innerWidth')
+        finally:
+            browser.close()
+
+
+@pytest.mark.browser
+def test_browser_guest_member_claim_after_email_confirmation_and_manual_link(browser_http,monkeypatch):
+    """A personal link, not a name, binds the guest after verified signup."""
+    from cloud import auth
+    from playwright.sync_api import sync_playwright,expect
+    from uuid import uuid4
+    def verified(token):
+        assert token=='header.payload.signature'
+        return {'id':str(IDS['owner@example.test']),
+                'email':'owner@example.test','email_confirmed_at':'2026-11-20T00:00:00Z',
+                'user_metadata':{'name':'Owner'}}
+    monkeypatch.setattr(auth,'verified_user',verified)
+    with sync_playwright() as play:
+        browser=play.chromium.launch(headless=True,args=['--no-sandbox'])
+        try:
+            organizer=browser.new_page()
+            organizer.goto(browser_http+'/')
+            browser_login(organizer,'other@example.test')
+            def new_guest():
+                title='Guest membership '+uuid4().hex[:8]
+                event=organizer.evaluate("""async title => {
+                  const r=await fetch('/api/santas',{method:'POST',
+                    headers:{'Content-Type':'application/json'},
+                    body:JSON.stringify({title})});
+                  if(!r.ok)throw Error('Could not create fixture');
+                  return await r.json();
+                }""",title)
+                participant=organizer.evaluate("""async id => {
+                  const r=await fetch('/api/santas/'+id+'/participants',{method:'POST',
+                    headers:{'Content-Type':'application/json'},
+                    body:JSON.stringify({name:'Приглашённый гость'})});
+                  if(!r.ok)throw Error('Could not create guest fixture');
+                  return await r.json();
+                }""",event['id'])
+                return event['id'],participant['participant_token']
+            first_id,personal=new_guest()
+            guest_ctx=browser.new_context()
+            guest=guest_ctx.new_page()
+            guest.goto(browser_http+'/p/'+personal)
+            expect(guest.locator('[data-action="claim-game"]')).to_be_visible()
+            assert guest.evaluate("sessionStorage.getItem('shursh-pending-game-claim')") is None
+            guest.locator('[data-action="claim-game"]').click()
+            expect(guest.get_by_role('dialog')).to_contain_text('С возвращением!')
+            guest.locator('[data-open="register"]').click()
+            expect(guest.get_by_role('dialog')).to_contain_text('Давай знакомиться!')
+            # Pending token stays within the tab until registration actually succeeds.
+            assert guest.evaluate("localStorage.getItem('shursh-pending-game-claim')") is None
+            guest.locator('#fld-name').fill('Гость')
+            guest.locator('#fld-email').fill('owner@example.test')
+            guest.locator('#fld-password').fill('valid-password')
+            guest.locator('.modal-fixed-footer button[type="submit"]').click()
+            expect(guest.get_by_role('dialog')).to_contain_text('Проверь почту')
+            assert guest.evaluate("!!localStorage.getItem('shursh-pending-game-claim')")
+            # Opening confirmation in a new tab must recover the pending membership.
+            confirmed=guest_ctx.new_page()
+            confirmed.goto(browser_http+'/#access_token=header.payload.signature&type=signup')
+            expect(confirmed.locator('header .user-name')).to_contain_text('Owner')
+            confirmed.wait_for_function("""async id => {
+               const r=await fetch('/api/santas');
+               return r.ok&&(await r.json()).events.some(x=>x.id===id);
+            }""",arg=first_id,timeout=15000)
+            assert confirmed.evaluate("localStorage.getItem('shursh-pending-game-claim')") is None
+            assert confirmed.evaluate("sessionStorage.getItem('shursh-pending-game-claim')") is None
+            # Separately linked games can also be restored after registration.
+            second_id,second_token=new_guest()
+            confirmed.goto(browser_http+'/santas')
+            expect(confirmed.get_by_role('button',name='Привязать игру по ссылке')).to_be_visible()
+            confirmed.get_by_role('button',name='Привязать игру по ссылке').click()
+            field=confirmed.locator('#fld-personal_link')
+            field.fill('https://other.example/p/'+second_token)
+            confirmed.locator('.modal-fixed-footer button[type="submit"]').click()
+            expect(confirmed.locator('.toast')).to_contain_text('с этого сайта')
+            assert not confirmed.evaluate("""async id =>
+               (await(await fetch('/api/santas')).json()).events.some(x=>x.id===id)
+            """,second_id)
+            field.fill(browser_http+'/p/'+second_token)
+            confirmed.locator('.modal-fixed-footer button[type="submit"]').click()
+            confirmed.wait_for_function("""async id => {
+                const r=await fetch('/api/santas');
+                return r.ok&&(await r.json()).events.some(x=>x.id===id);
+            }""",arg=second_id,timeout=15000)
+            expect(confirmed.locator('.santa-grid')).to_contain_text('Guest membership')
+            # No silent claiming on later visits and no bearer link in saved URLs.
+            assert confirmed.evaluate("localStorage.getItem('shursh-pending-game-claim')") is None
+            assert '/p/' not in confirmed.url
+            guest_ctx.close()
         finally:
             browser.close()
