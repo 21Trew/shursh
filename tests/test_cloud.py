@@ -1114,6 +1114,10 @@ def test_owner_tab_navigation_reuses_data_and_dom(browser_http):
             page.goto(browser_http+'/')
             browser_login(page)
             expect(page.locator('.dashboard-page')).to_be_visible()
+            # Wait for the first cold dashboard API response. The optimistic
+            # skeleton already contains the owner's heading but has not seeded
+            # /api/lists and /api/santas yet. The test measures WARM navigation.
+            expect(page.locator('.dashboard-skeleton')).to_have_count(0,timeout=15000)
             requests=[]
             page.on('request', lambda r: requests.append(r.url) if '/api/' in r.url else None)
             page.locator('header .nav [data-nav="/lists"]').click()
