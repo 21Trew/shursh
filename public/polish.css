@@ -213,3 +213,6 @@
  .game-chat-tabs button[aria-pressed="true"]::before{animation:none!important;clip-path:none!important}
  .scroll-to-top,.game-gift-overlay-actions{transition:none!important}
 }
+
+/* Form errors remain readable above a focused modal without dismissing it. */
+.toast{z-index:1100}
