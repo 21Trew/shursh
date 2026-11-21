@@ -1101,10 +1101,10 @@ def test_shursh_ux_followup_finish_game_and_sticky_modal(browser_https):
             page.evaluate("nav('/santas',{force:true})")
             expect(page.locator('.santa-state-tabs [data-santa-state]')).to_have_count(2)
             page.locator('[data-santa-state="finished"]').click()
-            expect(page.locator('[data-santa-card-state="finished"]:not([hidden])')).to_have_count(1)
+            expect(page.locator('[data-santa-card-state="finished"]:not([hidden]) a[href="/santa/'+str(id)+'"]')).to_have_count(1)
             expect(page.locator('[data-santa-card-state="current"]:not([hidden])')).to_have_count(0)
             page.locator('[data-santa-state="current"]').click()
-            expect(page.locator('[data-santa-card-state="finished"][hidden]')).to_have_count(1)
+            expect(page.locator('[data-santa-card-state="finished"][hidden] a[href="/santa/'+str(id)+'"]')).to_have_count(1)
             # Header collapse must not alter document flow or scroll position.
             page.evaluate("""() => {
                 // Disable only the test's smooth scrolling, not the product.
