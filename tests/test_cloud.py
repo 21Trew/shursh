@@ -443,8 +443,9 @@ def browser_login(page, email='owner@example.test'):
     assert response.status==200, (
         f'Login HTTP {response.status}; '
         f'Server-Timing: {response.headers.get("server-timing", "missing")}')
-    expect(page.locator('header .user-name')).to_contain_text(
+    expect(page.locator('.dashboard-page h1')).to_contain_text(
         'Owner' if email.startswith('owner') else 'Other', timeout=15000)
+    expect(page.locator('header .header-avatar')).to_be_visible()
     expect(page.get_by_role('dialog')).to_have_count(0)
 
 
@@ -1436,7 +1437,7 @@ def test_browser_confirmation_callback_and_recovery(browser_http,monkeypatch):
         try:
             page=browser.new_page()
             page.goto(browser_http+'/#access_token=header.payload.signature&refresh_token=not-used')
-            expect(page.locator('header .user-name')).to_contain_text('Owner')
+            expect(page.locator('.dashboard-page h1')).to_contain_text('Owner')
             assert page.evaluate('location.hash')==''
             assert page.evaluate('document.cookie')==''
             # Expired confirmations must show a persistent recovery dialog.
@@ -1830,7 +1831,7 @@ def test_browser_guest_member_claim_after_email_confirmation_and_manual_link(bro
             # Opening confirmation in a new tab must recover the pending membership.
             confirmed=guest_ctx.new_page()
             confirmed.goto(browser_http+'/#access_token=header.payload.signature&type=signup')
-            expect(confirmed.locator('header .user-name')).to_contain_text('Owner')
+            expect(confirmed.locator('.dashboard-page h1')).to_contain_text('Owner')
             confirmed.wait_for_function("""async id => {
                const r=await fetch('/api/santas');
                return r.ok&&(await r.json()).events.some(x=>x.id===id);
