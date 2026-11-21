@@ -26,6 +26,44 @@ ROUTES = (
     ("/notifications", "Уведомления", "header .header-bell"),
 )
 VIEWPORTS = (375, 390, 768, 1024, 1440)
+
+
+
+@pytest.fixture
+def browser_https(application, tmp_path):
+    """HTTPS test origin is required: WebKit does not persist Secure cookies
+    on HTTP localhost, while all real Production auth uses HTTPS.
+    Only the CI-local Flask application and disposable database are used.
+    """
+    import subprocess
+    import threading
+    from werkzeug.serving import make_server, WSGIRequestHandler
+
+    cert=tmp_path/"localhost.crt"
+    key=tmp_path/"localhost.key"
+    subprocess.run(
+        ["openssl","req","-x509","-newkey","rsa:2048","-nodes","-days","1",
+         "-subj","/CN=localhost","-addext",
+         "subjectAltName=DNS:localhost,IP:127.0.0.1",
+         "-keyout",str(key),"-out",str(cert)],
+        check=True,stdout=subprocess.DEVNULL,stderr=subprocess.DEVNULL,timeout=20,
+    )
+    class PrivateHttpsHandler(WSGIRequestHandler):
+        def log_request(self, code='-', size='-'):
+            pass
+
+    server=make_server(
+        "127.0.0.1",0,application,threaded=True,
+        ssl_context=(str(cert),str(key)),
+        request_handler=PrivateHttpsHandler,
+    )
+    worker=threading.Thread(target=server.serve_forever,daemon=True)
+    worker.start()
+    try:
+        yield f"https://localhost:{server.server_port}"
+    finally:
+        server.shutdown()
+        worker.join(timeout=5)
 OUTPUT = Path("artifacts/pr4-ui")
 
 AUDIT_JS = r"""() => {
@@ -550,7 +588,7 @@ def test_webkit_responsive_ui_gallery_visual_and_keyboard():
 
 
 @pytest.mark.browser
-def test_webkit_mobile_six_tabs_and_create_flows(browser_http):
+def test_webkit_mobile_six_tabs_and_create_flows(browser_https):
     """Mock-account WebKit: responsive navigation, wishlist and Santa details."""
     from uuid import uuid4
     import re
@@ -562,7 +600,7 @@ def test_webkit_mobile_six_tabs_and_create_flows(browser_http):
                 context=browser.new_context(
                     viewport={"width":width,"height":844},
                     is_mobile=True,has_touch=True,device_scale_factor=1,
-                    reduced_motion="reduce",
+                    reduced_motion="reduce",ignore_https_errors=True,
                 )
                 page=context.new_page()
                 page.set_default_timeout(15000)
@@ -571,8 +609,11 @@ def test_webkit_mobile_six_tabs_and_create_flows(browser_http):
                 page.on("response", lambda response: statuses.append(
                     (urlsplit(response.url).path, response.status)
                 ) if urlsplit(response.url).path.startswith("/api/") else None)
-                page.goto(browser_http+"/",wait_until="domcontentloaded")
+                page.goto(browser_https+"/",wait_until="domcontentloaded")
                 browser_login(page)
+                # Verify browser accepted the Production-like Secure session cookie.
+                assert any(c["name"]=="shursh_sid" and c["secure"]
+                           for c in context.cookies()), "WebKit HTTPS session cookie missing"
                 try:
                     expect(page.locator(".dashboard-page")).to_be_visible(timeout=10000)
                 except AssertionError:
