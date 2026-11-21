@@ -287,7 +287,7 @@ def test_pr4_profile_mobile_sheet_and_footer(browser_http):
                                     reduced_motion="reduce")
             page.goto(browser_http + "/")
             browser_login(page)
-            page.locator('header [data-nav="/profile"]').click()
+            page.locator('header .nav [data-nav="/profile"]').click()
             expect(page.locator("main h1").first).to_have_text("Мой профиль")
             expect(page.locator(".profile-public-lists")).to_have_count(0)
             expect(page.locator(".profile-visibility")).to_have_count(0)
