@@ -880,9 +880,8 @@ function wishModal(edit=null){
    '<p class="field-hint">Сохраним ссылку, а название, цену и фото ты добавишь самостоятельно</p>'+
    field('Что хочется?','title','Например, керамическая чашка','text',w.title||'',true,'maxlength="130"')+
    textArea('Комментарий','description','Цвет, размер, пожелания или настроение',w.description||'')+
-   '<div class="form-grid">'+
    field('Ориентировочная цена','price','Например, 2500','number',w.price_cents!=null?w.price_cents/100:'',false,'min="0" step="0.01"')+
-   '</div><div class="form-grid">'+
+   '<div class="form-grid">'+
    selectField('Тип','kind',[['item','Конкретный подарок'],['experience','Идея / впечатление']],w.kind||'item')+
    selectField('Приоритет','priority',[['nice','Было бы здорово'],['love','Очень хочу!']],w.priority||'nice')+
    '</div>'+

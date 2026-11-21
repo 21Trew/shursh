@@ -67,9 +67,7 @@ function gameGiftModal(edit=null){
    '<p class="field-hint">Сохраним ссылку, а название, цену и фото можно указать самостоятельно</p>'+
    field('Что хочется?','title','Например, настольная игра','text',gift.title||'',true,'maxlength="130"')+
    textArea('Комментарий','description','Размер, цвет, модель, особенности',gift.description||'')+
-   '<div class="form-grid">'+
    field('Ориентировочная цена','price','Например, 1500','number',budget,false,'min="0" step="0.01"')+
-   '</div>'+
    '<div class="field"><label for="game-gift-photo">Фотография (необязательно)</label>'+
    '<div class="file-picker"><input id="game-gift-photo" name="image" type="file" accept="image/png,image/jpeg,image/webp">'+
    '<div class="field-hint">JPG, PNG или WEBP до 10 МБ. Фото сожмём до 250 КБ</div></div></div>'+
