@@ -138,7 +138,7 @@ explicit permission.
   On the six audited paper, card, peach and lilac surfaces, normal text
   contrast is at least 4.55:1 (WCAG AA).
 - At widths up to 760px OR when the pointer is coarse, primary navigation
-  links, `.btn-small`, `.btn-square` and `.modal-close` have a 44px minimum
+  links, `.header-bell`, `.btn-small`, `.btn-square` and `.modal-close` have a 44px minimum
   effective CSS target. The glyph size stays the same. The mobile modal close
   button center remains at its prior inset (21+17 = 16+22 = 38px).
 - Horizontal nav shows previous/next hints only where additional scrolling is
@@ -146,7 +146,7 @@ explicit permission.
   The JavaScript listener only updates two classes, with passive scroll,
   ResizeObserver and font readiness; no new nodes or API calls.
 - Comparing all CSS cascade winners before/after this change identified
-  **31** intended changes: 3 text properties and 28 new responsive/hint
+  **34** intended changes: 3 text properties and 31 new responsive/hint
   declarations. All previous unrelated property values are unchanged.
   The new effective CSS hash is locked in CI.
 - Browser tests check WCAG AA contrast on six background colors, touch

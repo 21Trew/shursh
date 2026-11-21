@@ -541,6 +541,7 @@ input[type="file"]::file-selector-button:hover{background:#f2e9dc}
 /* P1 touch ergonomics: increase hit areas, not glyphs; preserve modal close center. */
 @media(max-width:760px),(pointer:coarse){
  .site-header .nav a{min-height:var(--touch-target)}
+ .header-bell{width:var(--touch-target);height:var(--touch-target);min-width:var(--touch-target)}
  .btn-small{min-height:var(--touch-target)}
  .btn-square{width:var(--touch-target);min-height:var(--touch-target)}
  .modal-close{width:var(--touch-target);height:var(--touch-target);top:12px;right:16px}

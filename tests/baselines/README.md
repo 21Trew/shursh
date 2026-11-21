@@ -74,11 +74,11 @@ and CSS radius, border color and layout are asserted in both engines.
 ## Intentional CSS baseline update for P1 accessibility
 
 The original effective CSS hash represented 2705 declaration keys. The
-approved contrast/touch/scroll-cue changes add 28 responsive CSS declarations
+approved contrast/touch/scroll-cue changes add 31 responsive CSS declarations
 and change 3 secondary text declarations. No unrelated previous CSS winner
-was changed. The new hash protects all 2733 effective declaration keys.
+was changed. The new hash protects all 2736 effective declaration keys.
 
 Accepted changes: `--muted:#5c5856`, `.note` and `.section-label` reference
-`var(--muted)`; 44px primary mobile/coarse touch targets; pointer-transparent
+`var(--muted)`; 44px primary mobile/coarse touch targets including the bell; pointer-transparent
 left/right mobile nav scroll indicators. New visual evidence is captured
 without automatically approving full-component pixel baselines.

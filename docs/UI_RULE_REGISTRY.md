@@ -8,7 +8,7 @@ A **conflict** here means the same selector, CSS property and at-rule context
 have different declarations in source order. The last declaration is not
 necessarily the winner if specificity, importance or cascading conditions differ.
 
-- Qualified rule blocks: **897**
+- Qualified rule blocks: **898**
 - Unique selectors: **621**
 - Selectors in multiple blocks: **184**
 - Differing declarations in the same context: **0**
@@ -37,6 +37,7 @@ necessarily the winner if specificity, importance or cascading conditions differ
 | `.game-chat-panel` | 4 | `base@103, base > @media (max-width:580px)@115, base > @media (max-width:760px)@466, base > @media (max-width:400px)@491` |
 | `.game-gifts-track .game-gift-card .wish-image` | 4 | `base@125, base > @media (max-width:760px)@268, base > @media (max-width:440px)@278, base > @media (max-width:520px)@351` |
 | `.header-actions` | 4 | `base@2, base > @media (max-width:760px)@2, base@359, base > @media (max-width:760px)@446` |
+| `.header-bell` | 4 | `base@360, base > @media (max-width:760px)@448, base@503, base > @media (max-width:760px),(pointer:coarse)@544` |
 | `.hero-visual:before` | 4 | `base@2, base > @media (max-width:1100px)@2, base > @media (max-width:760px)@2, base > @media (min-width:761px) and (max-width:980px)@6` |
 | `.nav a` | 4 | `base@2, base > @media (max-width:420px)@2, base@150, base > @media (max-width:760px)@220` |
 | `.secret-card.revealed` | 4 | `base@2, base@169, base@385, base > @media (max-width:760px)@461` |
@@ -57,13 +58,12 @@ necessarily the winner if specificity, importance or cascading conditions differ
 | `.game-gifts-track .game-gift-card .wish-content` | 3 | `base@127, base > @media (max-width:760px)@270, base > @media (max-width:520px)@352` |
 | `.game-gifts-track .game-gift-card .wish-desc` | 3 | `base@129, base > @media (max-width:760px)@271, base > @media (max-width:520px)@353` |
 | `.header-actions .btn-ghost` | 3 | `base > @media (max-width:760px)@2, base > @media (max-width:920px)@89, base > @media (max-width:760px)@449` |
-| `.header-bell` | 3 | `base@360, base > @media (max-width:760px)@448, base@503` |
 | `.list-cover` | 3 | `base@2, base > @media (max-width:760px)@2, base > @media (max-width:420px)@2` |
 | `.list-info h3` | 3 | `base@2, base > @media (max-width:760px)@2, base > @media (max-width:420px)@2` |
 | `.logo` | 3 | `base@2, base > @media (max-width:760px)@2, base > @media (min-width:761px) and (max-width:920px)@5` |
 | `.modal` | 3 | `base@2, base@181, base > @media (max-width:760px)@221` |
 | `.modal-backdrop .modal` | 3 | `base > @media (max-width:760px)@519, base > @media (prefers-reduced-motion:reduce)@526, base > @media (max-width:760px)@534` |
-| `.modal-close` | 3 | `base@2, base@183, base > @media (max-width:760px),(pointer:coarse)@546` |
+| `.modal-close` | 3 | `base@2, base@183, base > @media (max-width:760px),(pointer:coarse)@547` |
 | `.modal-scroll-area` | 3 | `base@182, base > @media (max-width:760px)@222, base > @media (max-width:440px)@227` |
 | `.page` | 3 | `base@2, base > @media (max-width:760px)@2, base > @media (max-width:760px)@450` |
 | `.page-hero` | 3 | `base@2, base > @media (max-width:760px)@2, base > @media (max-width:760px)@451` |
@@ -88,8 +88,8 @@ necessarily the winner if specificity, importance or cascading conditions differ
 | `.auth-confirm-symbol` | 2 | `base@17, base > @media (max-width:480px)@24` |
 | `.auth-confirm-symbol .icon` | 2 | `base@18, base > @media (max-width:480px)@24` |
 | `.btn-row` | 2 | `base@2, base > @media (max-width:420px)@2` |
-| `.btn-small` | 2 | `base@2, base > @media (max-width:760px),(pointer:coarse)@544` |
-| `.btn-square` | 2 | `base@2, base > @media (max-width:760px),(pointer:coarse)@545` |
+| `.btn-small` | 2 | `base@2, base > @media (max-width:760px),(pointer:coarse)@545` |
+| `.btn-square` | 2 | `base@2, base > @media (max-width:760px),(pointer:coarse)@546` |
 | `.bubble-gift` | 2 | `base@2, base > @media (max-width:760px)@2` |
 | `.dashboard-empty` | 2 | `base@35, base > @media (max-width:760px)@46` |
 | `.dashboard-empty-art` | 2 | `base@36, base > @media (max-width:760px)@46` |
@@ -221,8 +221,8 @@ necessarily the winner if specificity, importance or cascading conditions differ
 | `base > @media (max-width:480px)` | 14 |
 | `base > @media (max-width:1100px)` | 13 |
 | `base > @media (min-width:761px) and (max-width:980px)` | 12 |
+| `base > @media (max-width:760px),(pointer:coarse)` | 11 |
 | `base > @media (prefers-reduced-motion:reduce)` | 10 |
-| `base > @media (max-width:760px),(pointer:coarse)` | 8 |
 | `base > @media (min-width:761px) and (max-width:920px)` | 5 |
 | `base > @media (max-width:920px)` | 5 |
 | `base > @media (max-width:580px)` | 4 |
