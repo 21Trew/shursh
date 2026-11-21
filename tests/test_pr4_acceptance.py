@@ -1110,7 +1110,7 @@ def test_shursh_ux_followup_finish_game_and_sticky_modal(browser_https):
                 document.body.style.minHeight='3000px';
                 window.scrollTo(0,300);
             }""")
-            page.wait_for_function("document.querySelector('.site-header')?.classList.contains('is-condensed')")
+            expect(page.locator('.site-header')).to_have_class(re.compile(r'is-condensed'))
             stable=page.evaluate("({scrollY,padding:getComputedStyle(document.querySelector('#app')).paddingTop,top:document.querySelector('.site-header').getBoundingClientRect().top})")
             page.wait_for_timeout(160)
             again=page.evaluate("({scrollY,padding:getComputedStyle(document.querySelector('#app')).paddingTop,top:document.querySelector('.site-header').getBoundingClientRect().top})")
