@@ -1077,11 +1077,17 @@ def test_shursh_ux_followup_finish_game_and_sticky_modal(browser_https):
             }""",id)
             expect(page.locator('.santa-memory-panel')).to_be_visible()
             expect(page.locator('#santa-memory-input')).to_have_count(1)
-            import base64
-            tiny=base64.b64decode(
-                'iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mP8/x8AAusB9aer6aQAAAAASUVORK5CYII=')
+            import struct,zlib
+            # A fully valid PNG; the old tiny placeholder has incomplete image data
+            # and is rejected by createImageBitmap in some Chromium versions.
+            def chunk(tag,payload):
+                return struct.pack('>I',len(payload))+tag+payload+struct.pack('>I',zlib.crc32(tag+payload)&0xffffffff)
+            photo=(b'\\x89PNG\\r\\n\\x1a\\n'+
+                   chunk(b'IHDR',struct.pack('>IIBBBBB',32,32,8,2,0,0,0))+
+                   chunk(b'IDAT',zlib.compress(b''.join(b'\\x00'+bytes([250,220,200])*32 for _ in range(32))))+
+                   chunk(b'IEND',b''))
             page.locator('#santa-memory-input').set_input_files({
-                'name':'all-together.png','mimeType':'image/png','buffer':tiny})
+                'name':'all-together.png','mimeType':'image/png','buffer':photo})
             expect(page.locator('.santa-memory-photo')).to_be_visible(timeout=15000)
             assert page.locator('.santa-memory-photo').get_attribute('src').startswith('data:image/jpeg;base64,')
             assert page.evaluate("""async id => {
