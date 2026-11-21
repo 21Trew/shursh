@@ -55,14 +55,20 @@ class CloudRequest(Handler):
             self._user_loaded = True
             raw = self.request.cookies.get('shursh_sid', '')
             if re.fullmatch(r'[A-Za-z0-9_-]{43}', raw):
-                self._user = con.execute('''SELECT p.id,p.name,p.avatar_emoji,p.handle,s.email FROM app_sessions s
-                    JOIN profiles p ON p.id=s.user_id WHERE s.token_hash=? AND s.expires_at>?''',
+                self._user = con.execute('''SELECT p.id,p.name,p.avatar_emoji,p.handle,s.email,(a.user_id IS NOT NULL) AS admin_granted FROM app_sessions s
+                    JOIN profiles p ON p.id=s.user_id LEFT JOIN site_admins a ON a.user_id=p.id WHERE s.token_hash=? AND s.expires_at>?''',
                     (token_hash(raw), int(time.time()))).fetchone()
                 if self._user:
                     self._user=dict(self._user)
                     admins={a.strip().casefold() for a in os.getenv('SHURSH_ADMIN_EMAILS','').split(',') if a.strip()}
-                    self._user['is_admin']=bool(admins and self._user['email'].casefold() in admins)
+                    self._user['is_admin']=bool(self._user.pop('admin_granted',False) or (admins and self._user['email'].casefold() in admins))
         return self._user
+
+    def is_site_admin(self,con):
+        user=self.auth(con)
+        if not user.get('is_admin'):
+            raise ApiError(403,'Недостаточно прав')
+        return user
 
     def throttled(self, action, limit=25, window=60):
         # Vercel sets this header itself; outside Vercel trust only the peer.

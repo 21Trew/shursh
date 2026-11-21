@@ -351,7 +351,7 @@ def handle(handler, method, path, con):
 
     # Authenticated game members can revisit the same game without keeping
     # a bearer URL in localStorage. Member-only projections are enforced by UID.
-    match=re.fullmatch(r'/api/member/(\d+)(?:/(roster|preferences|wishes|wishes/import|wishes/\d+|messages/(?:general|to-recipient|from-santa)|reveal))?',path)
+    match=re.fullmatch(r'/api/member/(\d+)(?:/(roster|preferences|wishes|wishes/import|wishes/\d+|messages/(?:general|to-recipient|from-santa)|reveal|memory))?',path)
     if match:
         eid=int(match.group(1));sub=match.group(2)
         part=_member(con,handler,eid)
@@ -366,6 +366,8 @@ def handle(handler, method, path, con):
                         'wishes':handler.game_wishes(con,part['id']),
                         'preferences':handler.participant_preferences(con,part['id']),
                         'assignment':assignment,'rich_enabled':handler.santa_schema_ready(con)},None
+        if sub=='memory' and method=='GET':
+            return handler.santa_memory(con,eid,'GET')
         if sub=='roster' and method=='GET':
             e=con.execute('SELECT status FROM santa_events WHERE id=?',(eid,)).fetchone()
             return 200,{'status':e['status'],'participants':handler.santa_roster(con,eid)},None
