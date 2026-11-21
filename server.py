@@ -1293,7 +1293,9 @@ class Handler(BaseHTTPRequestHandler):
         item=con.execute('''SELECT a.revealed_at, p.id AS receiver_id,p.name AS receiver_name,p.user_id AS receiver_user_id
                  FROM assignments a JOIN participants p ON p.id=a.receiver_id
                  WHERE a.event_id=? AND a.giver_id=?''',(eid,pid)).fetchone()
-        if not item or not item['revealed_at']:
+        if not item:
+            return None
+        if not item['revealed_at']:
             return {'revealed':False}
         cards=self.game_wishes(con,item['receiver_id'])
         return {'revealed':True,'receiver_name':item['receiver_name'],'receiver_user_id':item['receiver_user_id'],

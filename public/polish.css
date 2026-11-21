@@ -464,3 +464,15 @@
  .site-header .topbar:has(.nav-scroll-more-left)::before{bottom:-4px!important}
  .modal-backdrop .modal,.modal-backdrop .wish-edit-modal{transition:none!important}
 }
+
+/* The decorative cover never steals the card's primary hit target.
+   Action buttons opt back in so their hover/focus controls remain usable. */
+.game-gift-card .wish-image,.game-gift-card .wish-content{pointer-events:none!important}
+.game-gift-card .game-gift-overlay-actions{pointer-events:none}
+.game-gift-card:hover .game-gift-overlay-actions,
+.game-gift-card:focus-within .game-gift-overlay-actions{pointer-events:auto}
+.game-gift-card .game-gift-overlay-actions button{pointer-events:auto}
+
+@media(hover:hover){
+ .game-gift-card:not(:hover):not(:focus-within) .game-gift-overlay-actions button{pointer-events:none}
+}
