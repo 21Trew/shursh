@@ -131,3 +131,27 @@ in both Chromium and WebKit across five viewports, plus radius/border assertions
 Complex imagery and text are screenshot artifacts for human review, not silently
 approved new full-component goldens. Do not merge or publish Production without
 explicit permission.
+
+## P1 mobile accessibility / navigation (2026-11-21)
+
+- Secondary text `--muted`, `.note` and `.section-label` now uses `#5c5856`.
+  On the six audited paper, card, peach and lilac surfaces, normal text
+  contrast is at least 4.55:1 (WCAG AA).
+- At widths up to 760px OR when the pointer is coarse, primary navigation
+  links, `.btn-small`, `.btn-square` and `.modal-close` have a 44px minimum
+  effective CSS target. The glyph size stays the same. The mobile modal close
+  button center remains at its prior inset (21+17 = 16+22 = 38px).
+- Horizontal nav shows previous/next hints only where additional scrolling is
+  possible. Hints are wrapper pseudo-elements with `pointer-events:none`.
+  The JavaScript listener only updates two classes, with passive scroll,
+  ResizeObserver and font readiness; no new nodes or API calls.
+- Comparing all CSS cascade winners before/after this change identified
+  **31** intended changes: 3 text properties and 28 new responsive/hint
+  declarations. All previous unrelated property values are unchanged.
+  The new effective CSS hash is locked in CI.
+- Browser tests check WCAG AA contrast on six background colors, touch
+  geometry, both scroll ends and screenshot review artifacts. Existing warm
+  route performance/HTTP/DOM regression tests remain mandatory.
+
+This does not approve full-component pixel goldens and does not authorize
+Production deploy or merge.

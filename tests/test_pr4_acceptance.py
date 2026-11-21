@@ -810,3 +810,113 @@ def test_ui_component_flat_surface_screenshot_regression():
                     context.close()
             finally:
                 browser.close()
+
+
+@pytest.mark.browser
+def test_pr4_p1_mobile_contrast_touch_targets_and_scroll_cue(browser_https):
+    """Secondary text WCAG AA, 44px touch areas and unobtrusive overflow cues.
+
+    Runs with disposable CI accounts over local HTTPS. Full screenshots remain
+    review artifacts rather than silently accepted full-component pixel goldens.
+    """
+    import re
+    root=Path(__file__).resolve().parents[1]
+    gallery=root/"tools"/"ui-gallery.html"
+    output=OUTPUT/"p1-mobile"
+    output.mkdir(parents=True,exist_ok=True)
+    with sync_playwright() as play:
+        for engine in ("chromium","webkit"):
+            browser=getattr(play,engine).launch(
+                headless=True,args=["--no-sandbox"] if engine=="chromium" else [])
+            try:
+                for width in (375,390,768):
+                    context=browser.new_context(
+                        viewport={"width":width,"height":844},
+                        device_scale_factor=1,reduced_motion="reduce",
+                        has_touch=True,is_mobile=True,ignore_https_errors=True,
+                    )
+                    page=context.new_page()
+                    page.goto(gallery.as_uri(),wait_until="load")
+                    ratios=page.evaluate("""() => {
+                        const root=getComputedStyle(document.documentElement);
+                        const ink=[root.getPropertyValue('--muted').trim(),
+                            getComputedStyle(document.querySelector('.note')).color,
+                            getComputedStyle(document.querySelector('.section-label')).color];
+                        const surfaces=['#f9f7ef','#fffdf8','#f7e9db',
+                                        '#e8e0f4','#f9c6ac','#d9c9f2'];
+                        const rgb=s=>s.startsWith('#')
+                          ?[0,2,4].map(i=>parseInt(s.slice(1+i,3+i),16))
+                          :s.match(/[\\d.]+/g).slice(0,3).map(Number);
+                        const light=s=>rgb(s).reduce((a,n,i)=>{
+                          n=n/255;return a+(n<=.04045?n/12.92:((n+.055)/1.055)**2.4)
+                            *[.2126,.7152,.0722][i];
+                        },0);
+                        const contrast=(a,b)=>{
+                          const x=light(a),y=light(b);
+                          return (Math.max(x,y)+.05)/(Math.min(x,y)+.05);
+                        };
+                        return ink.map(color=>({
+                           color,ratios:surfaces.map(background=>({
+                               background,value:contrast(color,background)
+                           }))
+                        }));
+                    }""")
+                    for entry in ratios:
+                        for ratio in entry["ratios"]:
+                            assert ratio["value"]>=4.5, (
+                                "WCAG AA contrast",engine,width,entry["color"],ratio
+                            )
+                    for selector in (".btn-small",".btn-square",".header-bell"):
+                        box=page.locator(selector).first.bounding_box()
+                        assert box and box["width"]>=43.9 and box["height"]>=43.9,(
+                            engine,width,selector,box
+                        )
+                    page.locator("#gallery-open-modal").click()
+                    close=page.locator("#gallery-modal .modal-close").bounding_box()
+                    assert close and close["width"]>=43.9 and close["height"]>=43.9,(
+                        engine,width,close
+                    )
+                    page.screenshot(
+                        path=str(output/f"{engine}-{width}-dialog.png"),
+                        full_page=False,animations="disabled",
+                    )
+                    page.keyboard.press("Escape")
+                    page.goto(browser_https+"/",wait_until="domcontentloaded")
+                    browser_login(page)
+                    expect(page.locator(".dashboard-page")).to_be_visible()
+                    nav=page.locator("header .nav")
+                    expect(nav).to_be_visible()
+                    widths=nav.evaluate("""el => ({
+                        client:el.clientWidth, scroll:el.scrollWidth,
+                        links:[...el.querySelectorAll('a')].map(a=>
+                          a.getBoundingClientRect().height)
+                    })""")
+                    assert min(widths["links"])>=43.9,(engine,width,widths)
+                    if width<768:
+                        assert widths["scroll"]>widths["client"]+2,(engine,width,widths)
+                        expect(nav).to_have_class(re.compile("nav-scroll-more-right"))
+                        right=page.evaluate("""() => ({
+                            content:getComputedStyle(document.querySelector('.topbar'),'::after').content,
+                            pointer:getComputedStyle(document.querySelector('.topbar'),'::after').pointerEvents
+                        })""")
+                        assert "›" in right["content"] and right["pointer"]=="none",(
+                            engine,width,right
+                        )
+                        nav.evaluate("el => {el.scrollLeft=el.scrollWidth}")
+                        expect(nav).not_to_have_class(re.compile("nav-scroll-more-right"))
+                        expect(nav).to_have_class(re.compile("nav-scroll-more-left"))
+                        left=page.evaluate("""() => ({
+                            content:getComputedStyle(document.querySelector('.topbar'),'::before').content,
+                            pointer:getComputedStyle(document.querySelector('.topbar'),'::before').pointerEvents
+                        })""")
+                        assert "‹" in left["content"] and left["pointer"]=="none",(
+                            engine,width,left
+                        )
+                    assert page.evaluate("document.documentElement.scrollWidth<=innerWidth+2")
+                    page.screenshot(
+                        path=str(output/f"{engine}-{width}-header.png"),
+                        full_page=False,animations="disabled",
+                    )
+                    context.close()
+            finally:
+                browser.close()

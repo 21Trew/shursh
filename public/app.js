@@ -411,6 +411,37 @@ function stepArt(num){if(num===1)return `<svg viewBox="0 0 130 112">${fallbackAr
 function header(){const path=currentPath();return `<header class="site-header"><div class="container topbar"><a class="logo" href="/" data-nav="/" aria-label="Шурш! Главная">шурш<span>!</span></a>${currentUser?`<nav class="nav" aria-label="Главная навигация"><a href="/" data-nav="/" class="${path==='/'?'active':''}">${currentUser?'Кабинет':'Главная'}</a><a href="/lists" data-nav="/lists" class="${path.startsWith('/lists')||path.startsWith('/list/')?'active':''}">Вишлисты</a><a href="/santas" data-nav="/santas" class="${path.startsWith('/santas')||path.startsWith('/santa/')?'active':''}">Тайный Санта</a>${!isPreview?`<a href="/friends" data-nav="/friends" class="${path==='/friends'?'active':''}">Друзья</a><a href="/profile" data-nav="/profile" class="${path==='/profile'||path.startsWith('/users/')?'active':''}">Профиль</a>${currentUser.is_admin?`<a href="/admin" data-nav="/admin" class="${path.startsWith('/admin')?'active':''}">Админка</a>`:''}`:''}</nav>`:""}<div class="header-actions">${currentUser?`<span class="user-name">Привет, ${esc(currentUser.name)}!</span><button class="header-bell ${path==='/notifications'?'active':''}" type="button" data-nav="/notifications" title="Уведомления" aria-label="Уведомления">${ico('bell',21)}<span class="nav-unread" data-notification-count hidden></span></button><button class="btn btn-ghost" data-action="logout" title="Выйти">${ico('logout')} Выйти</button>`:`<button class="btn btn-ghost" data-open="login">Войти</button>`}</div></div></header>${isPreview?`<div class="preview-ribbon"><div class="container">Интерактивное демо · данные хранятся только в этом браузере · ссылки не работают на других устройствах <button type="button" data-action="reset-preview">Сбросить демо</button></div></div>`:''}`;}
 function footer(){return `<footer class="container footer"><div><a class="logo" data-nav="/" href="/">шурш<span>!</span></a><small>Место для хотелок и сюрпризов</small></div><p class="footer-credit">Сделано с заботой о сюрпризах <span aria-hidden="true">·</span> <button class="footer-developer" type="button" data-action="contact-developer">L-code</button></p></footer>`;}
 let shellUserSignature='';
+
+// Existing mobile nav gets passive scroll cues; no new elements or fetches.
+let navigationCueNode=null;
+let navigationCueObserver=null;
+function attachNavigationScrollCue(){
+ const nav=app.querySelector('.site-header .nav');
+ if(nav===navigationCueNode)return;
+ navigationCueObserver?.disconnect();
+ navigationCueObserver=null;
+ navigationCueNode=nav;
+ if(!nav)return;
+ let scheduled=false;
+ const sync=()=>{
+  const remaining=Math.max(0,nav.scrollWidth-nav.clientWidth);
+  nav.classList.toggle('nav-scroll-more-right',remaining>2&&nav.scrollLeft<remaining-2);
+  nav.classList.toggle('nav-scroll-more-left',remaining>2&&nav.scrollLeft>2);
+ };
+ const schedule=()=>{
+  if(scheduled)return;
+  scheduled=true;
+  requestAnimationFrame(()=>{scheduled=false;if(nav.isConnected)sync();});
+ };
+ nav.addEventListener('scroll',schedule,{passive:true});
+ if(typeof ResizeObserver==='function'){
+  navigationCueObserver=new ResizeObserver(schedule);
+  navigationCueObserver.observe(nav);
+  nav.querySelectorAll('a').forEach(link=>navigationCueObserver.observe(link));
+ }
+ requestAnimationFrame(sync);
+ if(document.fonts?.ready)void document.fonts.ready.then(schedule);
+}
 function shell(body){
  const identity=(currentUser?.id??'guest')+':'+(currentUser?.name??'')+':'+!!currentUser?.is_admin+':'+isDemo+':'+isPreview;
  let view=app.querySelector('#page-view');
@@ -433,6 +464,7 @@ function shell(body){
    link.classList.toggle('active',active);
   });
  }
+ attachNavigationScrollCue();
  const bell=app.querySelector('.header-bell');if(bell)bell.classList.toggle('active',currentPath()==='/notifications');
   closeUiSelect();view.innerHTML=body;enhanceSelects(view);view.removeAttribute('aria-busy');app.classList.remove('route-loading');
  renderedOwnerTab=ownerTab(currentPath())?currentPath():null;

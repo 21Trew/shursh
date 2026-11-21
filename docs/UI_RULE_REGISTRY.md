@@ -8,11 +8,11 @@ A **conflict** here means the same selector, CSS property and at-rule context
 have different declarations in source order. The last declaration is not
 necessarily the winner if specificity, importance or cascading conditions differ.
 
-- Qualified rule blocks: **890**
-- Unique selectors: **618**
-- Selectors in multiple blocks: **182**
+- Qualified rule blocks: **897**
+- Unique selectors: **621**
+- Selectors in multiple blocks: **184**
 - Differing declarations in the same context: **0**
-- At-rule contexts: **16**
+- At-rule contexts: **17**
 
 ## Same-context differing declarations
 
@@ -41,6 +41,7 @@ necessarily the winner if specificity, importance or cascading conditions differ
 | `.nav a` | 4 | `base@2, base > @media (max-width:420px)@2, base@150, base > @media (max-width:760px)@220` |
 | `.secret-card.revealed` | 4 | `base@2, base@169, base@385, base > @media (max-width:760px)@461` |
 | `.site-header .nav` | 4 | `base@312, base > @media (max-width:760px)@315, base@363, base > @media (max-width:760px)@444` |
+| `.site-header .nav a` | 4 | `base > @media (max-width:760px)@316, base@364, base > @media (max-width:760px)@445, base > @media (max-width:760px),(pointer:coarse)@543` |
 | `.topbar` | 4 | `base@2, base > @media (max-width:760px)@2, base > @media (min-width:761px) and (max-width:920px)@5, base > @media (max-width:760px)@442` |
 | `.wishlist-grid` | 4 | `base@2, base > @media (max-width:1100px)@2, base > @media (max-width:760px)@2, base > @media (max-width:420px)@2` |
 | `.bubble-heart` | 3 | `base@2, base > @media (max-width:760px)@2, base > @media (min-width:761px) and (max-width:980px)@6` |
@@ -62,6 +63,7 @@ necessarily the winner if specificity, importance or cascading conditions differ
 | `.logo` | 3 | `base@2, base > @media (max-width:760px)@2, base > @media (min-width:761px) and (max-width:920px)@5` |
 | `.modal` | 3 | `base@2, base@181, base > @media (max-width:760px)@221` |
 | `.modal-backdrop .modal` | 3 | `base > @media (max-width:760px)@519, base > @media (prefers-reduced-motion:reduce)@526, base > @media (max-width:760px)@534` |
+| `.modal-close` | 3 | `base@2, base@183, base > @media (max-width:760px),(pointer:coarse)@546` |
 | `.modal-scroll-area` | 3 | `base@182, base > @media (max-width:760px)@222, base > @media (max-width:440px)@227` |
 | `.page` | 3 | `base@2, base > @media (max-width:760px)@2, base > @media (max-width:760px)@450` |
 | `.page-hero` | 3 | `base@2, base > @media (max-width:760px)@2, base > @media (max-width:760px)@451` |
@@ -70,7 +72,6 @@ necessarily the winner if specificity, importance or cascading conditions differ
 | `.secret-card.revealed .recipient-wishes` | 3 | `base@174, base@387, base > @media (max-width:760px)@464` |
 | `.showcase` | 3 | `base@2, base > @media (max-width:1100px)@2, base > @media (max-width:760px)@2` |
 | `.showcase-mock` | 3 | `base@2, base > @media (max-width:1100px)@2, base > @media (max-width:760px)@2` |
-| `.site-header .nav a` | 3 | `base > @media (max-width:760px)@316, base@364, base > @media (max-width:760px)@445` |
 | `.social-profile-identity` | 3 | `base@407, base > @media (max-width:760px)@473, base > @media (max-width:400px)@493` |
 | `.social-profile-identity .profile-emoji` | 3 | `base@411, base > @media (max-width:760px)@474, base > @media (max-width:400px)@494` |
 | `.social-search` | 3 | `base@286, base@431, base > @media (max-width:760px)@472` |
@@ -87,6 +88,8 @@ necessarily the winner if specificity, importance or cascading conditions differ
 | `.auth-confirm-symbol` | 2 | `base@17, base > @media (max-width:480px)@24` |
 | `.auth-confirm-symbol .icon` | 2 | `base@18, base > @media (max-width:480px)@24` |
 | `.btn-row` | 2 | `base@2, base > @media (max-width:420px)@2` |
+| `.btn-small` | 2 | `base@2, base > @media (max-width:760px),(pointer:coarse)@544` |
+| `.btn-square` | 2 | `base@2, base > @media (max-width:760px),(pointer:coarse)@545` |
 | `.bubble-gift` | 2 | `base@2, base > @media (max-width:760px)@2` |
 | `.dashboard-empty` | 2 | `base@35, base > @media (max-width:760px)@46` |
 | `.dashboard-empty-art` | 2 | `base@36, base > @media (max-width:760px)@46` |
@@ -130,7 +133,6 @@ necessarily the winner if specificity, importance or cascading conditions differ
 | `.mock-item strong` | 2 | `base@2, base > @media (max-width:760px)@2` |
 | `.modal h2` | 2 | `base@2, base > @media (max-width:760px)@2` |
 | `.modal-backdrop` | 2 | `base@2, base > @media (max-width:760px)@518` |
-| `.modal-close` | 2 | `base@2, base@183` |
 | `.my-wishes-list` | 2 | `base@2, base@161` |
 | `.nav a::before` | 2 | `base@151, base > @media (prefers-reduced-motion:reduce)@230` |
 | `.occasion-chip` | 2 | `base@2, base > @media (max-width:760px)@2` |
@@ -211,7 +213,7 @@ necessarily the winner if specificity, importance or cascading conditions differ
 | Context | Declaration count |
 |---|---:|
 | `base` | 2250 |
-| `base > @media (max-width:760px)` | 300 |
+| `base > @media (max-width:760px)` | 320 |
 | `base > @media (max-width:420px)` | 30 |
 | `base > @media (max-width:400px)` | 23 |
 | `base > @media (max-width:440px)` | 18 |
@@ -220,6 +222,7 @@ necessarily the winner if specificity, importance or cascading conditions differ
 | `base > @media (max-width:1100px)` | 13 |
 | `base > @media (min-width:761px) and (max-width:980px)` | 12 |
 | `base > @media (prefers-reduced-motion:reduce)` | 10 |
+| `base > @media (max-width:760px),(pointer:coarse)` | 8 |
 | `base > @media (min-width:761px) and (max-width:920px)` | 5 |
 | `base > @media (max-width:920px)` | 5 |
 | `base > @media (max-width:580px)` | 4 |
