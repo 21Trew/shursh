@@ -2058,7 +2058,7 @@ def test_mobile_auth_header_marquee_footer_and_warm_focus(browser_http):
                 page=browser.new_page(viewport={'width':width,'height':760})
                 page.goto(browser_http+'/')
                 page.evaluate('window.scrollTo(0,260)')
-                page.wait_for_function("document.querySelector('.site-header').classList.contains('is-condensed')")
+                expect(page.locator('.site-header')).to_have_class(re.compile(r'is-condensed'))
                 login=page.locator('header button[data-open="login"]')
                 expect(login).to_be_visible()
                 expect(login).to_have_text('Войти')
