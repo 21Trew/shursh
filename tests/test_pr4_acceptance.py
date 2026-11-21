@@ -343,3 +343,110 @@ def test_pr4_prefetch_makes_first_visits_and_hour_old_tabs_nonblocking(browser_h
             assert page.evaluate("document.documentElement.scrollWidth <= innerWidth + 2")
         finally:
             browser.close()
+
+
+@pytest.mark.browser
+def test_ui_gallery_layout_and_interaction_regression():
+    """Local UI-kit browser visual contract + screenshots, not a pixel diff.
+
+    Uses the same production CSS as the application, but no real account/API.
+    Exact pixels of screenshots are reviewed as artifacts; computed layout/token
+    invariants fail CI automatically on supported responsive widths.
+    """
+    from pathlib import Path
+    import json
+
+    from playwright.sync_api import sync_playwright, expect
+
+    root = Path(__file__).resolve().parents[1]
+    gallery = root / "tools" / "ui-gallery.html"
+    assert gallery.exists()
+    out = root / "artifacts" / "pr4-ui" / "gallery"
+    out.mkdir(parents=True, exist_ok=True)
+    report = []
+    with sync_playwright() as play:
+        browser = play.chromium.launch(headless=True, args=["--no-sandbox"])
+        try:
+            for width in (375, 390, 768, 1024, 1440):
+                context = browser.new_context(
+                    viewport={"width": width, "height": 860},
+                    reduced_motion="reduce",
+                    device_scale_factor=1,
+                )
+                page = context.new_page()
+                page.goto(gallery.as_uri(), wait_until="load")
+                expect(page.locator("#gallery-open-modal")).to_be_visible()
+                expect(page.locator(".gallery-swatch")).to_have_count(8)
+                assert page.evaluate("document.documentElement.scrollWidth <= innerWidth + 2"), (
+                    "Page-wide overflow", width
+                )
+                values = page.evaluate("""() => {
+                    const css = getComputedStyle(document.documentElement);
+                    const prop = name => css.getPropertyValue(name).trim();
+                    const style = el => getComputedStyle(document.querySelector(el));
+                    const rect = el => {
+                        const b=document.querySelector(el).getBoundingClientRect();
+                        return {width:b.width,height:b.height,x:b.x,right:b.right};
+                    };
+                    return {
+                        color:prop('--paper'),
+                        focus:prop('--focus-color'),
+                        controlRadius:prop('--radius-control'),
+                        panelRadius:prop('--radius-panel'),
+                        buttonRadius:style('.btn').borderRadius,
+                        panelComputedRadius:style('.panel').borderRadius,
+                        fieldComputedRadius:style('.field input').borderRadius,
+                        buttonMinHeight:parseFloat(style('.btn').minHeight),
+                        fieldMinHeight:parseFloat(style('.field input').minHeight),
+                        galleryIndex:rect('.gallery-index'),
+                        panel:rect('.gallery-demo-forms'),
+                    };
+                }""")
+                assert values["color"] == "#f9f7ef", values
+                assert values["focus"] == "#7760b9", values
+                assert values["controlRadius"] == "13px", values
+                assert values["panelRadius"] == "24px", values
+                assert values["buttonRadius"] == "100px", values
+                assert values["panelComputedRadius"] == "24px", values
+                assert values["fieldComputedRadius"] == "13px", values
+                assert values["buttonMinHeight"] >= 49, values
+                assert values["fieldMinHeight"] >= 48, values
+                assert values["panel"]["x"] >= -1, values
+                assert values["panel"]["right"] <= width + 1, values
+                # Interactive UI: toast and tabs (no re-render of unrelated cards).
+                page.locator('[data-gallery-toast]').click()
+                expect(page.locator("#toast-root .toast")).to_have_text("Создан новый вишлист")
+                page.locator('#gallery-nav-2').click()
+                expect(page.locator('#gallery-nav-2')).to_have_attribute("aria-selected", "true")
+                expect(page.locator('#gallery-tab-2')).to_be_visible()
+                expect(page.locator('#gallery-tab-1')).to_be_hidden()
+                page.locator('#gallery-nav-1').click()
+                expect(page.locator('#gallery-tab-1')).to_be_visible()
+                page.screenshot(
+                    path=str(out / f"{width}-gallery.png"),
+                    full_page=True,
+                    animations="disabled",
+                )
+                page.locator("#toast-root").evaluate("(el) => el.replaceChildren()")
+                page.locator("#gallery-open-modal").click()
+                expect(page.get_by_role("dialog", name="Добавить желание")).to_be_visible()
+                geometry = page.locator("#gallery-modal .modal").bounding_box()
+                assert geometry
+                if width <= 760:
+                    assert geometry["x"] <= 2
+                    assert geometry["width"] >= width-2
+                    assert abs(geometry["y"]+geometry["height"]-860) <= 2
+                page.screenshot(
+                    path=str(out / f"{width}-dialog.png"),
+                    full_page=False,
+                    animations="disabled",
+                )
+                page.keyboard.press("Escape")
+                expect(page.locator("#gallery-modal")).to_be_hidden()
+                expect(page.locator("#gallery-open-modal")).to_be_focused()
+                assert page.evaluate("document.documentElement.scrollWidth <= innerWidth + 2"), width
+                report.append({"viewport":width,"tokens":values,"dialog":geometry})
+                context.close()
+        finally:
+            browser.close()
+    (out/"geometry.json").write_text(json.dumps(report,ensure_ascii=False,indent=2))

@@ -1,0 +1,192 @@
+<!doctype html>
+<html lang="ru">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<meta name="color-scheme" content="light">
+<title>Шурш! UI-kit — локальная галерея</title>
+<link rel="stylesheet" href="../public/styles.css">
+<style>
+/* Gallery-only layout. All product controls below use production selectors. */
+[hidden]{display:none!important}
+.ui-gallery .gallery-header{padding:34px 0 26px;border-bottom:1px solid var(--border)}
+.ui-gallery .gallery-header h1{font-family:var(--heading);letter-spacing:-.065em;line-height:1.2;font-size:clamp(28px,3vw,46px);margin:12px 0}
+.ui-gallery .gallery-header p{color:var(--muted);max-width:720px}
+.ui-gallery .gallery-index{display:flex;flex-wrap:wrap;gap:8px;margin-top:24px}
+.ui-gallery .gallery-index a{border:1px solid var(--border);background:var(--paper2);border-radius:var(--radius-pill);padding:7px 13px;font-size:13px;font-weight:750}
+.ui-gallery .gallery-content{padding:38px 0 100px}
+.ui-gallery .gallery-section{margin-bottom:48px;scroll-margin-top:20px}
+.ui-gallery .gallery-section>h2{font-family:var(--heading);font-size:clamp(20px,2vw,28px);margin:0 0 8px}
+.ui-gallery .gallery-section>p{font-size:14px;color:var(--muted);margin-bottom:20px}
+.ui-gallery .gallery-row{display:flex;flex-wrap:wrap;align-items:center;gap:12px}
+.ui-gallery .gallery-grid{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:18px}
+.ui-gallery .gallery-swatches{display:grid;grid-template-columns:repeat(4,minmax(0,1fr));gap:10px}
+.ui-gallery .gallery-swatch{border:1px solid var(--border);border-radius:var(--radius-control);overflow:hidden;background:var(--paper2);min-width:0}
+.ui-gallery .gallery-swatch-color{height:70px}
+.ui-gallery .gallery-swatch-label{padding:9px 11px;font-size:11px;word-break:break-word}
+.ui-gallery .gallery-swatch-label strong{display:block}
+.ui-gallery .gallery-demo-forms{max-width:490px}
+.ui-gallery .gallery-demo-forms .field+.field{margin-top:14px}
+.ui-gallery .gallery-demo-forms .field label{display:block}
+.ui-gallery .gallery-surface{padding:20px;background:var(--paper2);border:1px solid var(--border);border-radius:var(--radius-panel)}
+.ui-gallery .gallery-card{min-height:210px;display:flex;flex-direction:column}
+.ui-gallery .gallery-card .list-bottom{margin-top:auto}
+.ui-gallery .gallery-card .list-bottom .text-link{font-size:13px}
+.ui-gallery .gallery-nav{display:flex;gap:22px;overflow-x:auto;align-items:center;white-space:nowrap;padding:12px 0 24px}
+.ui-gallery .gallery-nav button{border:0;background:none;font-weight:800;font-size:14px;padding:8px 4px;position:relative}
+.ui-gallery .gallery-nav button[aria-selected=true]::after{content:'';position:absolute;left:0;right:0;bottom:4px;height:9px;background:var(--yellow);z-index:-1;border-radius:60% 40% 45% 50%;transform:rotate(-1.5deg)}
+.ui-gallery .gallery-panel{min-height:90px}
+.ui-gallery .gallery-actions{margin-top:14px}
+.ui-gallery .gallery-skeleton-demo{max-width:470px}
+.ui-gallery .gallery-skeleton-demo .skeleton-bar{display:block;margin-bottom:12px}
+.ui-gallery .gallery-skeleton-demo .skeleton-title{height:28px}
+.ui-gallery .gallery-skeleton-demo .skeleton-subtitle{height:13px}
+.ui-gallery .gallery-skeleton-demo .skeleton-card{height:85px}
+.ui-gallery .gallery-foot{border-top:1px solid var(--border);padding:20px 0 30px;font-size:12px;color:var(--muted)}
+.ui-gallery .gallery-demo-modal{z-index:100}
+.ui-gallery .gallery-dialog-form{padding:0}
+.ui-gallery .gallery-santa-card{min-height:210px}
+.ui-gallery .gallery-message{max-width:300px}
+.ui-gallery .gallery-status{font-size:13px;color:var(--muted)}
+.ui-gallery .gallery-avatar{font-size:24px}
+@media(max-width:760px){
+ .ui-gallery .gallery-grid{grid-template-columns:1fr}
+ .ui-gallery .gallery-swatches{grid-template-columns:repeat(2,minmax(0,1fr))}
+ .ui-gallery .gallery-header{padding-top:22px}
+ .ui-gallery .gallery-content{padding-top:26px}
+ .ui-gallery .gallery-section{margin-bottom:36px}
+ .ui-gallery .gallery-index{flex-wrap:nowrap;overflow-x:auto;padding-bottom:8px}
+ .ui-gallery .gallery-index a{flex:0 0 auto}
+ .ui-gallery .gallery-dialog-form{display:flex;flex-direction:column;min-height:0}
+}
+</style>
+</head>
+<body class="ui-gallery">
+<header class="gallery-header">
+<div class="container">
+<span class="section-label">Локальная дизайн-система / Шурш!</span>
+<h1>Вещи, из которых<br>собран Шурш!</h1>
+<p>Рабочая галерея существующих UI-примитивов, состояний и адаптивов без подключения к серверу, аккаунтам и базе данных</p>
+<nav class="gallery-index" aria-label="Разделы галереи">
+<a href="#colors">Цвета</a><a href="#type">Типографика</a><a href="#buttons">Кнопки</a>
+<a href="#forms">Поля</a><a href="#cards">Карточки</a><a href="#tabs">Вкладки</a>
+<a href="#states">Состояния</a><a href="#modal">Модалки</a>
+</nav>
+</div>
+</header>
+<main class="container gallery-content">
+<section class="gallery-section" id="colors">
+<h2>Цвета и поверхности</h2><p>Только роли из DESIGN.md, без случайных новых акцентных цветов</p>
+<div class="gallery-swatches">
+<div class="gallery-swatch"><div class="gallery-swatch-color" style="background:var(--paper)"></div><div class="gallery-swatch-label"><strong>Бумага</strong>--paper</div></div>
+<div class="gallery-swatch"><div class="gallery-swatch-color" style="background:var(--paper2)"></div><div class="gallery-swatch-label"><strong>Поверхность</strong>--paper2</div></div>
+<div class="gallery-swatch"><div class="gallery-swatch-color" style="background:var(--ink)"></div><div class="gallery-swatch-label"><strong>Текст</strong>--ink</div></div>
+<div class="gallery-swatch"><div class="gallery-swatch-color" style="background:var(--peach)"></div><div class="gallery-swatch-label"><strong>Персиковый</strong>--peach</div></div>
+<div class="gallery-swatch"><div class="gallery-swatch-color" style="background:var(--lilac)"></div><div class="gallery-swatch-label"><strong>Лавандовый</strong>--lilac</div></div>
+<div class="gallery-swatch"><div class="gallery-swatch-color" style="background:var(--mint)"></div><div class="gallery-swatch-label"><strong>Мятный</strong>--mint</div></div>
+<div class="gallery-swatch"><div class="gallery-swatch-color" style="background:var(--yellow)"></div><div class="gallery-swatch-label"><strong>Жёлтый</strong>--yellow</div></div>
+<div class="gallery-swatch"><div class="gallery-swatch-color" style="background:var(--border)"></div><div class="gallery-swatch-label"><strong>Граница</strong>--border</div></div>
+</div>
+</section>
+<section class="gallery-section" id="type">
+<h2>Типографика</h2><p>Unbounded для заголовков, Onest для интерфейса, системные fallback без блокировки отображения</p>
+<div class="gallery-surface">
+<span class="section-label">Маленькая подпись</span>
+<h2 style="font-family:var(--heading);font-size:clamp(26px,4vw,42px);margin:12px 0">Хорошие сюрпризы<br>начинаются здесь!</h2>
+<p style="color:var(--muted)">Основной текст помогает разобраться в сценарии, не перегружая страницу</p>
+<p class="note" style="margin-top:12px">Второстепенная информация · 13px</p>
+</div>
+</section>
+<section class="gallery-section" id="buttons">
+<h2>Кнопки и действия</h2><p>Основные варианты, компактная кнопка, иконка без рамки, недоступное состояние</p>
+<div class="gallery-row">
+<button class="btn btn-dark" type="button" data-gallery-toast="Создан новый вишлист">Создать вишлист</button>
+<button class="btn btn-peach" type="button" data-gallery-toast="Новая игра">Новая игра</button>
+<button class="btn btn-lilac" type="button">Пригласить друга</button>
+<button class="btn btn-soft" type="button">Отмена</button>
+<button class="btn btn-ghost" type="button">Подробнее</button>
+<button class="btn btn-dark" type="button" disabled>Недоступно</button>
+<button class="btn btn-soft btn-small" type="button">Компактная</button>
+<button class="btn btn-square" type="button" aria-label="Добавить">+</button>
+<button class="header-bell" type="button" aria-label="Уведомления">
+<svg viewBox="0 0 24 24" width="23" height="23" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" aria-hidden="true"><path d="M18 8a6 6 0 0 0-12 0c0 7-3 7-3 9h18c0-2-3-2-3-9M10 21h4"/></svg>
+</button>
+</div>
+</section>
+<section class="gallery-section" id="forms">
+<h2>Поля и формы</h2><p>Лейблы, подсказки, ошибки, textarea и нативный select для сенсорных устройств</p>
+<div class="panel gallery-demo-forms">
+<div class="field"><label for="gallery-name">Название желания</label><input id="gallery-name" name="title" placeholder="Например, хорошая книга" autocomplete="off"></div>
+<div class="field"><label for="gallery-error">Проверка поля</label><input id="gallery-error" aria-invalid="true" aria-describedby="gallery-error-hint" value="!" required><span id="gallery-error-hint" class="field-error">Укажи название</span></div>
+<div class="field"><label for="gallery-choice">Категория подарка</label><select id="gallery-choice"><option>Книги</option><option>Электроника</option><option>Впечатления</option></select></div>
+<div class="field"><label for="gallery-note">Заметка</label><textarea id="gallery-note" rows="3" placeholder="Что было бы здорово получить"></textarea></div>
+<label class="switch-label"><input type="checkbox" checked> Показывать друзьям</label>
+<div class="form-actions"><button class="btn btn-soft" type="button">Отмена</button><button class="btn btn-dark" type="button">Сохранить</button></div>
+</div>
+</section>
+<section class="gallery-section" id="cards">
+<h2>Карточки и статусы</h2><p>Карточка-поверхность, компактный список и игровая карточка</p>
+<div class="gallery-grid">
+<article class="panel gallery-card"><span class="section-label">Моя коллекция</span><h2>Маленькие радости</h2><p class="note">4 желания · Открыт для друзей</p><div class="gallery-row" style="margin-top:18px"><span class="chip">4 желания</span><span class="chip chip-peach">Организатор</span><span class="chip chip-green">Готово</span></div><div class="list-bottom"><span>Обновлено недавно</span><button class="text-link" type="button">Открыть →</button></div></article>
+<article class="santa-list-card gallery-santa-card"><div class="section-label">Жеребьёвка проведена</div><h3 style="margin-top:8px">Проверка связи</h3><p>Первый дарит второму, но никто не знает кому</p><div class="list-bottom"><span>3 участника</span><button class="text-link" type="button">Открыть →</button></div></article>
+</div>
+<div class="gallery-row" style="margin-top:18px"><span class="avatar emoji-avatar gallery-avatar">🎁</span><span class="avatar emoji-avatar gallery-avatar">🐱</span><span class="avatar emoji-avatar gallery-avatar">🌙</span><span class="chip chip-lilac">Друзья</span><span class="chip chip-peach">Ждёт ответа</span></div>
+</section>
+<section class="gallery-section" id="tabs">
+<h2>Вкладки</h2><p>Состояние активного раздела, возвращение из кеша без полного пересоздания DOM</p>
+<div class="panel">
+<div class="gallery-nav" role="tablist" aria-label="Демо-вкладки">
+<button type="button" role="tab" aria-selected="true" aria-controls="gallery-tab-1" id="gallery-nav-1">Общий чат</button>
+<button type="button" role="tab" aria-selected="false" aria-controls="gallery-tab-2" id="gallery-nav-2">Личный чат</button>
+</div>
+<div class="gallery-panel" role="tabpanel" id="gallery-tab-1" aria-labelledby="gallery-nav-1"><div class="chat-message gallery-message"><div class="chat-meta">Шурш!</div><p>Подарки уже обсуждают</p></div></div>
+<div class="gallery-panel" role="tabpanel" id="gallery-tab-2" aria-labelledby="gallery-nav-2" hidden><p class="note">Здесь будут личные сообщения</p></div>
+</div>
+</section>
+<section class="gallery-section" id="states">
+<h2>Состояния загрузки и ошибки</h2><p>Плейсхолдеры не должны блокировать переход между уже посещёнными разделами</p>
+<div class="gallery-grid">
+<div class="panel"><div class="gallery-skeleton-demo" aria-label="Пример загрузки"><span class="skeleton-bar skeleton-title"></span><span class="skeleton-bar skeleton-subtitle"></span><div class="skeleton-card"></div></div></div>
+<div class="panel"><div class="section-label">Нет подарков</div><h2 style="margin-top:14px">Здесь пока тихо</h2><p class="note">Добавь первое желание!</p><div class="gallery-actions"><button class="btn btn-peach btn-small" type="button">Добавить</button></div></div>
+</div>
+<div class="alert alert-error" role="alert" style="margin-top:16px">Не удалось сохранить изменения — попробуй снова</div>
+</section>
+<section class="gallery-section" id="modal">
+<h2>Модальные окна</h2><p>На мобильном открываются снизу, не перекрывают кнопку сохранения, поддерживают Escape</p>
+<button class="btn btn-dark" id="gallery-open-modal" type="button" aria-haspopup="dialog">Открыть модалку</button>
+</section>
+</main>
+<footer class="container gallery-foot">Локальная UI Gallery · тестовые данные · не подключена к Production</footer>
+<div class="modal-backdrop gallery-demo-modal" id="gallery-modal" hidden>
+<div class="modal" role="dialog" aria-modal="true" aria-label="Добавить желание">
+<button class="modal-close" type="button" id="gallery-close-modal" aria-label="Закрыть">×</button>
+<div class="modal-scroll-area gallery-dialog-form">
+<h2>Добавить желание</h2><p class="modal-subtitle">Небольшое желание может стать большим сюрпризом</p>
+<div class="field"><label for="gallery-wish-modal">Название</label><input id="gallery-wish-modal" placeholder="Что хотелось бы получить"></div>
+<div class="form-actions"><button type="button" class="btn btn-soft" id="gallery-cancel-modal">Отмена</button><button type="button" class="btn btn-dark" id="gallery-save-modal">Сохранить</button></div>
+</div>
+</div>
+</div>
+<div id="toast-root" aria-live="polite"></div>
+<script>
+(function(){
+ const modal=document.getElementById('gallery-modal');
+ const trigger=document.getElementById('gallery-open-modal');
+ const close=()=>{modal.hidden=true;trigger.focus()};
+ trigger.addEventListener('click',()=>{modal.hidden=false;document.getElementById('gallery-wish-modal').focus()});
+ ['gallery-close-modal','gallery-cancel-modal','gallery-save-modal'].forEach(id=>document.getElementById(id).addEventListener('click',close));
+ modal.addEventListener('click',ev=>{if(ev.target===modal)close()});
+ document.addEventListener('keydown',ev=>{if(!modal.hidden&&ev.key==='Escape')close()});
+ const tabs=[...document.querySelectorAll('[role=tab]')];
+ tabs.forEach((tab,i)=>tab.addEventListener('click',()=>{
+  tabs.forEach((item,j)=>{item.setAttribute('aria-selected',String(i===j));document.getElementById(item.getAttribute('aria-controls')).hidden=i!==j});
+ }));
+ document.addEventListener('click',ev=>{
+  const el=ev.target.closest('[data-gallery-toast]');if(!el)return;
+  const root=document.getElementById('toast-root');
+  root.innerHTML='';const message=document.createElement('div');message.className='toast';message.textContent=el.dataset.galleryToast;root.appendChild(message);
+ });
+})();
+</script>
+</body>
+</html>
