@@ -1125,6 +1125,7 @@ def test_shursh_ux_followup_finish_game_and_sticky_modal(browser_https):
             bell=page.locator('header .header-bell').bounding_box()
             pop=page.locator('.notification-popover .modal').bounding_box()
             assert bell and pop and pop['y']>=bell['y']+bell['height']-2,(bell,pop)
-            assert pop['x']>1280/2 and pop['x']+pop['width']<=1280,(bell,pop)
+            assert pop['x']>=0 and pop['x']+pop['width']<=1280,(bell,pop)
+            assert abs((pop['x']+pop['width'])-(bell['x']+bell['width']))<=16,(bell,pop)
         finally:
             browser.close()
