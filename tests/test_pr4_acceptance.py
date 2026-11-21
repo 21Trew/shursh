@@ -1017,3 +1017,61 @@ def test_pr4_post_release_mobile_controls_chromium_webkit(browser_https):
                     context.close()
             finally:
                 browser.close()
+
+
+
+@pytest.mark.browser
+def test_shursh_ux_followup_finish_game_and_sticky_modal(browser_https):
+    """Signed-in owner can finish a drawn game without losing secrets."""
+    from uuid import uuid4
+    with sync_playwright() as play:
+        browser=play.chromium.launch(headless=True,args=['--no-sandbox'])
+        try:
+            page=browser.new_page(viewport={'width':390,'height':844},reduced_motion='reduce')
+            page.set_default_timeout(15000)
+            page.goto(browser_https+'/',wait_until='domcontentloaded')
+            browser_login(page)
+            expect(page.locator('header .user-name')).to_have_count(0)
+            expect(page.locator('header .header-avatar')).to_be_visible()
+            assert page.locator('header .nav a.active').count()==1
+            assert page.evaluate("document.documentElement.scrollWidth <= innerWidth+2")
+            event=page.evaluate("""async title => {
+              const response=await fetch('/api/santas',{method:'POST',
+                headers:{'Content-Type':'application/json'},
+                body:JSON.stringify({title})});
+              if(!response.ok)throw Error('Could not create event');
+              return await response.json();
+            }""",'Visual status '+uuid4().hex[:8])
+            id=event['id']
+            for name in ('Гость один','Гость два'):
+                page.evaluate("""async ({id,name}) => {
+                  const response=await fetch('/api/santas/'+id+'/participants',{method:'POST',
+                    headers:{'Content-Type':'application/json'},
+                    body:JSON.stringify({name})});
+                  if(!response.ok)throw Error('Could not add participant');
+                }""",{'id':id,'name':name})
+            page.evaluate("""async id => {
+                const response=await fetch('/api/santas/'+id+'/draw',{method:'POST',
+                  headers:{'Content-Type':'application/json'},body:'{}'});
+                if(!response.ok)throw Error('Could not draw');
+            }""",id)
+            page.evaluate("id => nav('/santa/'+id,{force:true})",id)
+            expect(page.locator('[data-action="finish-santa"]')).to_be_visible()
+            expect(page.locator('.santa-game-status')).to_contain_text('Игра началась')
+            page.locator('[data-action="finish-santa"]').click()
+            dialog=page.get_by_role('dialog',name='Завершить Тайного Санту?')
+            expect(dialog).to_be_visible()
+            assert page.locator('.modal-backdrop').evaluate(
+                "(el) => +getComputedStyle(el).zIndex"
+            )>page.locator('header.site-header').evaluate(
+                "(el) => +getComputedStyle(el).zIndex")
+            page.locator('.modal-fixed-footer [type="submit"]').click()
+            expect(page.locator('.santa-game-status')).to_contain_text('Игра завершена')
+            expect(page.locator('[data-action="finish-santa"]')).to_have_count(0)
+            assert page.evaluate("document.documentElement.scrollWidth <= innerWidth+2")
+            assert page.evaluate("""async id => {
+                const response=await fetch('/api/santas/'+id);
+                return response.ok&&(await response.json()).event.status==='finished';
+            }""",id)
+        finally:
+            browser.close()
