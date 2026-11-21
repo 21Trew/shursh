@@ -3,13 +3,15 @@
 function gameWishCard(w,source='own'){
  const mine=source==='own';
  const image=w.image_data?'<img src="'+attr(w.image_data)+'" alt="'+attr(w.title)+'" loading="lazy" decoding="async">':artFor(w);
- const detail=w.description||'Нажми, чтобы посмотреть детали';
+ const actions=mine?'<div class="game-gift-overlay-actions"><button type="button" class="btn btn-soft" data-action="edit-game-gift" data-id="'+w.id+'" aria-label="Изменить подарок" title="Изменить">'+ico('edit')+'</button>'+
+  '<button type="button" class="btn btn-soft" data-action="delete-game-gift" data-id="'+w.id+'" aria-label="Удалить подарок" title="Удалить">'+ico('trash')+'</button></div>':'';
  return '<article class="wish-card game-gift-card">'+
-  '<button type="button" class="card-hitarea" data-action="show-game-gift" data-id="'+w.id+'" data-source="'+source+'" aria-label="Посмотреть подарок '+attr(w.title)+'"></button>'+
-  '<div class="wish-image">'+image+'</div><div class="wish-content"><h3>'+esc(w.title)+'</h3>'+
-  '<p class="wish-desc">'+esc(detail)+'</p><div class="wish-card-footer"><div class="wish-price">'+
-  money(w.price_cents,w.currency)+'</div>'+(mine?'<div class="wish-controls"><button type="button" class="btn btn-soft" data-action="edit-game-gift" data-id="'+w.id+'" aria-label="Изменить подарок" title="Изменить подарок">'+ico('edit')+'</button><button type="button" class="btn btn-soft" data-action="delete-game-gift" data-id="'+w.id+'" aria-label="Удалить подарок" title="Удалить подарок">'+ico('trash')+'</button></div>':'')+'</div>'+
-  (w.shop_url?'<a href="'+attr(w.shop_url)+'" target="_blank" rel="noopener noreferrer" class="text-link game-gift-store">В магазин '+ico('external')+'</a>':'')+
+  '<button type="button" class="card-hitarea" data-action="show-game-gift" data-id="'+w.id+'" data-source="'+source+'" aria-label="Подробнее о подарке '+attr(w.title)+'"></button>'+
+  '<div class="wish-image">'+image+actions+'</div>'+
+  '<div class="wish-content"><h3>'+esc(w.title)+'</h3>'+
+  (w.description?'<p class="wish-desc">'+esc(w.description)+'</p>':'')+
+  '<div class="game-gift-inline-price">'+money(w.price_cents,w.currency)+'</div>'+
+  (w.shop_url?'<span class="game-gift-store-hint">'+ico('external',14)+' Есть ссылка на магазин</span>':'')+
   '</div></article>';
 }
 function wishesMarkup(wishes,source='own'){
@@ -22,21 +24,20 @@ function wishesMarkup(wishes,source='own'){
 }
 function showGameWishDetails(el){
  const state=activeGameContext;if(!state)return;
- const gift=(el.dataset.source==='recipient'?state.recipient:state.own)?.find(w=>Number(w.id)===Number(el.dataset.id));
+ const source=el.dataset.source||'own';
+ const gift=(source==='recipient'?state.recipient:state.own)?.find(w=>Number(w.id)===Number(el.dataset.id));
  if(!gift)return;
- const own=el.dataset.source!=='recipient';
- const image=gift.image_data?'<img class="wish-detail-image" src="'+attr(gift.image_data)+'" alt="'+attr(gift.title)+'">':
-   '<div class="wish-detail-art">'+artFor(gift)+'</div>';
- const details=(label,value)=>value?'<div class="game-gift-note"><strong>'+label+'</strong><p>'+esc(value)+'</p></div>':'';
+ const mine=source!=='recipient';
+ const image=gift.image_data?'<img class="gift-dialog-image" src="'+attr(gift.image_data)+'" alt="'+attr(gift.title)+'">':
+   '<div class="gift-dialog-fallback">'+artFor(gift)+'</div>';
+ const description=gift.description?'<div class="gift-dialog-description"><strong>Комментарий</strong><p>'+esc(gift.description)+'</p></div>':'';
  const store=gift.shop_url?'<a class="btn btn-soft" href="'+attr(gift.shop_url)+'" target="_blank" rel="noopener noreferrer">В магазин '+ico('external')+'</a>':'';
- const actions=own?'<button class="btn btn-soft" data-action="edit-game-gift" data-id="'+gift.id+'">'+ico('edit')+' Изменить</button>':'';
- modal({title:gift.title,subtitle:money(gift.price_cents,gift.currency),
-   content:'<div class="wish-detail">'+image+details('Описание',gift.description)+
-     
-     '<div class="wish-detail-actions">'+store+actions+'</div></div>'});
- const photo=modalRoot.querySelector('.wish-detail > .wish-detail-image, .wish-detail > .wish-detail-art');
- const heading=modalRoot.querySelector('.modal-scroll-area h2');
- if(photo&&heading)heading.before(photo);
+ const footer=(mine?'<button type="button" class="btn btn-soft" data-action="edit-game-gift" data-id="'+gift.id+'">'+ico('edit')+' Изменить</button>':'<span></span>')+
+  '<button type="button" class="btn btn-dark" data-close>Закрыть</button>';
+ modal({title:gift.title,content:'<div class="gift-dialog-layout"><div class="gift-dialog-media">'+image+'</div>'+
+  '<div class="gift-dialog-copy"><div class="gift-dialog-price">'+money(gift.price_cents,gift.currency)+'</div>'+
+  description+store+'</div></div>',
+  footer:'<div class="gift-dialog-footer">'+footer+'</div>'});
  modalRoot.querySelector('.modal')?.classList.add('gift-details-modal');
 }
 async function smallGamePhoto(file){
