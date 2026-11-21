@@ -582,8 +582,60 @@ function loading(){
 }
 function errorView(err,title='Что-то пошло не так'){shell(`<main class="container page"><div class="error-page">${envelopeArt()}<h1>${esc(title)}</h1><p>${esc(err?.message||'Не удалось загрузить страницу')}</p><button class="btn btn-dark" data-nav="/">На главную ${ico('arrow')}</button></div></main>`);}
 function emptyState(title,desc,button,open){return `<div class="blank-state"><div class="blank-illustration">${fallbackArt('gift')}</div><h3>${esc(title)}</h3><p>${esc(desc)}</p><button class="btn btn-dark" data-open="${attr(open)}">${esc(button)} ${ico('plus')}</button></div>`;}
-async function listsPage(marker=lastRenderToken){if(!currentUser){shell(`<main class="container page"><div class="page-hero"><div><div class="section-label">Твой уголок</div><h1>Мои вишлисты</h1><p>Здесь будут все твои желания. Для начала нужно войти</p></div><button class="btn btn-dark" data-open="login">Войти ${ico('arrow')}</button></div>${emptyState('Всё начинается с одного желания','Войди или создай аккаунт, чтобы хранить списки','Создать аккаунт','register')}</main>`);return;}
- const {lists}=await api('/api/lists');if(marker!==lastRenderToken)return;shell(`<main class="container page"><div class="page-hero"><div><div class="section-label">Коллекция желаний</div><h1>Твои вишлисты ${isDemo?'<span class="demo-banner">ДЕМО-ДАННЫЕ</span>':''}</h1><p>Хочешь - по поводу, хочешь - просто потому что</p></div><div class="btn-row"><button class="btn btn-dark" data-open="list">Новый список ${ico('plus')}</button></div></div>${lists.length?`<div class="cards-grid">${lists.map(l=>listCard(l)).join('')}</div>`:emptyState('Здесь пока тихо','Создай первый список и добавь пару желаний','Создать список','list')}</main>`);}
+let wishlistTabGeneration=0;
+let currentOwnedWishlists=[];
+function friendWishlistTiles(lists){
+ const occasions=[...new Set(lists.map(x=>x.occasion||'Просто так'))];
+ const chips=['Все',...occasions].map((name,index)=>
+  '<button type="button" class="filter-chip'+(!index?' active':'')+'" data-wishlist-filter="'+attr(name)+'" aria-pressed="'+(!index?'true':'false')+'">'+esc(name)+'</button>').join('');
+ return (lists.length?'<div class="wishlist-filters" role="group" aria-label="Поводы вишлистов">'+chips+'</div>'+
+ '<div class="cards-grid friend-wishlist-grid">'+lists.map(l=>
+  '<article class="list-card" data-occasion="'+attr(l.occasion||'Просто так')+'"><a class="card-hitarea" href="/w/'+attr(l.share_key)+'" data-nav="/w/'+attr(l.share_key)+'" aria-label="Открыть вишлист '+attr(l.title)+'"></a>'+
+  '<div class="list-cover cover-'+attr(l.theme)+'">'+fallbackArt('gift')+'</div>'+
+  '<div class="list-info"><span class="section-label">'+esc(l.owner_name)+'</span><h3>'+esc(l.title)+'</h3><p>'+esc(l.description||l.occasion||'Список подарков')+'</p>'+
+  '<div class="list-bottom"><span>'+l.wish_count+' '+plural(l.wish_count,'желание','желания','желаний')+'</span><button class="text-link" data-nav="/w/'+attr(l.share_key)+'">Открыть '+ico('arrow')+'</button></div></div></article>').join('')+'</div>':
+  '<div class="blank-state"><h3>Пока нет доступных вишлистов друзей</h3><p>Добавь друзей, которые открыли свои списки по ссылке</p><button class="btn btn-soft" data-nav="/friends">Мои друзья</button></div>');
+}
+async function listsPage(marker=lastRenderToken){
+ if(!currentUser){shell('<main class="container page"><h1>Мои вишлисты</h1><p>Войди, чтобы создавать списки</p><button class="btn btn-dark" data-open="login">Войти</button></main>');return;}
+ const {lists}=await api('/api/lists');if(marker!==lastRenderToken)return;
+ currentOwnedWishlists=lists;wishlistTabGeneration++;
+ shell('<main class="container page wishlists-page"><div class="page-hero"><div><div class="section-label">Коллекция желаний</div><h1>Твои вишлисты</h1><p>Мои желания и открытые списки друзей</p></div><div class="btn-row"><button class="btn btn-dark" data-open="list">Новый список '+ico('plus')+'</button></div></div>'+
+ '<div class="wishlist-view-tabs" role="tablist" aria-label="Вишлисты"><button type="button" role="tab" aria-selected="true" class="active" data-wishlist-view="mine">Мои вишлисты</button><button type="button" role="tab" aria-selected="false" data-wishlist-view="friends">Вишлисты друзей</button></div>'+
+ '<div id="wishlist-view-content" role="tabpanel">'+
+ (lists.length?'<div class="cards-grid">'+lists.map(l=>listCard(l)).join('')+'</div>':emptyState('Здесь пока тихо','Создай первый список и добавь пару желаний','Создать список','list'))+
+ '</div></main>');
+}
+document.addEventListener('click',async event=>{
+ const tab=event.target.closest('[data-wishlist-view]');
+ if(tab){
+  event.preventDefault();const tabs=tab.closest('[role="tablist"]');
+  if(tab.classList.contains('active'))return;
+  for(const el of tabs.querySelectorAll('[data-wishlist-view]')){const selected=el===tab;el.classList.toggle('active',selected);el.setAttribute('aria-selected',String(selected));}
+  const region=document.getElementById('wishlist-view-content');
+  if(!region)return;
+  const generation=++wishlistTabGeneration;
+  if(tab.dataset.wishlistView==='mine'){
+   region.innerHTML=currentOwnedWishlists.length?'<div class="cards-grid">'+currentOwnedWishlists.map(x=>listCard(x)).join('')+'</div>':
+    emptyState('Здесь пока тихо','Создай первый список и добавь пару желаний','Создать список','list');
+   return;
+  }
+  region.innerHTML='<p class="note" role="status">Загружаем вишлисты друзей…</p>';
+  try{
+   const result=await api('/api/friends/wishlists');
+   if(generation!==wishlistTabGeneration||!region.isConnected)return;
+   region.innerHTML=friendWishlistTiles(result.lists||[]);
+  }catch(err){if(generation===wishlistTabGeneration&&region.isConnected)region.innerHTML='<p class="note">'+esc(err.message)+'</p>';}
+  return;
+ }
+ const filter=event.target.closest('[data-wishlist-filter]');
+ if(filter){
+  event.preventDefault();
+  const panel=filter.closest('#wishlist-view-content');if(!panel)return;
+  for(const item of panel.querySelectorAll('[data-wishlist-filter]')){const selected=item===filter;item.classList.toggle('active',selected);item.setAttribute('aria-pressed',String(selected));}
+  for(const tile of panel.querySelectorAll('[data-occasion]'))tile.hidden=filter.dataset.wishlistFilter!=='Все'&&tile.dataset.occasion!==filter.dataset.wishlistFilter;
+ }
+});
 function listCard(l){return `<article class="list-card"><a class="card-hitarea" href="/list/${l.id}" data-nav="/list/${l.id}" aria-label="Открыть вишлист ${attr(l.title)}"></a><div class="list-cover cover-${attr(l.theme)}"><span class="cover-stamp">${esc(l.occasion)}</span>${fallbackArt('gift')}</div><div class="list-info"><h3>${esc(l.title)}</h3><p>${esc(l.description||'Место для твоих желаний')}</p><div class="list-bottom"><span>${l.wish_count} ${plural(l.wish_count,'желание','желания','желаний')}</span><button class="text-link" data-nav="/list/${l.id}">Открыть ${ico('arrow')}</button></div></div></article>`;}
 function plural(n,a,b,c){const k=Number(n)%100,d=k%10;return k>=11&&k<=14?c:d===1?a:d>=2&&d<=4?b:c;}
 function wishCard(w,mode='owner',shareKey=''){
@@ -632,7 +684,10 @@ async function adminFeedbackPage(marker=lastRenderToken){
   ).join('')+'</div>':'<div class="panel"><p>Сообщений пока нет</p></div>')+'</main>');
 }
 async function santasPage(marker=lastRenderToken){if(!currentUser){shell(`<main class="container page"><div class="page-hero"><div><div class="section-label">Под прикрытием</div><h1>Тайный Санта</h1><p>Чтобы организовать игру, нужно войти. Участникам регистрация не требуется</p></div><button class="btn btn-dark" data-open="login">Войти ${ico('arrow')}</button></div>${emptyState('Собери компанию','Укажите бюджет, зовите друзей и проведите честную жеребьёвку','Создать игру','santa')}</main>`);return;}
- const {events}=await api('/api/santas');if(marker!==lastRenderToken)return;shell(`<main class="container page"><div class="page-hero"><div><div class="section-label">Секретная служба подарков</div><h1>Тайный Санта</h1><p>Здесь живут все твои секретные обмены подарками</p></div><div class="btn-row"><button class="btn btn-dark" data-open="santa">Новая игра ${ico('plus')}</button></div></div>${events.length?`<div class="santa-grid">${events.map(e=>`<div class="santa-list-card"><a class="card-hitarea" href="/santa/${e.id}" data-nav="/santa/${e.id}" aria-label="Открыть игру ${attr(e.title)}"></a><span class="sparkle-deco" aria-hidden="true">${ico("spark",72)}</span><div class="section-label">${e.status==='drawn'?'Жеребьёвка проведена':'Собираем компанию'}</div><h3>${esc(e.title)}</h3><p>${esc(e.description||'Собираем друзей для хороших сюрпризов')}</p><div class="list-bottom"><span>${ico('users')} ${e.participant_count} ${plural(e.participant_count,'участник','участника','участников')} · ${dateRu(e.exchange_date)}</span><button class="text-link" data-nav="/santa/${e.id}">Открыть ${ico('arrow')}</button></div></div>`).join('')}</div>`:emptyState('Пока без секретов','Первую игру создать проще, чем выбрать подарочную бумагу','Создать игру','santa')}</main>`);}
+ const {events,invitations=[]}=await api('/api/santas');if(marker!==lastRenderToken)return;
+ const pending=invitations.length?'<section class="panel santa-pending"><h2>Приглашения <span class="chip">'+invitations.length+'</span></h2>'+
+  invitations.map(i=>'<article class="santa-pending-row"><div><strong>'+esc(i.title)+'</strong><p class="note">'+dateRu(i.exchange_date)+' · '+money(i.budget_cents,i.currency)+'</p></div><button type="button" class="btn btn-peach btn-small" data-action="accept-santa-invite" data-key="'+attr(i.invite_key)+'">Присоединиться</button></article>').join('')+'</section>':'';
+ shell(`<main class="container page"><div class="page-hero"><div><div class="section-label">Секретная служба подарков</div><h1>Тайный Санта</h1><p>Здесь живут все твои секретные обмены подарками</p></div><div class="btn-row"><button class="btn btn-dark" data-open="santa">Новая игра ${ico('plus')}</button></div></div>${pending}${events.length?`<div class="santa-grid">${events.map(e=>`<div class="santa-list-card"><a class="card-hitarea" href="/santa/${e.id}" data-nav="/santa/${e.id}" aria-label="Открыть игру ${attr(e.title)}"></a><span class="sparkle-deco" aria-hidden="true">${ico("spark",72)}</span><div class="section-label">${e.status==='drawn'?'Жеребьёвка проведена':'Собираем компанию'}</div><h3>${esc(e.title)}</h3><p>${esc(e.description||'Собираем друзей для хороших сюрпризов')}</p><div class="list-bottom"><span>${ico('users')} ${e.participant_count} ${plural(e.participant_count,'участник','участника','участников')} · ${dateRu(e.exchange_date)}</span><button class="text-link" data-nav="/santa/${e.id}">Открыть ${ico('arrow')}</button></div></div>`).join('')}</div>`:emptyState('Пока без секретов','Первую игру создать проще, чем выбрать подарочную бумагу','Создать игру','santa')}</main>`);}
 let loadedSanta=null;
 let activeGameContext=null;
 let gameChatTimer=null;
@@ -920,6 +975,15 @@ async function importOwnWishesModal(el){
 function reserveModal(id,key){modal({title:'Забронировать подарок',subtitle:'Владелец не узнает, кто выбрал подарок',content:'<p class="note">Бронь анонимна. Сохрани приватную ссылку для отмены</p>',submitLabel:'Забронировать',onSubmit:async()=>{const r=await api(`/api/public/${key}/reserve/${id}`,{method:'POST',body:{}});nav(`/r/${r.manage_token}`);notice('Подарок за тобой!');}});}
 async function confirmAction(title,subtitle,handler,label='Удалить'){modal({title,subtitle,content:'<div class="alert alert-error">Это действие нельзя отменить</div>',submitLabel:label,onSubmit:handler});}
 async function dispatch(action,el){try{
+ if(action==='accept-santa-invite'){
+  if(!currentUser)return;
+  const result=await api('/api/invites/'+encodeURIComponent(el.dataset.key)+'/join',{method:'POST',body:{name:currentUser.name}});
+  if(result.participant_token){
+   await api('/api/participant/'+encodeURIComponent(result.participant_token)+'/claim',{method:'POST',body:{}}).catch(()=>{});
+  }
+  notice('Ты в игре!');nav('/santas',{force:true});return;
+ }
+
  if(action==='edit-santa-preferences'){const f=document.getElementById('santa-preferences-form'),d=document.getElementById('santa-preferences-display');if(f&&d){f.hidden=false;d.hidden=true;}return;}
  if(action==='cancel-santa-preferences'){const f=document.getElementById('santa-preferences-form'),d=document.getElementById('santa-preferences-display');if(f&&d){f.reset();f.hidden=true;d.hidden=false;}return;}
  if(action==='claim-game'){const token=el.dataset.token;if(!token)return;if(!currentUser){pendingGameClaim=token;loginModal('login');return;}await api('/api/participant/'+encodeURIComponent(token)+'/claim',{method:'POST',body:{}});notice('Игра сохранена в аккаунте');nav('/santas',{force:true});return;}
