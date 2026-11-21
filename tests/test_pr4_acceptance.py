@@ -1067,6 +1067,15 @@ def test_shursh_ux_followup_finish_game_and_sticky_modal(browser_https):
                 "(el) => +getComputedStyle(el).zIndex"
             )>page.locator('header.site-header').evaluate(
                 "(el) => +getComputedStyle(el).zIndex")
+            import struct,zlib
+            def chunk(tag,payload):
+                return struct.pack('>I',len(payload))+tag+payload+struct.pack('>I',zlib.crc32(tag+payload)&0xffffffff)
+            photo=(b'\x89PNG\r\n\x1a\n'+
+                   chunk(b'IHDR',struct.pack('>IIBBBBB',32,32,8,2,0,0,0))+
+                   chunk(b'IDAT',zlib.compress(b''.join(b'\x00'+bytes([250,220,200])*32 for _ in range(32))))+
+                   chunk(b'IEND',b''))
+            page.locator('#finish-santa-photo').set_input_files({
+                'name':'group-snapshot.png','mimeType':'image/png','buffer':photo})
             page.locator('.modal-fixed-footer [type="submit"]').click()
             expect(page.locator('.santa-game-status')).to_contain_text('Игра завершена')
             expect(page.locator('[data-action="finish-santa"]')).to_have_count(0)
@@ -1077,22 +1086,43 @@ def test_shursh_ux_followup_finish_game_and_sticky_modal(browser_https):
             }""",id)
             expect(page.locator('.santa-memory-panel')).to_be_visible()
             expect(page.locator('#santa-memory-input')).to_have_count(1)
-            import struct,zlib
-            # A fully valid PNG; the old tiny placeholder has incomplete image data
-            # and is rejected by createImageBitmap in some Chromium versions.
-            def chunk(tag,payload):
-                return struct.pack('>I',len(payload))+tag+payload+struct.pack('>I',zlib.crc32(tag+payload)&0xffffffff)
-            photo=(b'\x89PNG\r\n\x1a\n'+
-                   chunk(b'IHDR',struct.pack('>IIBBBBB',32,32,8,2,0,0,0))+
-                   chunk(b'IDAT',zlib.compress(b''.join(b'\x00'+bytes([250,220,200])*32 for _ in range(32))))+
-                   chunk(b'IEND',b''))
+            expect(page.locator('.santa-memory-photo')).to_be_visible()
+            assert page.locator('.santa-memory-photo').get_attribute('src').startswith('data:image/webp;base64,')
             page.locator('#santa-memory-input').set_input_files({
                 'name':'all-together.png','mimeType':'image/png','buffer':photo})
             expect(page.locator('.santa-memory-photo')).to_be_visible(timeout=15000)
-            assert page.locator('.santa-memory-photo').get_attribute('src').startswith('data:image/jpeg;base64,')
+            assert page.locator('.santa-memory-photo').get_attribute('src').startswith('data:image/webp;base64,')
             assert page.evaluate("""async id => {
                 const response=await fetch('/api/santas/'+id+'/memory');
                 return response.ok&&!!(await response.json()).memory?.image_data;
             }""",id)
+            # The switcher is client-only: moving an event into completed
+            # does not trigger a new API request for every filter click.
+            page.evaluate("nav('/santas',{force:true})")
+            expect(page.locator('.santa-state-tabs [data-santa-state]')).to_have_count(2)
+            page.locator('[data-santa-state="finished"]').click()
+            expect(page.locator('[data-santa-card-state="finished"]:not([hidden])')).to_have_count(1)
+            expect(page.locator('[data-santa-card-state="current"]:not([hidden])')).to_have_count(0)
+            page.locator('[data-santa-state="current"]').click()
+            expect(page.locator('[data-santa-card-state="finished"][hidden]')).to_have_count(1)
+            # Header collapse must not alter document flow or scroll position.
+            page.evaluate("""() => {
+                document.body.style.minHeight='3000px';
+                window.scrollTo(0,300);
+            }""")
+            page.wait_for_function("document.querySelector('.site-header')?.classList.contains('is-condensed')")
+            stable=page.evaluate("({scrollY,padding:getComputedStyle(document.querySelector('#app')).paddingTop,top:document.querySelector('.site-header').getBoundingClientRect().top})")
+            page.wait_for_timeout(160)
+            again=page.evaluate("({scrollY,padding:getComputedStyle(document.querySelector('#app')).paddingTop,top:document.querySelector('.site-header').getBoundingClientRect().top})")
+            assert abs(stable['scrollY']-again['scrollY'])<2,(stable,again)
+            assert stable['padding']==again['padding'] and abs(again['top'])<2
+            page.set_viewport_size({'width':1280,'height':900})
+            page.evaluate("window.scrollTo(0,0)")
+            page.locator('header .header-bell').click()
+            expect(page.get_by_role('dialog',name='Уведомления')).to_be_visible()
+            bell=page.locator('header .header-bell').bounding_box()
+            pop=page.locator('.notification-popover .modal').bounding_box()
+            assert bell and pop and pop['y']>=bell['y']+bell['height']-2,(bell,pop)
+            assert pop['x']>1280/2 and pop['x']+pop['width']<=1280,(bell,pop)
         finally:
             browser.close()

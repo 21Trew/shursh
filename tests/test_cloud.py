@@ -2006,3 +2006,26 @@ def test_db_persisted_admin_permission_is_identity_scoped(application,monkeypatc
         with psycopg.connect(os.environ['SHURSH_DATABASE_URL']) as con:
             con.execute('DELETE FROM public.site_admins WHERE user_id=%s',(IDS['owner@example.test'],))
     assert call(login(application),'GET','/api/me').json['user']['is_admin'] is False
+
+
+def test_santa_finish_can_store_optional_webp_atomically(application):
+    """A photo failure must not silently complete a game; no public photo leaks."""
+    from uuid import uuid4
+    owner=login(application)
+    stranger=login(application,'other@example.test')
+    eid=call(owner,'POST','/api/santas',{'title':'Atomic photo '+uuid4().hex[:8]},201).json['id']
+    for label in ('Guest A','Guest B'):
+        call(owner,'POST',f'/api/santas/{eid}/participants',{'name':label},201)
+    call(owner,'POST',f'/api/santas/{eid}/draw',{},200)
+    endpoint=f'/api/santas/{eid}/finish'
+    wrong=call(owner,'POST',endpoint,{'image_data':PNG},400)
+    assert 'WebP' in wrong.json['error']
+    assert call(owner,'GET',f'/api/santas/{eid}').json['event']['status']=='drawn'
+    webp='data:image/webp;base64,UklGRm4AAABXRUJQVlA4IGIAAABwAgCdASoQABAAAoBCJbACdH8D2HQYpXUXjD8AAP77IWDmzt26izyt8eYKFcTtb3XnAkGE+9epPGxyqy+v1gLcFDH4nfz/zkEhMSQ/HhVx/d+JHYr9yBD/Rbv3+sws+CAAAA=='
+    finished=call(owner,'POST',endpoint,{'image_data':webp},200).json
+    assert finished['already_finished'] is False
+    assert call(owner,'GET',f'/api/santas/{eid}/memory').json['memory']['image_data']==webp
+    assert call(stranger,'GET',f'/api/santas/{eid}/memory',status=404).status_code==404
+    assert webp not in str(call(owner,'GET','/api/dashboard').json)
+    call(owner,'POST',endpoint,{'image_data':webp},409)
+    assert call(owner,'POST',endpoint,{},200).json['already_finished'] is True
