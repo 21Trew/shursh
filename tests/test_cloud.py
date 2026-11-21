@@ -580,7 +580,7 @@ def test_browser_manual_product_link_and_uncluttered_header(browser_http):
             assert page.locator('.modal-scroll-area').count()==1
             # A manually uploaded image must still work without a scraper.
             from base64 import b64decode
-            photo = b64decode('iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mP8/x8AAusB9aer6aQAAAAASUVORK5CYII=')
+            photo = b64decode('iVBORw0KGgoAAAANSUhEUgAAABgAAAAYCAIAAABvFaqvAAAAIklEQVR4nGN8fWILAzUAE1VMGTVo1KBRg0YNGjVo1CCKAAAYaAKXC2f7qAAAAABJRU5ErkJggg==')
             page.locator('#wish-file').set_input_files({
                 'name': 'gift.png', 'mimeType': 'image/png', 'buffer': photo,
             })
@@ -588,6 +588,7 @@ def test_browser_manual_product_link_and_uncluttered_header(browser_http):
             card = page.locator('.wish-card').filter(has_text='Кот и настольная игра')
             expect(card).to_be_visible()
             expect(card.locator('img')).to_be_visible()
+            assert '.webp' in (card.locator('img').get_attribute('src') or '')
             expect(card.locator('a[href]')).to_have_attribute('href', url)
             assert intercepted == [], 'Pasting product links must not trigger parsing'
 
