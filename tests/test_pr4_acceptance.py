@@ -9,6 +9,7 @@ The navigation time is browser performance.now() through the E2E readiness
 assertion (includes the automation scheduling/polling overhead).
 """
 import json
+import re
 from pathlib import Path
 from urllib.parse import urlsplit
 
