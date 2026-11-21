@@ -405,7 +405,8 @@
 .gift-dialog-footer{justify-content:flex-end;gap:9px}
 .gift-dialog-footer .btn{min-width:112px;justify-content:center}
 .gift-details-modal .modal-fixed-footer{min-height:68px}
-.modal-backdrop .modal{interpolate-size:allow-keywords;transition:height .26s ease,max-height .26s ease}
+.modal-backdrop .modal{interpolate-size:allow-keywords}
+/* Viewport resizing must be immediate; content-only changes animate with WAAPI. */
 .game-chat-form{display:flex;align-items:center;gap:8px}
 .game-chat-form .input{min-height:48px;min-width:0;border-radius:18px}
 .game-chat-send{width:49px!important;min-width:49px!important;min-height:49px!important;height:49px;flex:0 0 49px;border-radius:17px;padding:0!important;display:grid;place-items:center}
@@ -451,3 +452,15 @@
 .ui-calendar-actions button{border:0;background:transparent;color:#875936;font-size:12px;font-weight:800;min-height:36px;padding:6px 10px;border-radius:9px}
 .ui-calendar-actions button:hover{background:#faebcf}
 @media(max-width:760px){.ui-calendar-popover{max-height:calc(100dvh - 16px);overflow:auto}}
+
+/* Keep the card hit surface above decorative SVGs, below interactive actions. */
+.game-gift-card .wish-image{isolation:auto}
+.game-gift-card>.card-hitarea{z-index:4}
+.game-gift-card .game-gift-overlay-actions{z-index:5}
+.game-gift-card .game-gift-overlay-actions .btn{z-index:6}
+/* Mobile navigation gradients must sit entirely BELOW every 44px tab. */
+@media(max-width:760px){
+ .site-header .topbar:has(.nav-scroll-more-right)::after,
+ .site-header .topbar:has(.nav-scroll-more-left)::before{bottom:-4px!important}
+ .modal-backdrop .modal,.modal-backdrop .wish-edit-modal{transition:none!important}
+}

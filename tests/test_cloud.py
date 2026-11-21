@@ -1936,7 +1936,18 @@ def test_finished_santa_state_and_mutual_friend_games(application):
     other=call(owner,'POST','/api/santas',{'title':'Not shared '+uuid4().hex[:8]},201).json['id']
     assert not any(g['id']==eid for g in call(owner,'GET',f'/api/users/{member_id}').json['shared_games'])
     assert not any(g['id']==other for g in call(member,'GET',f'/api/users/{owner_id}').json['shared_games'])
-    call(owner,'POST',f'/api/santas/{eid}/finish',{},409)
+    # An unplayed game can now be archived without generating assignments.
+    unplayed=call(owner,'POST','/api/santas',
+                  {'title':'Unplayed '+uuid4().hex[:8]},201).json['id']
+    call(member,'POST',f'/api/santas/{unplayed}/finish',{},404)
+    call(owner,'POST',f'/api/santas/{unplayed}/finish',{},200)
+    unplayed_result=call(owner,'GET',f'/api/santas/{unplayed}').json
+    assert unplayed_result['event']['status']=='finished'
+    assert unplayed_result['my_assignment'] is None
+    call(owner,'POST',f'/api/santas/{unplayed}/draw',{},409)
+    call(member,'DELETE',f'/api/santas/{unplayed}',status=404)
+    call(owner,'DELETE',f'/api/santas/{unplayed}')
+    call(owner,'GET',f'/api/santas/{unplayed}',status=404)
     call(member,'POST',f'/api/santas/{eid}/finish',{},404)
     key=call(owner,'GET',f'/api/santas/{eid}').json['event']['invite_key']
     call(member,'POST',f'/api/invites/{key}/join',{'name':'Other'},201)

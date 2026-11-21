@@ -232,8 +232,11 @@ async function api(path,opts={}){
 }
 function notice(message,error=false){const n=document.createElement('div');n.className='toast'+(error?' error':'');n.textContent=message;document.getElementById('toast-root').replaceChildren(n);clearTimeout(toastTimeout);toastTimeout=setTimeout(()=>n.remove(),4500);}
 async function clipboard(value){try{await navigator.clipboard.writeText(value);notice('Ссылка скопирована!');}catch{modal({title:'Скопируй ссылку',content:`<div class="field"><label>Ссылка</label><input class="input" autofocus readonly value="${attr(value)}" onclick="this.select()"></div>`});}}
+let modalContentObserver=null;
 function modal({title,subtitle='',content='',onSubmit=null,submitLabel='Сохранить',size='normal',footer=''}){
- closeUiSelect();
+ const oldHeight=modalRoot.querySelector('.modal')?.getBoundingClientRect().height||0;
+ modalContentObserver?.disconnect();modalContentObserver=null;
+ closeCalendar();closeUiSelect();
  modalRoot.innerHTML=`<div class="modal-backdrop" data-backdrop><div class="modal" role="dialog" aria-modal="true" aria-label="${attr(title)}"><button class="modal-close" type="button" data-close aria-label="Закрыть">×</button><div class="modal-scroll-area"><h2>${esc(title)}</h2>${subtitle?`<p class="modal-subtitle">${esc(subtitle)}</p>`:''}<form class="form" id="modal-form">${content}${onSubmit?`<div class="form-actions"><button type="button" class="btn btn-soft" data-close>Отмена</button><button type="submit" class="btn btn-dark">${esc(submitLabel)} ${ico('arrow')}</button></div>`:''}</form>${footer?`<div class="modal-foot">${footer}</div>`:''}</div></div></div>`;
  const scroller=modalRoot.querySelector('.modal-scroll-area');
  const dialog=modalRoot.querySelector('.modal');
@@ -251,6 +254,25 @@ function modal({title,subtitle='',content='',onSubmit=null,submitLabel='Сохр
   dialog.append(footerRail);
  }
  enhanceSelects(modalRoot);enhanceCalendars(modalRoot);
+ // Animate actual content-height changes instead of repeatedly forcing a layout on scroll.
+ if(!matchMedia('(prefers-reduced-motion: reduce)').matches&&typeof dialog.animate==='function'){
+  let priorHeight=oldHeight||dialog.getBoundingClientRect().height;
+  const animateTo=current=>{
+   if(!dialog.isConnected)return;
+   const next=dialog.getBoundingClientRect().height;
+   if(Math.abs(next-current)>7)dialog.animate(
+    [{height:current+'px'},{height:next+'px'}],
+    {duration:230,easing:'cubic-bezier(.2,.7,.2,1)'});
+   priorHeight=next;
+  };
+  if(oldHeight)requestAnimationFrame(()=>animateTo(oldHeight));
+  let queued=false;
+  modalContentObserver=new MutationObserver(()=>{
+   if(queued)return;queued=true;
+   requestAnimationFrame(()=>{queued=false;if(dialog.isConnected)animateTo(priorHeight);});
+  });
+  modalContentObserver.observe(scroller,{childList:true,characterData:true,subtree:true});
+ }
  document.body.style.overflow='hidden';const bd=modalRoot.querySelector('[data-backdrop]');bd.addEventListener('click',e=>{if(e.target===bd)closeModal()});modalRoot.querySelectorAll('[data-close]').forEach(b=>b.addEventListener('click',closeModal));
  if(onSubmit){modalRoot.querySelector('form').addEventListener('submit',async e=>{e.preventDefault();const btn=e.currentTarget.querySelector('[type=submit]')||modalRoot.querySelector('.modal-fixed-footer [type=submit]');btn.disabled=true;try{const submitted=e.currentTarget;await onSubmit(submitted);if(modalRoot.querySelector('form')===submitted)closeModal();}catch(err){notice(err.message,true)}finally{if(btn.isConnected)btn.disabled=false;}});}
  // No delayed autofocus: it can steal focus while the user types in the
@@ -270,7 +292,7 @@ function contactDeveloperModal(){
   }});
  const message=modalRoot.querySelector('#fld-message');if(message){message.required=true;message.minLength=5;message.maxLength=3000;}
 }
-function closeModal(){closeCalendar();closeUiSelect();modalRoot.replaceChildren();document.body.style.overflow='';}
+function closeModal(){modalContentObserver?.disconnect();modalContentObserver=null;closeCalendar();closeUiSelect();modalRoot.replaceChildren();document.body.style.overflow='';}
 document.addEventListener('keydown',e=>{if(e.key==='Escape'){if(activeCalendar){e.preventDefault();closeCalendar(true);}else if(uiSelectOpen){e.preventDefault();closeUiSelect(true);}else closeModal();}});
 document.addEventListener('click',e=>{
  const picker=e.target.closest('input[type="date"]');
