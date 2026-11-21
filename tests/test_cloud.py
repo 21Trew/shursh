@@ -1873,7 +1873,7 @@ def test_browser_guest_member_claim_after_email_confirmation_and_manual_link(bro
                 const response=await fetch('/api/santas');
                 return response.ok&&(await response.json()).events.some(e=>e.id===id);
             }""",arg=third_id,timeout=15000)
-            assert another.evaluate("sessionStorage.getItem('shursh-pending-game-claim')") is None
+            another.wait_for_function("() => sessionStorage.getItem('shursh-pending-game-claim')===null",timeout=15000)
             another_ctx.close()
             # No bearer link is left behind after a successful claim.
             assert confirmed.evaluate("localStorage.getItem('shursh-pending-game-claim')") is None
