@@ -1964,7 +1964,7 @@ def test_private_finished_santa_memory_upload_and_no_public_leak(application):
     base=f'/api/santas/{eid}/memory'
     invite=call(owner,'GET',f'/api/santas/{eid}').json['event']['invite_key']
     guest_link=call(anonymous,'POST',f'/api/invites/{invite}/join',{'name':'Guest'},201).json['participant_token']
-    call(owner,'POST',base,{'image_data':PNG},405)
+    call(owner,'POST',base,{'image_data':PNG},404)
     call(owner,'PUT',base,{'image_data':PNG},409)
     call(owner,'GET',base,status=409)
     call(member,'GET',base,status=404)
@@ -1976,14 +1976,16 @@ def test_private_finished_santa_memory_upload_and_no_public_leak(application):
     call(anonymous,'PUT',base,{'image_data':PNG},401)
     call(member,'PUT',base,{'image_data':PNG},403)
     call(anonymous,'GET',f'/api/participant/{token()}/memory',status=404)
-    assert call(owner,'PUT',base,{'image_data':PNG}).json=={'ok':True}
-    assert call(owner,'PUT',base,{'image_data':PNG}).json=={'ok':True}
-    assert call(member,'GET',f'/api/member/{eid}/memory').json['memory']['image_data']==PNG
-    assert call(anonymous,'GET',f'/api/participant/{guest_link}/memory').json['memory']['image_data']==PNG
+    photo='data:image/png;base64,'+base64.b64encode(
+        base64.b64decode(PNG.split(',',1)[1])+b'photo-fixture'*8).decode()
+    assert call(owner,'PUT',base,{'image_data':photo}).json=={'ok':True}
+    assert call(owner,'PUT',base,{'image_data':photo}).json=={'ok':True}
+    assert call(member,'GET',f'/api/member/{eid}/memory').json['memory']['image_data']==photo
+    assert call(anonymous,'GET',f'/api/participant/{guest_link}/memory').json['memory']['image_data']==photo
     assert call(owner,'GET',base).json['can_edit'] is True
     assert call(member,'GET',base).json['can_edit'] is False
-    assert PNG not in str(call(owner,'GET',f'/api/santas/{eid}').json)
-    assert PNG not in str(call(owner,'GET','/api/dashboard').json)
+    assert photo not in str(call(owner,'GET',f'/api/santas/{eid}').json)
+    assert photo not in str(call(owner,'GET','/api/dashboard').json)
     call(member,'DELETE',base,status=404)
 
 

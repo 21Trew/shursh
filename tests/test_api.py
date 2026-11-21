@@ -42,6 +42,15 @@ def owner(server):
     assert r.status_code==200,r.text
     return s
 
+def registered_buyer(server):
+    s=requests.Session()
+    response=s.post(server+'/api/register',json={
+        'email':f'buyer-{time.time_ns()}@example.test',
+        'password':'ValidPassword123!', 'name':'Даритель'})
+    assert response.status_code==200,response.text
+    return s
+
+
 def test_matching_constraints_and_impossible():
     ids=[1,2,3,4,5]
     for _ in range(50):
@@ -68,19 +77,22 @@ def test_create_list_wish_public_reserve_and_cancel(server,owner):
     anon=requests.Session()
     p=anon.get(server+f'/api/public/{key}').json()
     assert p['wishes'][0]['reserved'] is False
-    r=anon.post(server+f'/api/public/{key}/reserve/{wid}',json={'guest_name':'Тестовый даритель'})
+    assert anon.post(server+f'/api/public/{key}/reserve/{wid}',json={}).status_code==401
+    buyer=registered_buyer(server)
+    r=buyer.post(server+f'/api/public/{key}/reserve/{wid}',json={})
     assert r.status_code==201,r.text
-    manage=r.json()['manage_token']
+    assert r.json()=={'ok':True}
     assert anon.get(server+f'/api/public/{key}').json()['wishes'][0]['reserved'] is True
+    assert anon.get(server+f'/api/public/{key}').json()['wishes'][0]['reserved_by_me'] is False
+    assert buyer.get(server+f'/api/public/{key}').json()['wishes'][0]['reserved_by_me'] is True
     assert 'reserved' not in owner.get(server+f'/api/lists/{lid}').json()['wishes'][0]
     owner_public=owner.get(server+f'/api/public/{key}').json()
     assert owner_public['owner_view'] is True
     assert 'reserved' not in owner_public['wishes'][0]
-    assert owner.post(server+f'/api/public/{key}/reserve/{wid}',json={'guest_name':'Owner'}).status_code==403
-    assert anon.post(server+f'/api/public/{key}/reserve/{wid}',json={'guest_name':'Other'}).status_code==409
-    assert anon.get(server+f'/api/reservations/{manage}').json()['reservation']['guest_name']=='Тестовый даритель'
-    assert anon.delete(server+f'/api/reservations/{manage}').status_code==200
-    assert anon.delete(server+f'/api/reservations/{manage}').status_code==409
+    assert owner.post(server+f'/api/public/{key}/reserve/{wid}',json={}).status_code==403
+    assert anon.delete(server+f'/api/public/{key}/reserve/{wid}').status_code==401
+    assert buyer.delete(server+f'/api/public/{key}/reserve/{wid}').status_code==200
+    assert buyer.delete(server+f'/api/public/{key}/reserve/{wid}').status_code==409
     assert anon.get(server+f'/api/public/{key}').json()['wishes'][0]['reserved'] is False
     assert anon.get(server+f'/api/reservations/wrongtoken').status_code==404
     assert owner.patch(server+f'/api/lists/{lid}',json={'visibility':'private'}).status_code==200
@@ -91,7 +103,11 @@ def test_double_reserve_race(server,owner):
     lid=r.json()['id'];key=owner.get(server+f'/api/lists/{lid}').json()['list']['share_key']
     w=owner.post(server+f'/api/lists/{lid}/wishes',json={'title':'Последний подарок'})
     wid=w.json()['id']
-    def reserve(n):return requests.post(server+f'/api/public/{key}/reserve/{wid}',json={'guest_name':f'Гость {n}'},timeout=5).status_code
+    buyer=registered_buyer(server)
+    cookie=buyer.cookies.get('shursh_sid')
+    assert cookie
+    def reserve(n):return requests.post(server+f'/api/public/{key}/reserve/{wid}',
+                  cookies={'shursh_sid':cookie},json={},timeout=5).status_code
     with ThreadPoolExecutor(max_workers=12) as pool:
         codes=list(pool.map(reserve,range(12)))
     assert codes.count(201)==1,codes
