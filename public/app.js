@@ -633,9 +633,9 @@ document.addEventListener('click',async event=>{
   region.innerHTML='<p class="note" role="status">Загружаем вишлисты друзей…</p>';
   try{
    const result=await api('/api/friends/wishlists');
-   if(generation!==wishlistTabGeneration||!region.isConnected)return;
+   if(generation!==wishlistTabGeneration)return;
    region.innerHTML=friendWishlistTiles(result.lists||[]);
-  }catch(err){if(generation===wishlistTabGeneration&&region.isConnected)region.innerHTML='<p class="note">'+esc(err.message)+'</p>';}
+  }catch(err){if(generation===wishlistTabGeneration)region.innerHTML='<p class="note">'+esc(err.message)+'</p>';}
   return;
  }
  const filter=event.target.closest('[data-wishlist-filter]');
