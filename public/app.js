@@ -831,6 +831,7 @@ function resendConfirmationModal(email=''){
 }
 function loginModal(mode='login'){
  const register=mode==='register';
+ if(register)persistSignupClaim();
  modal({title:register?'Давай знакомиться!':'С возвращением!',
   subtitle:register?'Создай аккаунт, чтобы хранить свои списки и организовывать игры':'Твои желания уже соскучились',
   content:(register?field('Как тебя зовут?','name','Например, Саша','text','',true,'maxlength="40"'):'')+
@@ -1052,19 +1053,31 @@ sessionChannel?.addEventListener('message',event=>{
 });
 let renderStarted=false;
 let pendingGameClaim=null;
+const claimStorageKey='shursh-pending-game-claim';
+const validPendingClaim=entry=>entry&&Number.isFinite(entry.created)
+ &&Date.now()-entry.created>=0&&Date.now()-entry.created<86400000
+ &&typeof entry.token==='string'&&/^[A-Za-z0-9_-]{43}$/.test(entry.token);
 try{
- const saved=JSON.parse(sessionStorage.getItem('shursh-pending-game-claim')||'null');
- if(saved&&Date.now()-saved.created<86400000&&/^[A-Za-z0-9_-]{43}$/.test(saved.token))pendingGameClaim=saved.token;
- else sessionStorage.removeItem('shursh-pending-game-claim');
+ const session=JSON.parse(sessionStorage.getItem(claimStorageKey)||'null');
+ const emailReturn=JSON.parse(localStorage.getItem(claimStorageKey)||'null');
+ const entry=validPendingClaim(session)?session:validPendingClaim(emailReturn)?emailReturn:null;
+ if(entry)pendingGameClaim=entry.token;
+ else {sessionStorage.removeItem(claimStorageKey);localStorage.removeItem(claimStorageKey);}
 }catch{}
 function savePendingGameClaim(token){
  if(!/^[A-Za-z0-9_-]{43}$/.test(token))return;
  pendingGameClaim=token;
- try{sessionStorage.setItem('shursh-pending-game-claim',JSON.stringify({token,created:Date.now()}));}catch{}
+ try{sessionStorage.setItem(claimStorageKey,JSON.stringify({token,created:Date.now()}));}catch{}
+}
+function persistSignupClaim(){
+ if(!pendingGameClaim)return;
+ // Email confirmation often opens a NEW browser tab, without sessionStorage.
+ // Keep the private claim for at most one day in this browser and clear on success.
+ try{localStorage.setItem(claimStorageKey,JSON.stringify({token:pendingGameClaim,created:Date.now()}));}catch{}
 }
 function clearPendingGameClaim(){
  pendingGameClaim=null;
- try{sessionStorage.removeItem('shursh-pending-game-claim');}catch{}
+ try{sessionStorage.removeItem(claimStorageKey);localStorage.removeItem(claimStorageKey);}catch{}
 }
 let authReturnNotice = null;
 let authReturnError = false;
