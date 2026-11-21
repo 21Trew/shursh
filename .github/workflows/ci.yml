@@ -137,6 +137,8 @@ jobs:
       - run: python -m pip install -r requirements.txt -r requirements-dev.txt -r tools/requirements-ui.txt playwright==1.56.0
       - name: UI source rule registry is synchronized
         run: python tools/ui_audit.py --check
+      - name: CSS cascade winners unchanged after refactor
+        run: python tools/css_effective_check.py --check
       - run: python -m playwright install --with-deps chromium webkit
       - name: Six tabs DOM/HTTP/viewport acceptance
         run: python -m pytest -q -s tests/test_pr4_acceptance.py -m browser

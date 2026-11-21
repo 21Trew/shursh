@@ -8,70 +8,16 @@ A **conflict** here means the same selector, CSS property and at-rule context
 have different declarations in source order. The last declaration is not
 necessarily the winner if specificity, importance or cascading conditions differ.
 
-- Qualified rule blocks: **898**
+- Qualified rule blocks: **890**
 - Unique selectors: **618**
-- Selectors in multiple blocks: **184**
-- Differing declarations in the same context: **54**
+- Selectors in multiple blocks: **182**
+- Differing declarations in the same context: **0**
 - At-rule contexts: **16**
 
 ## Same-context differing declarations
 
 | Selector | Context | Property | Earlier → later | Source lines |
 |---|---|---|---|---|
-| `.chat-message` | `base` | `max-width` | `min(90%,530px)` → `min(87%,520px)` | 107, 395 |
-| `.chat-message` | `base` | `padding` | `10px 14px` → `11px 13px` | 107, 395 |
-| `.container` | `base > @media (max-width:760px)` | `width` | `calc(100% - 36px)` → `calc(100% - 28px)` | 2, 441 |
-| `.dashboard-welcome` | `base > @media (max-width:760px)` | `padding` | `28px 24px` → `24px 21px` | 46, 479 |
-| `.game-chat-form` | `base` | `display` | `flex` → `grid` | 111, 396 |
-| `.game-chat-refresh` | `base` | `margin-top` | `13px` → `8px` | 113, 398 |
-| `.game-chat-tabs` | `base` | `flex-wrap` | `wrap` → `nowrap` | 104, 392 |
-| `.game-gifts-track` | `base` | `scroll-snap-type` | `x mandatory` → `x proximity` | 122, 345 |
-| `.game-gifts-track` | `base` | `touch-action` | `pan-x pan-y` → `pan-x` | 253, 345 |
-| `.game-gifts-track .game-gift-card` | `base > @media (max-width:520px)` | `width` | `154px` → `min(132px,52vw)` | 139, 350 |
-| `.game-gifts-track .game-gift-card .wish-content` | `base > @media (max-width:520px)` | `padding` | `10px` → `9px` | 141, 352 |
-| `.game-gifts-track .game-gift-card .wish-image` | `base > @media (max-width:520px)` | `height` | `100px` → `72px` | 140, 351 |
-| `.header-bell` | `base` | `background` | `var(--paper2)` → `transparent` | 360, 503 |
-| `.header-bell` | `base` | `border` | `1.5px solid var(--border)` → `0` | 360, 503 |
-| `.header-bell` | `base` | `transition` | `background .15s,border-color .15s` → `color .15s` | 360, 503 |
-| `.header-bell:hover,.header-bell.active` | `base` | `background` | `#f3e5cf` → `transparent` | 361, 504 |
-| `.modal` | `base` | `max-height` | `min(92vh,900px)` → `min(92dvh,900px)` | 2, 181 |
-| `.modal` | `base` | `padding` | `32px` → `0` | 2, 181 |
-| `.modal` | `base > @media (max-width:760px)` | `padding` | `24px` → `0` | 2, 221 |
-| `.modal-backdrop .modal` | `base > @media (max-width:760px)` | `animation` | `sheet-up .18s ease-out` → `none` | 519, 534 |
-| `.my-wishes-list` | `base` | `display` | `flex` → `block` | 2, 161 |
-| `.nav` | `base` | `gap` | `36px` → `25px` | 2, 149 |
-| `.nav` | `base > @media (max-width:760px)` | `gap` | `26px` → `14px` | 2, 219 |
-| `.nav a` | `base` | `transition` | `opacity .2s` → `color .18s ease,opacity .18s ease` | 2, 150 |
-| `.nav a:hover` | `base` | `opacity` | `.55` → `1` | 2, 158 |
-| `.participant-preferences` | `base` | `gap` | `10px` → `12px` | 233, 381 |
-| `.recipient-wishes` | `base` | `max-width` | `390px` → `none` | 2, 134 |
-| `.recipient-wishes` | `base` | `padding` | `18px` → `14px` | 2, 134 |
-| `.santa-detail-layout` | `base > @media (max-width:760px)` | `gap` | `0` → `14px` | 2, 452 |
-| `.santa-detail-layout` | `base > @media (max-width:760px)` | `grid-template-columns` | `1fr` → `minmax(0,1fr)` | 2, 452 |
-| `.secret-card` | `base` | `border-radius` | `27px` → `20px` | 2, 166 |
-| `.secret-card` | `base` | `padding` | `39px 20px` → `23px 18px` | 2, 166 |
-| `.secret-card .envelope-svg` | `base` | `height` | `145px` → `96px` | 2, 168 |
-| `.secret-card .envelope-svg` | `base` | `width` | `175px` → `120px` | 2, 168 |
-| `.secret-card h2` | `base` | `font-size` | `22px` → `18px` | 2, 167 |
-| `.secret-card.revealed` | `base` | `background` | `#e1f2e4` → `#e3f2e5` | 2, 169, 385 |
-| `.secret-card.revealed` | `base` | `padding` | `22px 18px` → `16px` | 169, 385 |
-| `.secret-card.revealed .recipient-summary` | `base` | `align-items` | `center` → `flex-start` | 170, 386 |
-| `.secret-card.revealed .recipient-summary` | `base` | `margin-bottom` | `14px` → `12px` | 170, 386 |
-| `.secret-card.revealed .recipient-wishes` | `base` | `background` | `rgba(255,255,255,.74)` → `rgba(255,255,255,.7)` | 174, 387 |
-| `.secret-card.revealed .recipient-wishes` | `base` | `padding` | `14px` → `12px` | 174, 387 |
-| `.site-header .nav` | `base > @media (max-width:760px)` | `gap` | `16px` → `7px` | 315, 444 |
-| `.site-header .nav` | `base > @media (max-width:760px)` | `padding` | `10px 2px 14px` → `9px 4px 13px` | 315, 444 |
-| `.social-search` | `base` | `gap` | `12px` → `16px` | 286, 431 |
-| `.social-search .share-field` | `base` | `display` | `flex` → `grid` | 288, 433 |
-| `.social-search .share-field` | `base` | `gap` | `12px` → `10px` | 288, 433 |
-| `.topbar` | `base > @media (max-width:760px)` | `gap` | `10px` → `8px` | 2, 442 |
-| `.topbar` | `base > @media (max-width:760px)` | `height` | `73px` → `auto` | 2, 442 |
-| `.ui-select-menu` | `base` | `z-index` | `60` → `1000` | 205, 263 |
-| `.wish-edit-modal .modal-close` | `base` | `right` | `24px` → `21px` | 259, 332 |
-| `.wish-edit-modal .modal-close` | `base` | `top` | `20px` → `17px` | 259, 332 |
-| `.wish-edit-modal .modal-close` | `base` | `z-index` | `5` → `6` | 259, 332 |
-| `.wish-edit-modal .modal-scroll-area` | `base` | `display` | `flex` → `block` | 254, 328 |
-| `.wish-edit-modal .modal-scroll-area>form` | `base` | `display` | `contents` → `flex` | 257, 329 |
 
 ## Selectors declared in multiple blocks
 
@@ -80,22 +26,19 @@ necessarily the winner if specificity, importance or cascading conditions differ
 | `.nav` | 8 | `base@2, base > @media (max-width:1100px)@2, base > @media (max-width:760px)@2, base > @media (max-width:420px)@2, base > @media (min-width:761px) and (max-width:920px)@5, base@149, base > @media (max-width:760px)@219, base > @med…` |
 | `.game-gifts-track` | 7 | `base@122, base > @media (prefers-reduced-motion:reduce)@144, base@188, base@253, base > @media (max-width:760px)@266, base@345, base > @media (max-width:520px)@349` |
 | `.game-gifts-track .game-gift-card` | 6 | `base@124, base > @media (max-width:520px)@139, base > @media (max-width:760px)@267, base > @media (max-width:440px)@277, base@347, base > @media (max-width:520px)@350` |
-| `.container` | 5 | `base@2, base > @media (max-width:1100px)@2, base > @media (max-width:760px)@2, base > @media (max-width:760px)@441, base > @media (max-width:400px)@485` |
-| `.game-gifts-track .game-gift-card .wish-image` | 5 | `base@125, base > @media (max-width:520px)@140, base > @media (max-width:760px)@268, base > @media (max-width:440px)@278, base > @media (max-width:520px)@351` |
 | `.hero` | 5 | `base@2, base > @media (min-width:1450px)@2, base > @media (max-width:1100px)@2, base > @media (max-width:760px)@2, base > @media (min-width:761px) and (max-width:980px)@6` |
 | `.hero h1` | 5 | `base@2, base > @media (max-width:1100px)@2, base > @media (max-width:760px)@2, base > @media (max-width:420px)@2, base > @media (min-width:761px) and (max-width:980px)@6` |
 | `.hero-visual` | 5 | `base@2, base > @media (max-width:1100px)@2, base > @media (max-width:760px)@2, base > @media (max-width:420px)@2, base > @media (min-width:761px) and (max-width:980px)@6` |
+| `.container` | 4 | `base@2, base > @media (max-width:1100px)@2, base > @media (max-width:760px)@441, base > @media (max-width:400px)@485` |
 | `.dashboard-welcome` | 4 | `base@26, base > @media (max-width:760px)@46, base > @media (max-width:760px)@479, base > @media (max-width:400px)@498` |
 | `.dashboard-welcome h1` | 4 | `base@27, base@368, base > @media (max-width:760px)@480, base > @media (max-width:400px)@499` |
 | `.game-chat-form` | 4 | `base@111, base > @media (max-width:580px)@115, base@396, base > @media (max-width:760px)@470` |
 | `.game-chat-messages` | 4 | `base@106, base > @media (max-width:580px)@115, base@394, base > @media (max-width:760px)@468` |
 | `.game-chat-panel` | 4 | `base@103, base > @media (max-width:580px)@115, base > @media (max-width:760px)@466, base > @media (max-width:400px)@491` |
-| `.game-gifts-track .game-gift-card .wish-content` | 4 | `base@127, base > @media (max-width:520px)@141, base > @media (max-width:760px)@270, base > @media (max-width:520px)@352` |
+| `.game-gifts-track .game-gift-card .wish-image` | 4 | `base@125, base > @media (max-width:760px)@268, base > @media (max-width:440px)@278, base > @media (max-width:520px)@351` |
 | `.header-actions` | 4 | `base@2, base > @media (max-width:760px)@2, base@359, base > @media (max-width:760px)@446` |
 | `.hero-visual:before` | 4 | `base@2, base > @media (max-width:1100px)@2, base > @media (max-width:760px)@2, base > @media (min-width:761px) and (max-width:980px)@6` |
-| `.modal` | 4 | `base@2, base > @media (max-width:760px)@2, base@181, base > @media (max-width:760px)@221` |
 | `.nav a` | 4 | `base@2, base > @media (max-width:420px)@2, base@150, base > @media (max-width:760px)@220` |
-| `.santa-detail-layout` | 4 | `base@2, base > @media (max-width:760px)@2, base > @media (max-width:760px)@265, base > @media (max-width:760px)@452` |
 | `.secret-card.revealed` | 4 | `base@2, base@169, base@385, base > @media (max-width:760px)@461` |
 | `.site-header .nav` | 4 | `base@312, base > @media (max-width:760px)@315, base@363, base > @media (max-width:760px)@444` |
 | `.topbar` | 4 | `base@2, base > @media (max-width:760px)@2, base > @media (min-width:761px) and (max-width:920px)@5, base > @media (max-width:760px)@442` |
@@ -110,16 +53,19 @@ necessarily the winner if specificity, importance or cascading conditions differ
 | `.emoji-grid` | 3 | `base@436, base > @media (max-width:760px)@478, base > @media (max-width:400px)@497` |
 | `.game-chat-form button` | 3 | `base > @media (max-width:580px)@115, base > @media (max-width:760px)@471, base > @media (max-width:400px)@492` |
 | `.game-chat-tabs` | 3 | `base@104, base@392, base > @media (max-width:760px)@467` |
+| `.game-gifts-track .game-gift-card .wish-content` | 3 | `base@127, base > @media (max-width:760px)@270, base > @media (max-width:520px)@352` |
 | `.game-gifts-track .game-gift-card .wish-desc` | 3 | `base@129, base > @media (max-width:760px)@271, base > @media (max-width:520px)@353` |
 | `.header-actions .btn-ghost` | 3 | `base > @media (max-width:760px)@2, base > @media (max-width:920px)@89, base > @media (max-width:760px)@449` |
 | `.header-bell` | 3 | `base@360, base > @media (max-width:760px)@448, base@503` |
 | `.list-cover` | 3 | `base@2, base > @media (max-width:760px)@2, base > @media (max-width:420px)@2` |
 | `.list-info h3` | 3 | `base@2, base > @media (max-width:760px)@2, base > @media (max-width:420px)@2` |
 | `.logo` | 3 | `base@2, base > @media (max-width:760px)@2, base > @media (min-width:761px) and (max-width:920px)@5` |
+| `.modal` | 3 | `base@2, base@181, base > @media (max-width:760px)@221` |
 | `.modal-backdrop .modal` | 3 | `base > @media (max-width:760px)@519, base > @media (prefers-reduced-motion:reduce)@526, base > @media (max-width:760px)@534` |
 | `.modal-scroll-area` | 3 | `base@182, base > @media (max-width:760px)@222, base > @media (max-width:440px)@227` |
 | `.page` | 3 | `base@2, base > @media (max-width:760px)@2, base > @media (max-width:760px)@450` |
 | `.page-hero` | 3 | `base@2, base > @media (max-width:760px)@2, base > @media (max-width:760px)@451` |
+| `.santa-detail-layout` | 3 | `base@2, base > @media (max-width:760px)@265, base > @media (max-width:760px)@452` |
 | `.secret-card.revealed .recipient-summary` | 3 | `base@170, base@386, base > @media (max-width:760px)@462` |
 | `.secret-card.revealed .recipient-wishes` | 3 | `base@174, base@387, base > @media (max-width:760px)@464` |
 | `.showcase` | 3 | `base@2, base > @media (max-width:1100px)@2, base > @media (max-width:760px)@2` |
@@ -128,7 +74,6 @@ necessarily the winner if specificity, importance or cascading conditions differ
 | `.social-profile-identity` | 3 | `base@407, base > @media (max-width:760px)@473, base > @media (max-width:400px)@493` |
 | `.social-profile-identity .profile-emoji` | 3 | `base@411, base > @media (max-width:760px)@474, base > @media (max-width:400px)@494` |
 | `.social-search` | 3 | `base@286, base@431, base > @media (max-width:760px)@472` |
-| `.social-search .share-field` | 3 | `base@288, base@433, base > @media (max-width:400px)@495` |
 | `.social-stat-grid` | 3 | `base@300, base > @media (max-width:760px)@318, base > @media (max-width:440px)@322` |
 | `.step` | 3 | `base@2, base > @media (max-width:1100px)@2, base > @media (max-width:760px)@2` |
 | `.wish-content h3` | 3 | `base@2, base > @media (max-width:760px)@2, base > @media (max-width:420px)@2` |
@@ -188,7 +133,6 @@ necessarily the winner if specificity, importance or cascading conditions differ
 | `.modal-close` | 2 | `base@2, base@183` |
 | `.my-wishes-list` | 2 | `base@2, base@161` |
 | `.nav a::before` | 2 | `base@151, base > @media (prefers-reduced-motion:reduce)@230` |
-| `.nav a:hover` | 2 | `base@2, base@158` |
 | `.occasion-chip` | 2 | `base@2, base > @media (max-width:760px)@2` |
 | `.occasions` | 2 | `base@2, base > @media (max-width:760px)@2` |
 | `.page-hero h1` | 2 | `base@2, base > @media (max-width:760px)@2` |
@@ -235,6 +179,7 @@ necessarily the winner if specificity, importance or cascading conditions differ
 | `.social-person-name` | 2 | `base@294, base@428` |
 | `.social-profile-hero` | 2 | `base@295, base > @media (max-width:760px)@317` |
 | `.social-profile-hero>.avatar` | 2 | `base@296, base > @media (max-width:440px)@322` |
+| `.social-search .share-field` | 2 | `base@433, base > @media (max-width:400px)@495` |
 | `.social-search .share-field .btn` | 2 | `base@434, base > @media (max-width:400px)@496` |
 | `.step h3` | 2 | `base@2, base > @media (max-width:760px)@2` |
 | `.step p` | 2 | `base@2, base > @media (max-width:760px)@2` |
@@ -257,7 +202,6 @@ necessarily the winner if specificity, importance or cascading conditions differ
 | `.wish-edit-modal .modal-fixed-footer .form-actions` | 2 | `base@331, base > @media (max-width:440px)@340` |
 | `.wish-edit-modal .modal-fixed-header` | 2 | `base@326, base > @media (max-width:760px)@335` |
 | `.wish-edit-modal .modal-scroll-area>.modal-subtitle` | 2 | `base@256, base@333` |
-| `.wish-edit-modal .modal-scroll-area>form` | 2 | `base@257, base@329` |
 | `.wish-edit-modal .modal-scroll-area>h2` | 2 | `base@255, base > @media (max-width:760px)@273` |
 | `.wish-price` | 2 | `base@2, base > @media (max-width:760px)@2` |
 | `.wishlist-grid .wish-image` | 2 | `base > @media (max-width:760px)@272, base > @media (max-width:440px)@279` |
@@ -266,12 +210,12 @@ necessarily the winner if specificity, importance or cascading conditions differ
 
 | Context | Declaration count |
 |---|---:|
-| `base` | 2291 |
-| `base > @media (max-width:760px)` | 311 |
+| `base` | 2250 |
+| `base > @media (max-width:760px)` | 300 |
 | `base > @media (max-width:420px)` | 30 |
 | `base > @media (max-width:400px)` | 23 |
-| `base > @media (max-width:520px)` | 20 |
 | `base > @media (max-width:440px)` | 18 |
+| `base > @media (max-width:520px)` | 17 |
 | `base > @media (max-width:480px)` | 14 |
 | `base > @media (max-width:1100px)` | 13 |
 | `base > @media (min-width:761px) and (max-width:980px)` | 12 |

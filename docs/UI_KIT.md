@@ -116,3 +116,18 @@ intermediate до `1100px`, desktop выше. Не объединять стар
    новых неконтролируемых override (CI registry check)
 
 Production deploy требует отдельной явной команды пользователя
+
+
+## CSS consolidation gate (PR #4)
+
+The audit identified 54 same-selector/same-context value differences.
+This pass removed 55 historically shadowed declarations from 54 conflict groups,
+then removed empty rules. 2705 final declaration winners retain the exact
+pre-change values and importance per at-rule context and selector, independently
+checked by `tools/css_effective_check.py` and its anchored SHA-256 reference.
+
+The visual gate samples accepted flat interiors of real buttons, cards and fields
+in both Chromium and WebKit across five viewports, plus radius/border assertions.
+Complex imagery and text are screenshot artifacts for human review, not silently
+approved new full-component goldens. Do not merge or publish Production without
+explicit permission.

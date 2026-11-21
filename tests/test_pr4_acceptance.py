@@ -690,3 +690,114 @@ def test_webkit_mobile_six_tabs_and_create_flows(browser_https):
         finally:
             browser.close()
     assert not errors, errors
+
+
+@pytest.mark.browser
+def test_ui_component_flat_surface_screenshot_regression():
+    """Screenshot stable color interiors of genuine button/card/field primitives.
+
+    We deliberately do NOT pixel-lock typography, SVG, curved edges or shadows.
+    Those are browser/OS dependent and still have human-reviewed full screenshots.
+    """
+    from io import BytesIO
+    from PIL import Image, ImageChops
+
+    root=Path(__file__).resolve().parents[1]
+    gallery=root/"tools"/"ui-gallery.html"
+    reference=Image.open(root/"tests"/"baselines"/"ui-components-flat.png").convert("RGB")
+    fixtures=[
+        ("button-dark","button","btn btn-dark"),
+        ("button-peach","button","btn btn-peach"),
+        ("button-lilac","button","btn btn-lilac"),
+        ("button-soft","button","btn btn-soft"),
+        ("button-danger","button","btn btn-danger"),
+        ("card-panel","article","panel"),
+        ("card-list","article","list-card"),
+        ("card-santa","article","santa-list-card"),
+        ("field-input","input","input"),
+        ("field-textarea","textarea","input"),
+        ("field-select","select","input"),
+    ]
+    assert reference.size==(96,len(fixtures)*24)
+    with sync_playwright() as play:
+        for engine in ("chromium","webkit"):
+            browser=getattr(play,engine).launch(headless=True,
+                  args=["--no-sandbox"] if engine=="chromium" else [])
+            try:
+                for width in (375,390,768,1024,1440):
+                    context=browser.new_context(
+                        viewport={"width":width,"height":860},
+                        reduced_motion="reduce",device_scale_factor=1,
+                        is_mobile=(engine=="webkit" and width<=390),
+                        has_touch=(engine=="webkit" and width<=390),
+                    )
+                    page=context.new_page()
+                    page.goto(gallery.as_uri(),wait_until="load")
+                    page.evaluate("""fixtures => {
+                        const host=document.createElement('section');
+                        host.id='gallery-regression-fixtures';
+                        host.setAttribute('aria-label','Visual regression fixture');
+                        host.style.cssText='width:220px;display:grid;gap:16px;margin:24px 0';
+                        for(const [id,tag,classes] of fixtures){
+                            const el=document.createElement(tag);
+                            el.className=classes;
+                            el.dataset.visualFixture=id;
+                            el.setAttribute('aria-label',id);
+                            el.style.cssText='width:200px;height:80px;min-height:80px;margin:0;'+
+                                'box-shadow:none;transform:none;transition:none';
+                            if(tag==='select')el.innerHTML='<option value=""></option>';
+                            host.appendChild(el);
+                        }
+                        document.body.append(host);
+                    }""",fixtures)
+                    assert page.evaluate("document.documentElement.scrollWidth <= innerWidth + 2"),(
+                        engine,width,"visual fixture overflow"
+                    )
+                    actual=Image.new("RGB",reference.size)
+                    computed={}
+                    for i,(name,tag,classes) in enumerate(fixtures):
+                        locator=page.locator(f'[data-visual-fixture="{name}"]')
+                        shot=Image.open(BytesIO(locator.screenshot(animations="disabled"))).convert("RGB")
+                        assert shot.width>=96 and shot.height>=24, (engine,width,name,shot.size)
+                        x=(shot.width-96)//2
+                        y=(shot.height-24)//2
+                        actual.paste(shot.crop((x,y,x+96,y+24)),(0,i*24))
+                        computed[name]=locator.evaluate("""el => {
+                            const style=getComputedStyle(el);
+                            return {
+                                background:style.backgroundColor,
+                                borderRadius:style.borderRadius,
+                                borderWidth:style.borderTopWidth,
+                                borderColor:style.borderTopColor,
+                            };
+                        }""")
+                    out=OUTPUT/"component-surfaces"
+                    out.mkdir(parents=True,exist_ok=True)
+                    actual.save(out/f"{engine}-{width}-surface-atlas.png")
+                    delta=ImageChops.difference(actual,reference)
+                    assert delta.getbbox() is None, (
+                        "Stable button/card/field pixel baseline differs",
+                        engine,width,
+                        sum(px!=(0,0,0) for px in delta.getdata()),
+                        {k:v["background"] for k,v in computed.items()},
+                    )
+                    assert computed["button-dark"]["borderRadius"]=="100px"
+                    assert computed["card-panel"]["borderRadius"]=="24px"
+                    assert computed["card-list"]["borderRadius"]=="25px"
+                    assert computed["card-santa"]["borderRadius"]=="26px"
+                    for name in ("field-input","field-textarea","field-select"):
+                        assert computed[name]["borderRadius"]=="13px",(
+                            engine,width,name,computed[name]
+                        )
+                        assert computed[name]["borderColor"]=="rgb(230, 223, 214)",(
+                            engine,width,name,computed[name]
+                        )
+                    # Full reference fixture and focus/hover states are visual
+                    # artifacts; typography and curved edges are not pixel-gated.
+                    page.locator('[data-visual-fixture="button-dark"]').hover()
+                    page.locator('[data-visual-fixture="field-input"]').focus()
+                    page.screenshot(path=str(out/f"{engine}-{width}-components.png"),
+                                    full_page=True,animations="disabled")
+                    context.close()
+            finally:
+                browser.close()
