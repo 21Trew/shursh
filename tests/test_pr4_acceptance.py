@@ -1075,5 +1075,18 @@ def test_shursh_ux_followup_finish_game_and_sticky_modal(browser_https):
                 const response=await fetch('/api/santas/'+id);
                 return response.ok&&(await response.json()).event.status==='finished';
             }""",id)
+            expect(page.locator('.santa-memory-panel')).to_be_visible()
+            expect(page.locator('#santa-memory-input')).to_have_count(1)
+            import base64
+            tiny=base64.b64decode(
+                'iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mP8/x8AAusB9aer6aQAAAAASUVORK5CYII=')
+            page.locator('#santa-memory-input').set_input_files({
+                'name':'all-together.png','mimeType':'image/png','buffer':tiny})
+            expect(page.locator('.santa-memory-photo')).to_be_visible(timeout=15000)
+            assert page.locator('.santa-memory-photo').get_attribute('src').startswith('data:image/jpeg;base64,')
+            assert page.evaluate("""async id => {
+                const response=await fetch('/api/santas/'+id+'/memory');
+                return response.ok&&!!(await response.json()).memory?.image_data;
+            }""",id)
         finally:
             browser.close()
