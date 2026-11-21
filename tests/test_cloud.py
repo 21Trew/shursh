@@ -1854,7 +1854,25 @@ def test_browser_guest_member_claim_after_email_confirmation_and_manual_link(bro
                 return r.ok&&(await r.json()).events.some(x=>x.id===id);
             }""",arg=second_id,timeout=15000)
             expect(confirmed.locator('.santa-grid')).to_contain_text('Guest membership')
-            # No silent claiming on later visits and no bearer link in saved URLs.
+            # Direct sign-in from a private game page must also work when
+            # the guest uses the ordinary header instead of the explicit CTA.
+            third_id,third_token=new_guest()
+            another_ctx=browser.new_context()
+            another=another_ctx.new_page()
+            another.goto(browser_http+'/p/'+third_token)
+            assert another.evaluate("sessionStorage.getItem('shursh-pending-game-claim')") is None
+            another.locator('header button[data-open="login"]').click()
+            expect(another.get_by_role('dialog')).to_contain_text('После входа сохраним эту игру')
+            another.locator('#fld-email').fill('owner@example.test')
+            another.locator('#fld-password').fill('valid-password')
+            another.locator('.modal-fixed-footer button[type="submit"]').click()
+            another.wait_for_function("""async id => {
+                const response=await fetch('/api/santas');
+                return response.ok&&(await response.json()).events.some(e=>e.id===id);
+            }""",arg=third_id,timeout=15000)
+            assert another.evaluate("sessionStorage.getItem('shursh-pending-game-claim')") is None
+            another_ctx.close()
+            # No bearer link is left behind after a successful claim.
             assert confirmed.evaluate("localStorage.getItem('shursh-pending-game-claim')") is None
             assert '/p/' not in confirmed.url
             guest_ctx.close()
