@@ -25,7 +25,7 @@ ROUTES = (
     ("/profile", "Мой профиль", 'header .nav [data-nav="/profile"]'),
     ("/notifications", "Уведомления", "header .header-bell"),
 )
-VIEWPORTS = (375, 390, 768, 1440)
+VIEWPORTS = (375, 390, 768, 1024, 1440)
 OUTPUT = Path("artifacts/pr4-ui")
 
 AUDIT_JS = r"""() => {
@@ -567,9 +567,35 @@ def test_webkit_mobile_six_tabs_and_create_flows(browser_http):
                 page=context.new_page()
                 page.set_default_timeout(15000)
                 page.on("pageerror",lambda error:errors.append(str(error)))
+                statuses=[]
+                page.on("response", lambda response: statuses.append(
+                    (urlsplit(response.url).path, response.status)
+                ) if urlsplit(response.url).path.startswith("/api/") else None)
                 page.goto(browser_http+"/",wait_until="domcontentloaded")
                 browser_login(page)
-                expect(page.locator(".dashboard-page")).to_be_visible()
+                try:
+                    expect(page.locator(".dashboard-page")).to_be_visible(timeout=10000)
+                except AssertionError:
+                    diagnostics=OUTPUT/"webkit"/"diagnostics"
+                    diagnostics.mkdir(parents=True,exist_ok=True)
+                    page.screenshot(path=str(diagnostics/f"{width}-after-login.png"),
+                                    full_page=True,animations="disabled")
+                    state=page.evaluate("""() => ({
+                        pathname: location.pathname,
+                        route: typeof currentPath==='function' ? currentPath():null,
+                        hasCurrentUser: typeof currentUser!=='undefined' && !!currentUser,
+                        renderedOwnerTab: typeof renderedOwnerTab==='undefined'?null:renderedOwnerTab,
+                        renderStarted: typeof renderStarted==='undefined'?null:renderStarted,
+                        busy: document.querySelector('#page-view')?.getAttribute('aria-busy'),
+                        mainClass: document.querySelector('main')?.className||null,
+                        mainHeading: document.querySelector('main h1')?.textContent||null,
+                        modalVisible: !!document.querySelector('.modal-backdrop'),
+                    })""")
+                    raise AssertionError(
+                        f"WebKit login rendered no dashboard: width={width}, "
+                        f"state={state}, apiStatuses={statuses}, "
+                        f"browserErrors={errors}"
+                    )
                 page.wait_for_function(
                     "() => typeof ownerWarmupReady !== 'undefined' && ownerWarmupReady",
                     timeout=15000,
