@@ -404,9 +404,13 @@ function enhanceSelects(root){
 document.addEventListener('pointerdown',e=>{
  if(uiSelectOpen&&!uiSelectOpen.button.contains(e.target)&&!uiSelectOpen.menu.contains(e.target))closeUiSelect();
 });
-document.addEventListener('scroll',e=>{
+// Close on intentional scrolling, not layout/auto-scroll while clicking a portal
+// option: the latter detached the option before Playwright and users could click.
+const closeOnScrollIntent=e=>{
  if(uiSelectOpen&&!uiSelectOpen.menu.contains(e.target))closeUiSelect();
-},true);
+};
+document.addEventListener('wheel',closeOnScrollIntent,{passive:true,capture:true});
+document.addEventListener('touchmove',closeOnScrollIntent,{passive:true,capture:true});
 window.addEventListener('resize',()=>closeUiSelect());
 
 function selectField(label,name,options,selected){return `<div class="field"><label for="fld-${name}">${esc(label)}</label><select id="fld-${name}" name="${name}">${options.map(([value,text])=>`<option value="${attr(value)}" ${String(value)===String(selected)?'selected':''}>${esc(text)}</option>`).join('')}</select></div>`;}
