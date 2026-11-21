@@ -306,8 +306,9 @@ def test_pr4_profile_mobile_sheet_and_footer(browser_http):
             page.locator('[data-social-action="edit-profile"]').click()
             expect(page.locator(".modal")).to_be_visible()
             box = page.locator(".modal").bounding_box()
-            assert box is not None and abs(box["y"] + box["height"] - 812) <= 2, box
-            assert box["x"] <= 2 and box["width"] >= 373, box
+            assert box is not None and box["y"] >= 11 and box["y"]+box["height"] <= 800, box
+            assert box["x"] >= 10 and box["x"]+box["width"] <= 365, box
+            assert page.locator(".modal-backdrop").evaluate("(el) => +getComputedStyle(el).zIndex") > page.locator("header.site-header").evaluate("(el) => +getComputedStyle(el).zIndex")
         finally:
             browser.close()
 
@@ -655,12 +656,12 @@ def test_webkit_mobile_six_tabs_and_create_flows(browser_https):
                     assert page.evaluate("document.querySelector('header')===window.__uiHeader")
                     page.screenshot(path=str(out/f"route-{path.strip('/') or 'home'}.png"),
                                     full_page=True,animations="disabled")
-                # Long profile modal on mobile: bottom attached and buttons visible.
+                # Long profile modal on mobile: centered with safe viewport margins.
                 page.locator('header .nav [data-nav="/profile"]').click()
                 page.locator('[data-social-action="edit-profile"]').click()
                 expect(page.locator(".modal")).to_be_visible()
                 bbox=page.locator(".modal").bounding_box()
-                assert bbox and abs(bbox["y"]+bbox["height"]-844)<=2,bbox
+                assert bbox and bbox["y"]>=11 and bbox["y"]+bbox["height"]<=832,bbox
                 page.screenshot(path=str(out/"profile-dialog.png"),
                                 full_page=False,animations="disabled")
                 page.keyboard.press("Escape")
