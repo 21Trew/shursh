@@ -1107,8 +1107,10 @@ def test_shursh_ux_followup_finish_game_and_sticky_modal(browser_https):
             expect(page.locator('[data-santa-card-state="finished"][hidden]')).to_have_count(1)
             # Header collapse must not alter document flow or scroll position.
             page.evaluate("""() => {
+                // Disable only the test's smooth scrolling, not the product.
+                document.documentElement.style.scrollBehavior='auto';
                 document.body.style.minHeight='3000px';
-                window.scrollTo(0,300);
+                window.scrollTo({top:300,behavior:'instant'});
             }""")
             expect(page.locator('.site-header')).to_have_class(re.compile(r'is-condensed'))
             stable=page.evaluate("({scrollY,padding:getComputedStyle(document.querySelector('#app')).paddingTop,top:document.querySelector('.site-header').getBoundingClientRect().top})")
