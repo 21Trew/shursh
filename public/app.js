@@ -94,7 +94,7 @@ const ownerDataCache=new Map();
 let ownerCacheVersion=0;
 function ownerCacheTTL(path){return /^\/api\/(?:santas|lists)\/\d+/.test(path)?30000:45000;}
 function cacheableOwnerRead(path){
- return !!currentUser&&(/^\/api\/(?:lists|santas|dashboard|friends|notifications)$/.test(path)||
+ return !!currentUser&&(path==='/api/friends/wishlists'||/^\/api\/(?:lists|santas|dashboard|friends|notifications)$/.test(path)||
   path==='/api/profile/me'||
   /^\/api\/(?:lists|santas)\/\d+$/.test(path));
 }
@@ -105,12 +105,12 @@ function clearOwnerDataCache(){
 function invalidateOwnerDataForMutation(path){
  // A social write may change one section, but must not discard unrelated views.
  const isFriendWrite=/^\/api\/friends\//.test(path);
- const isNotificationWrite=/^\/api\/notifications\/\d+\/read$/.test(path);
+ const isNotificationWrite=/^\/api\/notifications\/(?:\d+\/read|read-all)$/.test(path);
  const isAccountWrite=path==='/api/profile/me'||/^\/api\/account\/(?:email|password)$/.test(path);
  if(isFriendWrite||isNotificationWrite||isAccountWrite){
   const tabs=isFriendWrite?['/friends','/notifications']:isNotificationWrite?['/notifications']:['/profile'];
   clearOwnerTabViews(tabs);
-  for(const endpoint of isFriendWrite?['/api/friends','/api/notifications']:
+  for(const endpoint of isFriendWrite?['/api/friends','/api/friends/wishlists','/api/notifications']:
     isNotificationWrite?['/api/notifications']:['/api/profile/me']){
    ownerDataCache.delete(endpoint);
   }
@@ -235,6 +235,21 @@ async function clipboard(value){try{await navigator.clipboard.writeText(value);n
 function modal({title,subtitle='',content='',onSubmit=null,submitLabel='Сохранить',size='normal',footer=''}){
  closeUiSelect();
  modalRoot.innerHTML=`<div class="modal-backdrop" data-backdrop><div class="modal" role="dialog" aria-modal="true" aria-label="${attr(title)}"><button class="modal-close" type="button" data-close aria-label="Закрыть">×</button><div class="modal-scroll-area"><h2>${esc(title)}</h2>${subtitle?`<p class="modal-subtitle">${esc(subtitle)}</p>`:''}<form class="form" id="modal-form">${content}${onSubmit?`<div class="form-actions"><button type="button" class="btn btn-soft" data-close>Отмена</button><button type="submit" class="btn btn-dark">${esc(submitLabel)} ${ico('arrow')}</button></div>`:''}</form>${footer?`<div class="modal-foot">${footer}</div>`:''}</div></div></div>`;
+ const scroller=modalRoot.querySelector('.modal-scroll-area');
+ const dialog=modalRoot.querySelector('.modal');
+ const titleNode=scroller.querySelector(':scope > h2');
+ if(titleNode){
+  const headerRail=document.createElement('div');headerRail.className='modal-fixed-header';
+  headerRail.append(titleNode);dialog.insertBefore(headerRail,scroller);
+ }
+ const actionRow=scroller.querySelector('#modal-form > .form-actions');
+ const extra=scroller.querySelector(':scope > .modal-foot');
+ if(actionRow||extra){
+  const footerRail=document.createElement('div');footerRail.className='modal-fixed-footer';
+  if(actionRow){actionRow.querySelector('[type=submit]')?.setAttribute('form','modal-form');footerRail.append(actionRow);}
+  if(extra)footerRail.append(extra);
+  dialog.append(footerRail);
+ }
  enhanceSelects(modalRoot);
  document.body.style.overflow='hidden';const bd=modalRoot.querySelector('[data-backdrop]');bd.addEventListener('click',e=>{if(e.target===bd)closeModal()});modalRoot.querySelectorAll('[data-close]').forEach(b=>b.addEventListener('click',closeModal));
  if(onSubmit){modalRoot.querySelector('form').addEventListener('submit',async e=>{e.preventDefault();const btn=e.currentTarget.querySelector('[type=submit]')||modalRoot.querySelector('.modal-fixed-footer [type=submit]');btn.disabled=true;try{const submitted=e.currentTarget;await onSubmit(submitted);if(modalRoot.querySelector('form')===submitted)closeModal();}catch(err){notice(err.message,true)}finally{if(btn.isConnected)btn.disabled=false;}});}
@@ -257,6 +272,12 @@ function contactDeveloperModal(){
 }
 function closeModal(){closeUiSelect();modalRoot.replaceChildren();document.body.style.overflow='';}
 document.addEventListener('keydown',e=>{if(e.key==='Escape'){if(uiSelectOpen){e.preventDefault();closeUiSelect(true);}else closeModal();}});
+document.addEventListener('click',e=>{
+ const picker=e.target.closest('input[type="date"]');
+ if(picker&&!picker.disabled&&typeof picker.showPicker==='function'){
+  try{picker.showPicker();}catch{/* Keep native fallback. */}
+ }
+});
 function field(label,name,placeholder='',type='text',value='',required=false,extra=''){
  return `<div class="field"><label for="fld-${attr(name)}">${esc(label)}</label><input id="fld-${attr(name)}" name="${attr(name)}" type="${attr(type)}" placeholder="${attr(placeholder)}" value="${attr(value??'')}" ${required?'required':''} ${extra}></div>`;
 }
@@ -408,9 +429,18 @@ function heroArt(){return `<svg viewBox="0 0 570 535" aria-hidden="true" role="p
  </g><g fill="#edc76c" stroke="#29292c" stroke-width="2"><path d="m161 343 7 19 20 6-20 7-7 20-7-20-20-7 20-6Z"/><path d="m444 310 6 14 14 6-14 6-6 15-5-15-15-6 15-6Z"/></g><path d="M130 252c-12-24-4-36 10-29 8 4 9 13 9 13s12-13 23-4c13 14-5 27-23 40Z" fill="#e98e86"/><path d="m460 212 13-3m-9-15 11-9" stroke="#27272b" stroke-width="3" stroke-linecap="round"/></svg>`;}
 function santaArt(){return `<svg viewBox="0 0 600 430" aria-hidden="true"><path d="M5 210c70-180 229-206 353-138s202 176 220 266v92H0Z" fill="#f3d1c2"/><g transform="translate(60 70) rotate(-12 110 145)"><rect x="25" y="32" width="195" height="232" rx="17" fill="#f5e8ce" stroke="#2c292b" stroke-width="4"/><path d="M45 72h150m-150 31h105m-105 31h130" stroke="#d5baa5" stroke-width="6" stroke-linecap="round"/><circle cx="122" cy="195" r="33" fill="#eeb5a0" stroke="#2c292b" stroke-width="3"/><path d="m106 197 12 12 24-26" stroke="#2c292b" stroke-width="5" fill="none"/></g><g transform="translate(310 91) rotate(13 110 125)"><rect x="18" y="25" width="202" height="230" rx="17" fill="#d4c5ef" stroke="#2c292b" stroke-width="4"/><path d="M19 45 119 139 219 45M19 250l71-91m129 91-72-91" stroke="#2c292b" stroke-width="4" fill="none"/><circle cx="118" cy="150" r="33" fill="#f8c18a" stroke="#2c292b" stroke-width="4"/><path d="M107 152c0-9 7-12 11-4 4-8 12-5 11 4-2 7-11 12-11 12s-11-5-11-12" fill="#fff"/></g><path d="M277 47v29m-14-14h29m204 217 7 17 17 8-17 7-7 17-8-17-17-7 17-8Z" stroke="#2c292b" stroke-width="3" fill="#f2d990"/></svg>`;}
 function stepArt(num){if(num===1)return `<svg viewBox="0 0 130 112">${fallbackArt('book').replace(/viewBox="[^"]*"/,'viewBox="0 0 170 160"')}</svg>`;if(num===2)return `<svg viewBox="0 0 130 112"><rect x="13" y="28" width="104" height="67" rx="10" fill="#fff" stroke="#29292b" stroke-width="3"/><path d="m15 40 50 38 50-38" stroke="#29292b" stroke-width="3" fill="none"/><circle cx="67" cy="73" r="15" fill="#e5bcf0" stroke="#29292b" stroke-width="2"/><path d="M62 72c1-5 5-5 6-1 4-6 9-2 7 3l-7 7Z" fill="#e27f9a"/></svg>`;return `<svg viewBox="0 0 130 112"><rect x="23" y="36" width="86" height="65" fill="#f1b0ac" stroke="#29292b" stroke-width="3"/><rect x="16" y="27" width="100" height="18" fill="#ffdc98" stroke="#29292b" stroke-width="3"/><path d="M65 28v72M65 28c-27 1-25-24-12-23 10 1 12 20 12 23Zm0 0c25-1 24-24 11-23-9 1-11 20-11 23Z" fill="#e5d1f4" stroke="#29292b" stroke-width="3"/></svg>`;}
-function header(){const path=currentPath();return `<header class="site-header"><div class="container topbar"><a class="logo" href="/" data-nav="/" aria-label="Шурш! Главная">шурш<span>!</span></a>${currentUser?`<nav class="nav" aria-label="Главная навигация"><a href="/" data-nav="/" class="${path==='/'?'active':''}">${currentUser?'Кабинет':'Главная'}</a><a href="/lists" data-nav="/lists" class="${path.startsWith('/lists')||path.startsWith('/list/')?'active':''}">Вишлисты</a><a href="/santas" data-nav="/santas" class="${path.startsWith('/santas')||path.startsWith('/santa/')?'active':''}">Тайный Санта</a>${!isPreview?`<a href="/friends" data-nav="/friends" class="${path==='/friends'?'active':''}">Друзья</a><a href="/profile" data-nav="/profile" class="${path==='/profile'||path.startsWith('/users/')?'active':''}">Профиль</a>${currentUser.is_admin?`<a href="/admin" data-nav="/admin" class="${path.startsWith('/admin')?'active':''}">Админка</a>`:''}`:''}</nav>`:""}<div class="header-actions">${currentUser?`<span class="user-name">Привет, ${esc(currentUser.name)}!</span><button class="header-bell ${path==='/notifications'?'active':''}" type="button" data-nav="/notifications" title="Уведомления" aria-label="Уведомления">${ico('bell',21)}<span class="nav-unread" data-notification-count hidden></span></button><button class="btn btn-ghost" data-action="logout" title="Выйти">${ico('logout')} Выйти</button>`:`<button class="btn btn-ghost" data-open="login">Войти</button>`}</div></div></header>${isPreview?`<div class="preview-ribbon"><div class="container">Интерактивное демо · данные хранятся только в этом браузере · ссылки не работают на других устройствах <button type="button" data-action="reset-preview">Сбросить демо</button></div></div>`:''}`;}
+function header(){const path=currentPath();return `<header class="site-header"><div class="container topbar"><a class="logo" href="/" data-nav="/" aria-label="Шурш! Главная">шурш<span>!</span></a>${currentUser?`<nav class="nav" aria-label="Главная навигация"><a href="/" data-nav="/" class="${path==='/'?'active':''}">${currentUser?'Кабинет':'Главная'}</a><a href="/lists" data-nav="/lists" class="${path.startsWith('/lists')||path.startsWith('/list/')?'active':''}">Вишлисты</a><a href="/santas" data-nav="/santas" class="${path.startsWith('/santas')||path.startsWith('/santa/')?'active':''}">Тайный Санта</a>${!isPreview?`<a href="/friends" data-nav="/friends" class="${path==='/friends'?'active':''}">Друзья</a><a href="/profile" data-nav="/profile" class="${path==='/profile'||path.startsWith('/users/')?'active':''}">Профиль</a>${currentUser.is_admin?`<a href="/admin" data-nav="/admin" class="${path.startsWith('/admin')?'active':''}">Админка</a>`:''}`:''}</nav>`:""}<div class="header-actions">${currentUser?`<span class="user-name">Привет, ${esc(currentUser.name)}!</span><button class="header-bell ${path==='/notifications'?'active':''}" type="button" data-social-action="open-notifications" title="Уведомления" aria-label="Уведомления">${ico('bell',21)}<span class="nav-unread" data-notification-count hidden></span></button><button class="header-avatar" type="button" data-nav="/profile" aria-label="Мой профиль">${esc(currentUser.avatar_emoji||"🎁")}</button><button class="btn btn-ghost" data-action="logout" title="Выйти">${ico('logout')} Выйти</button>`:`<button class="btn btn-ghost" data-open="login">Войти</button>`}</div></div></header>${isPreview?`<div class="preview-ribbon"><div class="container">Интерактивное демо · данные хранятся только в этом браузере · ссылки не работают на других устройствах <button type="button" data-action="reset-preview">Сбросить демо</button></div></div>`:''}`;}
 function footer(){return `<footer class="container footer"><div><a class="logo" data-nav="/" href="/">шурш<span>!</span></a><small>Место для хотелок и сюрпризов</small></div><p class="footer-credit">Сделано с заботой о сюрпризах <span aria-hidden="true">·</span> <button class="footer-developer" type="button" data-action="contact-developer">L-code</button></p></footer>`;}
 let shellUserSignature='';
+let headerScrollQueued=false;
+window.addEventListener('scroll',()=>{
+ if(headerScrollQueued)return;
+ headerScrollQueued=true;
+ requestAnimationFrame(()=>{
+  headerScrollQueued=false;
+  document.querySelector('.site-header')?.classList.toggle('is-condensed',scrollY>48);
+ });
+},{passive:true});
 
 // Existing mobile nav gets passive scroll cues; no new elements or fetches.
 let navigationCueNode=null;
@@ -443,7 +473,7 @@ function attachNavigationScrollCue(){
  if(document.fonts?.ready)void document.fonts.ready.then(schedule);
 }
 function shell(body){
- const identity=(currentUser?.id??'guest')+':'+(currentUser?.name??'')+':'+!!currentUser?.is_admin+':'+isDemo+':'+isPreview;
+ const identity=(currentUser?.id??'guest')+':'+(currentUser?.name??'')+':'+(currentUser?.avatar_emoji??'')+':'+!!currentUser?.is_admin+':'+isDemo+':'+isPreview;
  let view=app.querySelector('#page-view');
  if(!view){
   app.innerHTML=header()+'<div id="page-view"></div>'+footer();
@@ -468,7 +498,7 @@ function shell(body){
  const bell=app.querySelector('.header-bell');if(bell)bell.classList.toggle('active',currentPath()==='/notifications');
   closeUiSelect();view.innerHTML=body;enhanceSelects(view);view.removeAttribute('aria-busy');app.classList.remove('route-loading');
  renderedOwnerTab=ownerTab(currentPath())?currentPath():null;
- document.title='Шурш! - вишлисты и Тайный Санта';
+ document.title='Шурш! - место для хотелок и сюрпризов';
  if(currentUser&&!isPreview){
   if(typeof socialRefreshBadge==='function')void socialRefreshBadge();
   scheduleOwnerWarmup();
@@ -491,7 +521,7 @@ function dashboardContent(data){
   '<section class="dashboard-welcome"><div><div class="section-label">Твоё пространство</div><h1>С возвращением, <em>'+name+'!</em></h1>'+
   '<p>Хорошие сюрпризы начинаются здесь. Есть новые идеи подарков?</p>'+
   '<div class="btn-row"><button class="btn btn-dark" data-open="list">Новый вишлист '+ico('plus')+'</button>'+
-  '<button class="btn btn-peach" data-open="santa">Создать Тайного Санту '+ico('gift')+'</button></div></div>'+
+  '<button class="btn btn-peach santa-create-cta" data-open="santa">Тайный Санта +</button></div></div>'+
   '<div class="dashboard-welcome-art" aria-hidden="true">'+fallbackArt('gift')+'</div></section>'+
   '<section class="dashboard-section"><div class="dashboard-section-head"><div><div class="section-label">01 / Вишлисты</div>'+
   '<h2>Твои желания</h2></div><button class="text-link" data-nav="/lists">Все списки '+ico('arrow')+'</button></div>'+
@@ -512,7 +542,7 @@ function dashboardLoading(){
   '<div class="section-label">Твоё пространство</div><h1>С возвращением, <em>'+name+'!</em></h1>'+
   '<p>Хорошие сюрпризы начинаются здесь</p>'+
   '<div class="btn-row"><button class="btn btn-dark" data-open="list">Новый вишлист '+ico('plus')+'</button>'+
-  '<button class="btn btn-peach" data-open="santa">Создать Тайного Санту '+ico('gift')+'</button></div></div>'+
+  '<button class="btn btn-peach santa-create-cta" data-open="santa">Тайный Санта +</button></div></div>'+
   '<div class="dashboard-welcome-art" aria-hidden="true">'+fallbackArt('gift')+'</div></section>'+
   '<section class="dashboard-skeleton" role="status" aria-label="Загружаем списки и игры"><div class="skeleton-cards"><div class="skeleton-card"></div><div class="skeleton-card"></div></div></section></main>');
 }
@@ -560,7 +590,7 @@ function wishCard(w,mode='owner',shareKey=''){
  const reserved=w.reserved===true;
  const cardActions=mode==='owner'?`<div class="wish-controls"><button class="btn btn-soft" data-action="edit-wish" data-id="${w.id}" title="Редактировать">${ico('edit')}</button><button class="btn btn-soft" data-action="delete-wish" data-id="${w.id}" title="Удалить">${ico('trash')}</button></div>`:'';
  const footer=mode==='guest'?`<button class="btn ${reserved?'btn-soft':'btn-dark'} wish-action" ${reserved?'disabled':''} data-action="reserve" data-id="${w.id}" data-key="${attr(shareKey)}">${reserved?`${ico('check')} Уже забронировано`:`${ico('gift')} Забронировать подарок`}</button>`:'';
- return `<article class="wish-card"><button type="button" class="card-hitarea" data-action="show-wish" data-id="${w.id}" data-mode="${attr(mode)}" data-key="${attr(shareKey)}" aria-label="Подробнее о желании ${attr(w.title)}"></button><div class="wish-image">${w.image_path?`<img src="${attr(w.image_path)}" alt="${attr(w.title)}" loading="lazy">`:artFor(w)}${w.priority==='love'?`<span class="wish-priority chip chip-peach">${ico('heart')} Очень хочу</span>`:''}</div><div class="wish-content"><h3>${esc(w.title)}</h3><p class="wish-desc">${esc(w.description|| (w.kind==='experience'?'Впечатление или хорошая идея':'Подарок без комментария'))}</p><div class="wish-card-footer"><div class="wish-price">${money(w.price_cents,w.currency)}</div>${cardActions}</div>${w.shop_url?`<a href="${attr(w.shop_url)}" target="_blank" rel="noopener noreferrer" class="text-link" style="margin-top:12px;font-size:12px">В магазин ${ico('external')}</a>`:''}${footer}</div></article>`;
+ return `<article class="wish-card"><button type="button" class="card-hitarea" data-action="show-wish" data-id="${w.id}" data-mode="${attr(mode)}" data-key="${attr(shareKey)}" aria-label="Подробнее о желании ${attr(w.title)}"></button><div class="wish-image">${w.image_path?`<img src="${attr(w.image_path)}" alt="${attr(w.title)}" loading="lazy">`:artFor(w)}${w.priority==='love'?`<span class="wish-priority chip chip-peach">${ico('heart')} Очень хочу</span>`:`<span class="wish-priority chip priority-nice">Было бы здорово</span>`}</div><div class="wish-content"><h3>${esc(w.title)}</h3><p class="wish-desc">${esc(w.description|| (w.kind==='experience'?'Впечатление или хорошая идея':'Подарок без комментария'))}</p><div class="wish-card-footer"><div class="wish-price">${money(w.price_cents,w.currency)}</div>${cardActions}</div>${w.shop_url?`<a href="${attr(w.shop_url)}" target="_blank" rel="noopener noreferrer" class="text-link" style="margin-top:12px;font-size:12px">В магазин ${ico('external')}</a>`:''}${footer}</div></article>`;
 }
 function showWishDetails(el){
  const id=Number(el.dataset.id), mode=el.dataset.mode, key=el.dataset.key||'';
@@ -585,7 +615,7 @@ async function ownerListPage(id,marker=lastRenderToken){if(!currentUser)throw ne
  const l=d.list;const url=getLink(`/w/${l.share_key}`);shell(`<main class="container page"><div class="guest-topline"><button class="text-link" data-nav="/lists">${ico('back')} Мои вишлисты</button> <span>/</span> <span>${esc(l.title)}</span></div><div class="detail-top cover-${attr(l.theme)}"><div><span class="chip">${ico('gift')} ${esc(l.occasion)}</span><h1>${esc(l.title)}</h1><p>${esc(l.description||'Список маленьких и больших мечтаний')}</p></div><div class="detail-art">${fallbackArt('gift')}</div></div><div class="detail-actions"><div><h2>Желания <span class="chip">${d.wishes.length}</span></h2><p class="note">Брони друзей здесь никогда не отображаются</p></div><div class="btn-row"><button class="btn btn-soft btn-small" data-action="edit-list">${ico('edit')} Настройки</button><button class="btn btn-soft btn-small" data-action="copy" data-url="${attr(url)}" ${l.visibility==='private'?'disabled title="Сначала открой доступ по ссылке"':''}>${ico('copy')} Ссылка</button><button class="btn btn-dark btn-small" data-open="wish">Добавить желание ${ico('plus')}</button></div></div>${l.visibility==='private'?`<div class="alert">${ico('lock')} Список приватный. Доступ по ссылке выключен в настройках</div>`:''}${d.wishes.length?`<div class="wishlist-grid">${d.wishes.map(w=>wishCard(w)).join('')}</div>`:emptyState('Пока ни одного желания','Вдохновение начинается с первой идеи','Добавить желание','wish')}<div class="divider-line"></div><button class="btn btn-ghost btn-small" data-action="delete-list">${ico('trash')} Удалить весь список</button></main>`);}
 let loadedPublicWishes=[];
 async function publicListPage(key,marker=lastRenderToken){const {list:l,wishes,owner_view}=await api(`/api/public/${key}`);if(marker!==lastRenderToken)return;loadedPublicWishes=wishes;shell(`<main class="container page"><div class="guest-topline">${ico('gift')} <span>Вишлист по ссылке</span><span>/</span><strong>от ${esc(l.owner_name)}</strong></div><div class="detail-top cover-${attr(l.theme)}"><div><span class="chip">${ico('heart')} ${esc(l.occasion)}</span><h1>${esc(l.title)}</h1><p>${esc(l.description)}</p></div><div class="detail-art">${fallbackArt('gift')}</div></div><div class="guest-banner">${ico('lock')} ${owner_view?'Это твой список - статус бронирования для владельца скрыт':'Можешь забронировать понравившийся подарок. Владелец списка не увидит, что выбрано. После брони сохрани приватную ссылку для управления'}</div><div class="detail-actions"><h2>Желания <span class="chip">${wishes.length}</span></h2></div>${wishes.length?`<div class="wishlist-grid">${wishes.map(w=>wishCard(w,owner_view?'view':'guest',key)).join('')}</div>`:emptyState('В этом списке пока пусто','Загляни позже - здесь скоро появятся желания','На главную','login')}</main>`);}
-async function reservationPage(key,marker=lastRenderToken){const {reservation:r}=await api(`/api/reservations/${key}`);if(marker!==lastRenderToken)return;shell(`<main class="container page"><div class="invite-card"><div class="invite-icon">${envelopeArt()}</div><h1>${r.cancelled_at?'Бронь отменена':'Подарок ждёт своего часа!'}</h1><p>${r.cancelled_at?'Этот подарок снова доступен другим дарителям':'Твоя бронь сохранена. Эта ссылка - личный ключ для отмены, береги её'}</p><div class="details-box"><p><strong>Подарок:</strong> ${esc(r.wish_title)}</p><p><strong>Вишлист:</strong> ${esc(r.list_title)}</p><p><strong>Даритель:</strong> ${esc(r.guest_name)}</p></div>${!r.cancelled_at?`<div class="share-field"><input class="input" readonly value="${attr(getLink(`/r/${key}`))}" aria-label="Ссылка управления бронью"><button class="btn btn-dark btn-small" data-action="copy" data-url="${attr(getLink(`/r/${key}`))}">${ico('copy')} Копировать</button></div><button class="btn btn-danger btn-small" data-action="cancel-reservation" data-token="${attr(key)}">Отменить мою бронь</button>`:''}</div></main>`);}
+async function reservationPage(key,marker=lastRenderToken){const {reservation:r}=await api(`/api/reservations/${key}`);if(marker!==lastRenderToken)return;shell(`<main class="container page"><div class="invite-card"><div class="invite-icon">${envelopeArt()}</div><h1>${r.cancelled_at?'Бронь отменена':'Подарок ждёт своего часа!'}</h1><p>${r.cancelled_at?'Этот подарок снова доступен другим дарителям':'Твоя бронь сохранена. Эта ссылка - личный ключ для отмены, береги её'}</p><div class="details-box"><p><strong>Подарок:</strong> ${esc(r.wish_title)}</p><p><strong>Вишлист:</strong> ${esc(r.list_title)}</p></div>${!r.cancelled_at?`<div class="share-field"><input class="input" readonly value="${attr(getLink(`/r/${key}`))}" aria-label="Ссылка управления бронью"><button class="btn btn-dark btn-small" data-action="copy" data-url="${attr(getLink(`/r/${key}`))}">${ico('copy')} Копировать</button></div><button class="btn btn-danger btn-small" data-action="cancel-reservation" data-token="${attr(key)}">Отменить мою бронь</button>`:''}</div></main>`);}
 async function adminFeedbackPage(marker=lastRenderToken){
  const {items}=await api('/api/admin/feedback');
  if(marker!==lastRenderToken)return;
@@ -755,7 +785,7 @@ function loginModal(mode='login'){
  });
 }
 function listModal(edit=null){if(!currentUser){loginModal('register');return;}
- const selected=edit||{};modal({title:edit?'Настройки вишлиста':'Новый вишлист',subtitle:edit?'Меняй оформление и доступ, когда захочешь':'Как назовём твою маленькую коллекцию желаний?',content:`${field('Название','title','Например, День рождения, ура!','text',selected.title||'',true,'maxlength="90"')}${textArea('Пара слов о списке','description','Что важно знать дарителям?',selected.description||'')}<div class="form-grid">${selectField('Повод','occasion',['Просто так','День рождения','Годовщина','Новоселье','Свадьба','Новый год','Другое'].map(v=>[v,v]),selected.occasion||'День рождения')}${selectField('Оформление','theme',[['peach','Персиковое'],['lilac','Лавандовое'],['mint','Мятное'],['yellow','Солнечное']],selected.theme||'peach')}</div>${selectField('Доступ к списку','visibility',[['link','По ссылке'],['private','Только мне']],selected.visibility||'link')}`,submitLabel:edit?'Сохранить':'Создать список',onSubmit:async form=>{const payload=readForm(form);if(edit){await api(`/api/lists/${edit.id}`,{method:'PATCH',body:payload});notice('Настройки сохранены');await render();}else{const r=await api('/api/lists',{method:'POST',body:payload});notice('Список создан!');nav(`/list/${r.id}`);}}});}
+ const selected=edit||{};modal({title:edit?'Настройки вишлиста':'Новый вишлист',subtitle:edit?'Меняй оформление и доступ, когда захочешь':'Как назовём твою маленькую коллекцию желаний?',content:`${field('Название','title','Например, День рождения, ура!','text',selected.title||'',true,'maxlength="90"')}${textArea('Пара слов о списке','description','Что важно знать дарителям?',selected.description||'')}<div class="form-grid">${selectField('Повод','occasion',['Просто так','День рождения','Годовщина','Новоселье','Свадьба','Новый год','Другое'].map(v=>[v,v]),selected.occasion||'День рождения')}${selectField('Оформление','theme',[['peach','🟠 Персиковое'],['lilac','🟣 Лавандовое'],['mint','🟢 Мятное'],['yellow','🟡 Солнечное']],selected.theme||'peach')}</div>${selectField('Доступ к списку','visibility',[['link','По ссылке'],['private','Только мне']],selected.visibility||'link')}`,submitLabel:edit?'Сохранить':'Создать список',onSubmit:async form=>{const payload=readForm(form);if(edit){await api(`/api/lists/${edit.id}`,{method:'PATCH',body:payload});notice('Настройки сохранены');await render();}else{const r=await api('/api/lists',{method:'POST',body:payload});notice('Список создан!');nav(`/list/${r.id}`);}}});}
 function fixWishModalLayout(){
  const dialog=modalRoot.querySelector('.modal');
  dialog?.classList.add('wish-edit-modal');
@@ -888,7 +918,7 @@ async function importOwnWishesModal(el){
  select.addEventListener('change',show);
  show();
 }
-function reserveModal(id,key){modal({title:'Забронировать подарок',subtitle:'Владелец списка не узнает, что ты выбрал. Сохрани приватную ссылку для отмены',content:`${field('Как тебя зовут?','guest_name','Например, Маша','text','',true,'maxlength="50"')}`,submitLabel:'Забронировать',onSubmit:async form=>{const r=await api(`/api/public/${key}/reserve/${id}`,{method:'POST',body:readForm(form)});nav(`/r/${r.manage_token}`);notice('Подарок за тобой!');}});}
+function reserveModal(id,key){modal({title:'Забронировать подарок',subtitle:'Владелец не узнает, кто выбрал подарок',content:'<p class="note">Бронь анонимна. Сохрани приватную ссылку для отмены</p>',submitLabel:'Забронировать',onSubmit:async()=>{const r=await api(`/api/public/${key}/reserve/${id}`,{method:'POST',body:{}});nav(`/r/${r.manage_token}`);notice('Подарок за тобой!');}});}
 async function confirmAction(title,subtitle,handler,label='Удалить'){modal({title,subtitle,content:'<div class="alert alert-error">Это действие нельзя отменить</div>',submitLabel:label,onSubmit:handler});}
 async function dispatch(action,el){try{
  if(action==='edit-santa-preferences'){const f=document.getElementById('santa-preferences-form'),d=document.getElementById('santa-preferences-display');if(f&&d){f.hidden=false;d.hidden=true;}return;}
