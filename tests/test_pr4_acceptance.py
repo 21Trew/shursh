@@ -450,3 +450,176 @@ def test_ui_gallery_layout_and_interaction_regression():
         finally:
             browser.close()
     (out/"geometry.json").write_text(json.dumps(report,ensure_ascii=False,indent=2))
+
+
+@pytest.mark.browser
+def test_ui_gallery_stable_palette_screenshot_baseline_chromium_webkit():
+    """Pixel compare stable screenshot paint samples; other visuals are reviewed."""
+    from io import BytesIO
+    from PIL import Image, ImageChops
+
+    root=Path(__file__).resolve().parents[1]
+    gallery=root/"tools"/"ui-gallery.html"
+    baseline=Image.open(root/"tests"/"baselines"/"ui-gallery-palette.png").convert("RGB")
+    assert baseline.size==(96,192)
+    with sync_playwright() as play:
+        for engine in ("chromium","webkit"):
+            browser=getattr(play,engine).launch(headless=True,args=["--no-sandbox"])
+            try:
+                for width in (375,390,768,1024,1440):
+                    context=browser.new_context(
+                        viewport={"width":width,"height":860},
+                        reduced_motion="reduce",device_scale_factor=1,
+                        is_mobile=(engine=="webkit" and width<=390),
+                        has_touch=(engine=="webkit" and width<=390),
+                    )
+                    page=context.new_page()
+                    page.goto(gallery.as_uri(),wait_until="load")
+                    swatches=page.locator(".gallery-swatch-color")
+                    expect(swatches).to_have_count(8)
+                    actual=Image.new("RGB",(96,192))
+                    for i in range(8):
+                        # Screenshot the actual rendered element, then sample
+                        # its flat-color center with no borders or text.
+                        image=Image.open(BytesIO(swatches.nth(i).screenshot())).convert("RGB")
+                        assert image.width>=96 and image.height>=44, (
+                            engine,width,i,image.size
+                        )
+                        left=(image.width-96)//2
+                        actual.paste(image.crop((left,20,left+96,44)),(0,i*24))
+                    target=OUTPUT/"palette"
+                    target.mkdir(parents=True,exist_ok=True)
+                    actual.save(target/f"{engine}-{width}-actual.png")
+                    delta=ImageChops.difference(actual,baseline)
+                    assert delta.getbbox() is None, (
+                        "Unexpected UI palette pixels",
+                        engine,width,
+                        sum(1 for p in delta.getdata() if p!=(0,0,0)),
+                    )
+                    context.close()
+            finally:
+                browser.close()
+
+
+@pytest.mark.browser
+def test_webkit_responsive_ui_gallery_visual_and_keyboard():
+    """Mobile Safari engine + tablet/desktop width: screenshot/keyboard gates."""
+    gallery=Path(__file__).resolve().parents[1]/"tools"/"ui-gallery.html"
+    errors=[]
+    with sync_playwright() as play:
+        browser=play.webkit.launch(headless=True,args=["--no-sandbox"])
+        try:
+            for width in (375,390,768,1024,1440):
+                context=browser.new_context(
+                    viewport={"width":width,"height":860},device_scale_factor=1,
+                    reduced_motion="reduce",has_touch=width<=390,
+                    is_mobile=width<=390,
+                )
+                page=context.new_page()
+                page.on("pageerror",lambda error:errors.append(str(error)))
+                page.goto(gallery.as_uri(),wait_until="load")
+                expect(page.locator(".gallery-swatch")).to_have_count(8)
+                assert page.evaluate("document.documentElement.scrollWidth <= innerWidth+2"), (
+                    width,"horizontal overflow in WebKit gallery"
+                )
+                page.locator("#gallery-nav-2").click()
+                expect(page.locator("#gallery-tab-2")).to_be_visible()
+                expect(page.locator("#gallery-tab-1")).to_be_hidden()
+                output=OUTPUT/"webkit"
+                output.mkdir(parents=True,exist_ok=True)
+                page.screenshot(path=str(output/f"{width}-gallery.png"),
+                                full_page=True,animations="disabled")
+                page.locator("#gallery-open-modal").click()
+                modal=page.get_by_role("dialog",name="Добавить желание")
+                expect(modal).to_be_visible()
+                rect=page.locator("#gallery-modal .modal").bounding_box()
+                assert rect is not None
+                if width<=760:
+                    assert rect["x"]<=2 and rect["width"]>=width-2,rect
+                    assert abs(rect["y"]+rect["height"]-860)<=2,rect
+                expect(page.locator("#gallery-wish-modal")).to_be_focused()
+                page.screenshot(path=str(output/f"{width}-dialog.png"),
+                                full_page=False,animations="disabled")
+                page.keyboard.press("Escape")
+                expect(page.locator("#gallery-modal")).to_be_hidden()
+                expect(page.locator("#gallery-open-modal")).to_be_focused()
+                context.close()
+        finally:
+            browser.close()
+    assert not errors, errors
+
+
+@pytest.mark.browser
+def test_webkit_mobile_six_tabs_and_create_flows(browser_http):
+    """Mock-account WebKit: responsive navigation, wishlist and Santa details."""
+    from uuid import uuid4
+    import re
+    errors=[]
+    with sync_playwright() as play:
+        browser=play.webkit.launch(headless=True,args=["--no-sandbox"])
+        try:
+            for width in (375,390):
+                context=browser.new_context(
+                    viewport={"width":width,"height":844},
+                    is_mobile=True,has_touch=True,device_scale_factor=1,
+                    reduced_motion="reduce",
+                )
+                page=context.new_page()
+                page.set_default_timeout(15000)
+                page.on("pageerror",lambda error:errors.append(str(error)))
+                page.goto(browser_http+"/",wait_until="domcontentloaded")
+                browser_login(page)
+                expect(page.locator(".dashboard-page")).to_be_visible()
+                page.wait_for_function(
+                    "() => typeof ownerWarmupReady !== 'undefined' && ownerWarmupReady",
+                    timeout=15000,
+                )
+                page.evaluate("window.__uiHeader=document.querySelector('header')")
+                out=OUTPUT/"webkit"/"flows"/str(width)
+                out.mkdir(parents=True,exist_ok=True)
+                # All six authenticated owner tabs, horizontal navigation and footer.
+                for path,heading,selector in ROUTES:
+                    page.locator(selector).click()
+                    expect(page.locator("#page-view main h1").first).to_contain_text(heading)
+                    assert page.evaluate("document.documentElement.scrollWidth <= innerWidth+2"), (
+                        width,path,"page overflow"
+                    )
+                    assert page.evaluate("document.querySelector('header')===window.__uiHeader")
+                    page.screenshot(path=str(out/f"route-{path.strip('/') or 'home'}.png"),
+                                    full_page=True,animations="disabled")
+                # Long profile modal on mobile: bottom attached and buttons visible.
+                page.locator('header .nav [data-nav="/profile"]').click()
+                page.locator('[data-social-action="edit-profile"]').click()
+                expect(page.locator(".modal")).to_be_visible()
+                bbox=page.locator(".modal").bounding_box()
+                assert bbox and abs(bbox["y"]+bbox["height"]-844)<=2,bbox
+                page.screenshot(path=str(out/"profile-dialog.png"),
+                                full_page=False,animations="disabled")
+                page.keyboard.press("Escape")
+                expect(page.locator(".modal-backdrop")).to_have_count(0)
+                # Creation form and saved list page.
+                page.locator('header .nav [data-nav="/lists"]').click()
+                page.locator('main button[data-open="list"]').first.click()
+                title="WebKit список "+uuid4().hex[:6]
+                page.locator("#fld-title").fill(title)
+                page.locator('#modal-form button[type="submit"], .modal-fixed-footer button[type="submit"]').click()
+                expect(page).to_have_url(re.compile(r"/list/\d+$"))
+                expect(page.locator("main h1")).to_contain_text(title)
+                page.screenshot(path=str(out/"wishlist-detail.png"),
+                                full_page=True,animations="disabled")
+                # Santa game and chat, including initial loading and compact panels.
+                page.locator('header .nav [data-nav="/santas"]').click()
+                page.locator('main button[data-open="santa"]').first.click()
+                game_title="WebKit игра "+uuid4().hex[:6]
+                page.locator("#fld-title").fill(game_title)
+                page.locator('#modal-form button[type="submit"], .modal-fixed-footer button[type="submit"]').click()
+                expect(page).to_have_url(re.compile(r"/santa/\d+$"))
+                expect(page.locator("main h1")).to_contain_text(game_title)
+                expect(page.locator("#game-chat")).to_be_visible()
+                page.screenshot(path=str(out/"santa-detail.png"),
+                                full_page=True,animations="disabled")
+                assert page.evaluate("document.documentElement.scrollWidth <= innerWidth+2")
+                context.close()
+        finally:
+            browser.close()
+    assert not errors, errors
