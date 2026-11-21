@@ -178,10 +178,16 @@ class CloudRequest(Handler):
             con.execute('DELETE FROM app_sessions WHERE token_hash=?',(token_hash(previous),))
         con.execute('INSERT INTO app_sessions(token_hash,user_id,email,expires_at) VALUES(?,?,?,?)',
                     (token_hash(value),uid,verified_email,now+SESSION_SECONDS))
-        rec = con.execute('SELECT id,name,avatar_emoji,handle FROM profiles WHERE id=?',(uid,)).fetchone()
+        rec = con.execute('''SELECT p.id,p.name,p.avatar_emoji,p.handle,
+                        (a.user_id IS NOT NULL) AS admin_granted
+                        FROM profiles p LEFT JOIN site_admins a ON a.user_id=p.id
+                        WHERE p.id=?''',(uid,)).fetchone()
         admins={a.strip().casefold() for a in os.getenv('SHURSH_ADMIN_EMAILS','').split(',') if a.strip()}
-        return 200, {'user': {**rec,'email':verified_email,
-                 'is_admin':bool(admins and verified_email.casefold() in admins)}}, self.send_cookie(value)
+        granted=dict(rec)
+        is_admin=bool(granted.pop('admin_granted',False) or
+                      (admins and verified_email.casefold() in admins))
+        return 200, {'user': {**granted,'email':verified_email,
+                 'is_admin':is_admin}}, self.send_cookie(value)
 
     def handle_api(self, method, path, con):
         if method == 'GET' and path == '/api/me':
