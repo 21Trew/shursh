@@ -441,7 +441,7 @@ input[type="file"]::file-selector-button:hover{background:#f2e9dc}
  .container{width:calc(100% - 28px)}
  .topbar{height:auto;min-height:69px;gap:8px;flex-wrap:wrap;align-items:center;padding-top:10px;padding-bottom:0}
  .topbar .logo{font-size:25px;flex:0 0 auto}
- .site-header .nav{order:3;flex:1 0 100%;width:100%;margin:0;padding:9px 4px 13px;gap:7px}
+ .site-header .nav{order:3;flex:1 0 100%;width:100%;margin:0;padding:9px 4px 20px;gap:7px}
  .site-header .nav a{font-size:12px;padding:8px 9px;min-height:37px;display:inline-flex;align-items:center}
  .header-actions{margin-left:auto;gap:7px}
  .header-actions .user-name{display:none}
@@ -550,9 +550,9 @@ input[type="file"]::file-selector-button:hover{background:#f2e9dc}
  /* The hint stays outside the scroller and cannot intercept any tap. */
  .site-header .topbar:has(.nav-scroll-more-right)::after,
  .site-header .topbar:has(.nav-scroll-more-left)::before{
-  position:absolute;bottom:12px;width:27px;height:44px;
+  position:absolute;bottom:0;width:27px;height:16px;
   display:flex;align-items:center;z-index:2;
-  font-size:20px;font-weight:750;line-height:1;
+  font-size:15px;font-weight:750;line-height:1;
   color:var(--ink);pointer-events:none;
  }
  .site-header .topbar:has(.nav-scroll-more-right)::after{

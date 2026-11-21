@@ -912,6 +912,34 @@ def test_pr4_p1_mobile_contrast_touch_targets_and_scroll_cue(browser_https):
                         assert "‹" in left["content"] and left["pointer"]=="none",(
                             engine,width,left
                         )
+                    if width<768:
+                        # The hint's entire painted rectangle must live below
+                        # every tab, including the active marker, at both scroll
+                        # ends; a gradient cannot occlude the active tab.
+                        for side,tag in (("right","::after"),("left","::before")):
+                            geometry=page.evaluate("""pseudo => {
+                                const topbar=document.querySelector('.topbar');
+                                const nav=topbar.querySelector('.nav');
+                                const css=getComputedStyle(topbar,pseudo);
+                                const host=topbar.getBoundingClientRect();
+                                const bottom=parseFloat(css.bottom);
+                                const height=parseFloat(css.height);
+                                const links=[...nav.querySelectorAll('a')]
+                                    .map(el=>el.getBoundingClientRect().bottom);
+                                const maxLinkBottom=Math.max(...links);
+                                const cueTop=host.bottom-bottom-height;
+                                return {cueTop,maxLinkBottom,
+                                    gap:cueTop-maxLinkBottom,
+                                    height,background:css.backgroundImage,
+                                    pointer:css.pointerEvents,
+                                    content:css.content};
+                            }""",tag)
+                            assert geometry["gap"]>=2, (
+                                "navigation hint overlaps tabs",engine,width,side,geometry
+                            )
+                            assert geometry["height"]<=16.1,geometry
+                            assert geometry["pointer"]=="none",geometry
+                            assert "gradient" in geometry["background"],geometry
                     assert page.evaluate("document.documentElement.scrollWidth<=innerWidth+2")
                     page.screenshot(
                         path=str(output/f"{engine}-{width}-header.png"),

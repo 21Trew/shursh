@@ -155,3 +155,16 @@ explicit permission.
 
 This does not approve full-component pixel goldens and does not authorize
 Production deploy or merge.
+
+## P2: non-overlapping mobile nav indicators
+
+Mobile navigation keeps the existing horizontal scrolling behavior and
+right/left chevrons. At widths up to 760px, the nav reserves 20px below
+the tab links; gradient indicators are confined to a 16px-high strip at
+the bottom of the header, with no overlap of active tab highlighting.
+The non-interactive controls continue to use pointer-events:none.
+A Playwright geometry assertion covers both scroll ends in Chromium/WebKit.
+
+All other CSS winner declarations, route code, network behavior and existing
+component geometry remain unchanged (except the mobile header's extra
+7px bottom space). Full-component pixel goldens are not approved.

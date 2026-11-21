@@ -82,3 +82,16 @@ Accepted changes: `--muted:#5c5856`, `.note` and `.section-label` reference
 `var(--muted)`; 44px primary mobile/coarse touch targets including the bell; pointer-transparent
 left/right mobile nav scroll indicators. New visual evidence is captured
 without automatically approving full-component pixel baselines.
+
+## P2: unobstructed mobile nav scroll cues
+
+This narrowly scoped P2 change preserves all prior CSS declarations except
+four intended mobile properties: nav bottom padding 13px to 20px; hint
+position bottom 12px to 0; hint height 44px to 16px; hint font-size 20px to 15px.
+The edge gradients and arrows now live below every link and marker, inside
+the reserved bottom rail, rather than painting over the active tab.
+
+The effective CSS hash was rebased only after verifying these exact 4 changes
+against PR #4 SHA 2aa633e. Chromium and WebKit check the rendered indicator
+geometry in both scroll directions on 375px and 390px. Full pixel goldens
+remain unapproved pending explicit user review.
