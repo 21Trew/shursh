@@ -323,8 +323,20 @@ def handle(handler, method, path, con):
         if con.execute('SELECT id FROM participants WHERE event_id=? AND user_id=?',
                        (participant['event_id'],user['id'])).fetchone():
             raise ApiError(409,'Ты уже участвуешь в этой игре')
-        con.execute('UPDATE participants SET user_id=? WHERE id=? AND user_id IS NULL',
-                    (user['id'],participant['id']))
+        # Use a conditional row update to reject a second, concurrent claim.
+        # A stale read must never be reported as a successful account binding.
+        updated=con.execute('''UPDATE participants SET user_id=?
+                              WHERE id=? AND user_id IS NULL
+                                AND NOT EXISTS (
+                                  SELECT 1 FROM participants other
+                                  WHERE other.event_id=? AND other.user_id=?)
+                              RETURNING id''',
+                            (user['id'],participant['id'],participant['event_id'],user['id'])).fetchone()
+        if not updated:
+            raise ApiError(409,'Эта личная ссылка уже привязана или ты участвуешь в игре')
+        con.execute("""UPDATE santa_friend_invitations SET status='accepted'
+                       WHERE event_id=? AND invited_user_id=?""",
+                    (participant['event_id'],user['id']))
         return 200,{'ok':True,'event_id':participant['event_id']},None
 
     # Authenticated game members can revisit the same game without keeping
