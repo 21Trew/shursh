@@ -701,10 +701,12 @@ def test_browser_register_wishlist_reservation_and_isolation(browser_http):
             expect(guest.locator('.wishlist-grid')).to_contain_text(wish)
             assert guest.evaluate('document.documentElement.scrollWidth <= window.innerWidth + 2'), 'Mobile horizontal overflow'
             guest.locator('button[data-action="reserve"]').click()
+            expect(guest).to_have_url(share)
+            expect(guest.locator('button[data-action="reserve"]')).to_contain_text('Отменить бронь')
             assert guest.locator('#fld-guest_name').count()==0
-            guest.locator('#modal-form button[type="submit"], .modal-fixed-footer button[type="submit"]').click()
-            expect(guest).to_have_url(re.compile(r'/r/[A-Za-z0-9_-]+$'))
-            expect(guest.locator('main h1')).to_contain_text('Подарок ждёт')
+            assert guest.locator('.modal').count()==0
+            assert guest.evaluate("Object.keys(localStorage).some(k=>k.startsWith('shursh-reservation-v2:'))")
+            assert '/r/' not in guest.url
 
             watcher_ctx = browser.new_context()
             watcher = watcher_ctx.new_page()
@@ -729,9 +731,9 @@ def test_browser_register_wishlist_reservation_and_isolation(browser_http):
             other_summary=other.evaluate('''async () => (await (await fetch('/api/dashboard')).json())''')
             assert not any(l['id']==int(lid) for l in other_summary['lists'])
 
-            guest.locator('button[data-action="cancel-reservation"]').click()
-            guest.locator('#modal-form button[type="submit"], .modal-fixed-footer button[type="submit"]').click()
-            expect(guest.locator('main h1')).to_contain_text('Бронь отменена')
+            guest.locator('button[data-action="reserve"]').click()
+            expect(guest.locator('button[data-action="reserve"]')).to_contain_text('Забронировать')
+            assert not guest.evaluate("Object.keys(localStorage).some(k=>k.startsWith('shursh-reservation-v2:'))")
             watcher.reload()
             expect(watcher.locator('button[data-action="reserve"]')).to_be_enabled()
 
