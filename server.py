@@ -97,7 +97,7 @@ CREATE TABLE IF NOT EXISTS santa_events (
  id INTEGER PRIMARY KEY, owner_id INTEGER NOT NULL REFERENCES users(id) ON DELETE CASCADE,
  title TEXT NOT NULL, description TEXT NOT NULL DEFAULT '', exchange_date TEXT,
  budget_cents INTEGER, currency TEXT NOT NULL DEFAULT 'RUB', rules TEXT NOT NULL DEFAULT '',
- invite_key TEXT NOT NULL UNIQUE, status TEXT NOT NULL DEFAULT 'open' CHECK (status IN ('open','drawn')),
+ invite_key TEXT NOT NULL UNIQUE, status TEXT NOT NULL DEFAULT 'open' CHECK (status IN ('open','drawn','finished')),
  created_at TEXT NOT NULL
 );
 CREATE TABLE IF NOT EXISTS participants (
@@ -1002,7 +1002,7 @@ class Handler(BaseHTTPRequestHandler):
             excluded=[dict(r) for r in con.execute('SELECT giver_id,receiver_id FROM exclusions WHERE event_id=?',(eid,))]
             my_part=con.execute('SELECT id FROM participants WHERE event_id=? AND user_id=?',(eid,user['id'])).fetchone()
             mine=None
-            if my_part and event['status']=='drawn':
+            if my_part and event['status'] in ('drawn','finished'):
                 mine=self.assignment_view(con,eid,my_part['id'])
             my_wishes=self.game_wishes(con,my_part['id']) if my_part else []
             return 200,{'event':dict(event),'participants':participants,'exclusions':excluded,
@@ -1082,6 +1082,7 @@ class Handler(BaseHTTPRequestHandler):
             if not event: raise ApiError(404,'Игра не найдена')
             if event['status']=='drawn':
                 return 200, {'ok':True,'already_drawn':True},None
+            if event['status']=='finished': raise ApiError(409,'Завершённую игру нельзя разыграть снова')
             ids=[r['id'] for r in con.execute('SELECT id FROM participants WHERE event_id=? ORDER BY id',(eid,))]
             blocked=[(r['giver_id'],r['receiver_id']) for r in con.execute('SELECT giver_id,receiver_id FROM exclusions WHERE event_id=?',(eid,))]
             pairs=matching(ids,blocked)
@@ -1090,6 +1091,16 @@ class Handler(BaseHTTPRequestHandler):
             con.execute("UPDATE santa_events SET status='drawn' WHERE id=?",(eid,))
             con.execute('COMMIT')
             return 200,{'ok':True,'already_drawn':False},None
+        match=re.fullmatch(r'/api/santas/(\d+)/finish',path)
+        if match and method=='POST':
+            user=self.auth(con);eid=int(match.group(1))
+            event=con.execute('SELECT status FROM santa_events WHERE id=? AND owner_id=?',
+                              (eid,user['id'])).fetchone()
+            if not event: raise ApiError(404,'Игра не найдена')
+            if event['status']=='finished': return 200,{'ok':True,'already_finished':True},None
+            if event['status']!='drawn': raise ApiError(409,'Сначала проведи жеребьёвку')
+            con.execute("UPDATE santa_events SET status='finished' WHERE id=? AND status='drawn'",(eid,))
+            return 200,{'ok':True,'already_finished':False},None
         match=re.fullmatch(r'/api/santas/(\d+)/reveal',path)
         if match and method=='POST':
             user=self.auth(con);eid=int(match.group(1))
@@ -1160,7 +1171,7 @@ class Handler(BaseHTTPRequestHandler):
             if public_event['status']!='open':
                 public_event.pop('invite_key')
             wishes=self.game_wishes(con,part['id'])
-            receiver=self.assignment_view(con,part['event_id'],part['id']) if part['status']=='drawn' else None
+            receiver=self.assignment_view(con,part['event_id'],part['id']) if part['status'] in ('drawn','finished') else None
             return 200,{'participant':dict(part),'event':public_event,
                         'participants':participants,'wishes':wishes,'assignment':receiver,
                         'preferences':self.participant_preferences(con,part['id']),

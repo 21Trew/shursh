@@ -165,13 +165,23 @@ def handle(handler, method, path, con):
                        WHERE l.owner_id=? AND l.visibility='link'
                        GROUP BY l.id ORDER BY l.id DESC''',(uid,))
             lists=[dict(r) for r in rows]
+        shared_games=[]
+        if state in ('friends','self'):
+            # Both authenticated users must belong to the game. No secret pairing or
+            # third-party game is revealed by the profile endpoint.
+            rows=con.execute("""SELECT DISTINCT e.id,e.title,e.exchange_date,e.status
+                                FROM santa_events e
+                                JOIN participants a ON a.event_id=e.id AND a.user_id=?
+                                JOIN participants b ON b.event_id=e.id AND b.user_id=?
+                                ORDER BY e.id DESC LIMIT 40""",(user['id'],uid))
+            shared_games=[dict(row) for row in rows]
         return 200,{'profile':{'id':profile['id'],'name':profile['name'],'bio':profile['bio'],'handle':profile['handle'],'avatar_emoji':profile['avatar_emoji'],'city':profile['city']},
-                    'relationship':state,'lists':lists},None
+                    'relationship':state,'lists':lists,'shared_games':shared_games},None
 
     if path=='/api/friends/wishlists' and method=='GET':
         user=handler.auth(con)
         rows=con.execute('''SELECT l.id,l.title,l.description,l.occasion,l.theme,
-                         l.share_key,p.name AS owner_name,p.avatar_emoji,
+                         l.share_key,p.name AS owner_name,p.avatar_emoji,l.owner_id AS owner_id,
                          count(w.id) AS wish_count
                      FROM wishlists l
                      JOIN profiles p ON p.id=l.owner_id
@@ -351,7 +361,7 @@ def handle(handler, method, path, con):
             detail=dict(event)
             if detail['status']!='open':
                 detail.pop('invite_key',None)
-            assignment=handler.assignment_view(con,eid,part['id']) if event['status']=='drawn' else None
+            assignment=handler.assignment_view(con,eid,part['id']) if event['status'] in ('drawn','finished') else None
             return 200,{'event':detail,'participant':dict(part),'participants':participants,
                         'wishes':handler.game_wishes(con,part['id']),
                         'preferences':handler.participant_preferences(con,part['id']),
