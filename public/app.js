@@ -716,7 +716,7 @@ async function santaGamePage(id,marker=lastRenderToken,participantToken=null){
  const people=d.participants;
  const selects=(id,label)=>selectField(label,id,people.map(p=>[p.id,p.name]),null);
  shell(`<main class="container page"><div class="guest-topline">${memberView? `${ico('lock')} Личный кабинет участника <span>/</span> <strong>${esc(d.participant.name)}</strong>`:`<button class="text-link" data-nav="/santas">${ico('back')} Все игры</button> <span>/</span> <span>${esc(e.title)}</span>`}</div><div class="page-hero"><div><div class="section-label">${e.status==='drawn'?'Жеребьёвка проведена':'Приглашаем участников'}</div><h1>${esc(e.title)}</h1><p>${esc(e.description||'Праздник начинается с маленькой тайны')}</p></div><span class="chip ${e.status==='drawn'?'chip-green':'chip-lilac'}">${ico(e.status==='drawn'?'check':'users')} ${e.status==='drawn'?'Игра началась':'Приём открыт'}</span></div><div class="santa-detail-layout"><div>
- <div class="panel"><div class="panel-heading-actions"><h2>Участники <span class="chip" data-santa-roster-count>${people.length}</span></h2>${!memberView&&e.status==='open'?'<button class="btn btn-soft btn-small" data-action="add-player">'+ico('plus')+' Добавить участника</button>'+(isPreview?'':'<button class="btn btn-soft btn-small santa-invite-action" data-social-action="invite-friends">Пригласить друзей</button>'):''}</div><div class="person-list" data-santa-roster>${people.map(p=>santaRosterPerson(p,activeGameContext)).join('')}</div>${e.status==='open'?`<div class="divider-line"></div><p class="note">Пригласи друзей по общей ссылке. Каждый сможет присоединиться без регистрации и получит собственную личную ссылку</p><div class="share-field"><input class="input" aria-label="Ссылка-приглашение" readonly value="${attr(getLink(`/join/${e.invite_key}`))}"><button class="btn btn-dark btn-small" data-action="copy" data-url="${attr(getLink(`/join/${e.invite_key}`))}">${ico('copy')} Копировать</button></div>`:''}</div>
+ <div class="panel"><div class="panel-heading-actions"><h2>Участники <span class="chip" data-santa-roster-count>${people.length}</span></h2>${!memberView&&e.status==='open'?'<div class="santa-player-actions"><button class="btn btn-soft btn-small" data-action="add-player">'+ico('plus')+' Добавить участника</button>'+(isPreview?'':'<button class="btn btn-soft btn-small santa-invite-action" data-social-action="invite-friends">Пригласить друзей</button>')+'</div>':''}</div><div class="person-list" data-santa-roster>${people.map(p=>santaRosterPerson(p,activeGameContext)).join('')}</div>${e.status==='open'?`<div class="divider-line"></div><p class="note">Пригласи друзей по общей ссылке. Каждый сможет присоединиться без регистрации и получит собственную личную ссылку</p><div class="share-field"><input class="input" aria-label="Ссылка-приглашение" readonly value="${attr(getLink(`/join/${e.invite_key}`))}"><button class="btn btn-dark btn-small" data-action="copy" data-url="${attr(getLink(`/join/${e.invite_key}`))}">${ico('copy')} Копировать</button></div>`:''}</div>
  <div class="panel"><div class="panel-heading-actions"><h2>Мои пожелания</h2>${!memberView||currentUser?`<button class="btn btn-soft btn-small" data-action="import-own-wishes" ${memberView?`data-key="${attr(participantToken||'')}"`:`data-id="${id}"`}>${ico('plus')} Из вишлиста</button>`:''}</div><p class="note">Твои пожелания увидит только твой тайный Санта</p>
   <div class="santa-preferences-display" id="santa-preferences-display">
     <div data-preferences-summary>${preferenceSummary(myPrefs)}</div>
@@ -779,7 +779,10 @@ function preferenceSummary(preferences){
 async function invitePage(key,marker=lastRenderToken){const {event:e,already_joined}=await api(`/api/invites/${key}`);if(marker!==lastRenderToken)return;shell(`<main class="container page"><div class="invite-card"><div class="invite-icon">${envelopeArt()}</div><div class="section-label" style="text-align:center">Тебя зовут в игру!</div><h1>${esc(e.title)}</h1><p>${esc(e.description||'Кто-то хочет устроить вам небольшой праздник')}</p><div class="invite-info"><div class="info-tile"><small>Когда обмениваемся</small><strong>${dateRu(e.exchange_date)}</strong></div><div class="info-tile"><small>Бюджет</small><strong>${money(e.budget_cents,e.currency)}</strong></div></div>${e.rules?`<div class="details-box"><strong>Правила от организатора</strong><p>${esc(e.rules)}</p></div>`:''}${already_joined?'<div class="alert">Ты уже участвуешь в этой игре. Повторное вступление не требуется</div>':e.status==='open'?`<form class="invite-form" id="join-form"><h3>Как тебя зовут?</h3><div class="field"><label for="join-name">Твоё имя</label><input id="join-name" name="name" maxlength="50" required placeholder="Например, Маша"></div><button class="btn btn-dark" type="submit">Присоединиться ${ico('arrow')}</button><p class="note" style="margin-top:15px">После вступления получишь личную ссылку - сохрани её, чтобы вернуться в игру</p></form>`:`<div class="alert">Жеребьёвка уже состоялась. Новые участники присоединиться не могут</div>`}</div></main>`);
  document.getElementById('join-form')?.addEventListener('submit',async ev=>{ev.preventDefault();const btn=ev.currentTarget.querySelector('button');btn.disabled=true;try{const r=await api(`/api/invites/${key}/join`,{method:'POST',body:readForm(ev.currentTarget)});nav(`/p/${r.participant_token}`);notice('Ты в игре! Сохрани личную ссылку');}catch(err){notice(err.message,true);btn.disabled=false;}});
 }
-async function participantPage(key,marker=lastRenderToken){return santaGamePage(null,marker,key);}
+async function participantPage(key,marker=lastRenderToken){
+ if(!currentUser&&!isPreview)savePendingGameClaim(key);
+ return santaGamePage(null,marker,key);
+}
 
 function passwordField(register){
  const generator=register?'<button type="button" class="password-generate" data-password-generate>'+ico('spark')+' Сгенерировать пароль</button>':'';
@@ -828,7 +831,7 @@ function loginModal(mode='login'){
    const result=await api(register?'/api/register':'/api/login',{method:'POST',body:payload});
    if(result.pending_confirmation){confirmationModal(payload.email);return;}
    currentUser=result.user;broadcastSessionChange();
-    if(pendingGameClaim){const claim=pendingGameClaim;pendingGameClaim=null;
+    if(pendingGameClaim){const claim=pendingGameClaim;clearPendingGameClaim();
      try{await api('/api/participant/'+encodeURIComponent(claim)+'/claim',{method:'POST',body:{}});notice('Игра сохранена в аккаунте');nav('/santas',{force:true});}
      catch(error){notice('Ты вошёл, но игру привязать не удалось: '+error.message,true);nav('/santas',{force:true});}return;}
     notice(register?'Аккаунт создан!':'С возвращением!');nav('/',{force:true});
@@ -907,7 +910,7 @@ function santaModal(){if(!currentUser){loginModal('register');return;}modal({tit
 
 function showParticipantLink(token,name){
  const url=getLink('/p/'+token);
- modal({title:'Личная ссылка участника',subtitle:'Передай ссылку только участнику '+name+'. Кто откроет её, получит доступ к его пожеланиям и секрету',
+ modal({title:'Личная ссылка участника',subtitle:'Передай ссылку только участнику '+name+'. После регистрации по этой ссылке игра появится в его аккаунте',
    content:'<div class="share-field"><input class="input" readonly aria-label="Личная ссылка участника" value="'+attr(url)+'">'+
      '<button type="button" class="btn btn-dark btn-small" data-action="copy" data-url="'+attr(url)+'">'+ico('copy')+' Копировать</button></div>'+
      '<p class="note">Ссылка показывается сейчас. Позже организатор может выпустить новую, но старая перестанет работать</p>'});
@@ -986,7 +989,7 @@ async function dispatch(action,el){try{
 
  if(action==='edit-santa-preferences'){const f=document.getElementById('santa-preferences-form'),d=document.getElementById('santa-preferences-display');if(f&&d){f.hidden=false;d.hidden=true;}return;}
  if(action==='cancel-santa-preferences'){const f=document.getElementById('santa-preferences-form'),d=document.getElementById('santa-preferences-display');if(f&&d){f.reset();f.hidden=true;d.hidden=false;}return;}
- if(action==='claim-game'){const token=el.dataset.token;if(!token)return;if(!currentUser){pendingGameClaim=token;loginModal('login');return;}await api('/api/participant/'+encodeURIComponent(token)+'/claim',{method:'POST',body:{}});notice('Игра сохранена в аккаунте');nav('/santas',{force:true});return;}
+ if(action==='claim-game'){const token=el.dataset.token;if(!token)return;if(!currentUser){savePendingGameClaim(token);loginModal('login');return;}await api('/api/participant/'+encodeURIComponent(token)+'/claim',{method:'POST',body:{}});notice('Игра сохранена в аккаунте');nav('/santas',{force:true});return;}
  if(action==='reset-preview'){window.SHURSH_PREVIEW_RESET?.();return;}
  if(action==='logout'){await api('/api/logout',{method:'POST',body:{}});currentUser=null;broadcastSessionChange();notice('Ты вышел из аккаунта');nav('/',{force:true});}
  if(action==='demo-login'){const r=await api('/api/demo-login',{method:'POST',body:{}});currentUser=r.user;closeModal();notice('Демо-аккаунт открыт');nav('/lists');}
@@ -1042,6 +1045,20 @@ sessionChannel?.addEventListener('message',event=>{
 });
 let renderStarted=false;
 let pendingGameClaim=null;
+try{
+ const saved=JSON.parse(sessionStorage.getItem('shursh-pending-game-claim')||'null');
+ if(saved&&Date.now()-saved.created<86400000&&/^[A-Za-z0-9_-]{43}$/.test(saved.token))pendingGameClaim=saved.token;
+ else sessionStorage.removeItem('shursh-pending-game-claim');
+}catch{}
+function savePendingGameClaim(token){
+ if(!/^[A-Za-z0-9_-]{43}$/.test(token))return;
+ pendingGameClaim=token;
+ try{sessionStorage.setItem('shursh-pending-game-claim',JSON.stringify({token,created:Date.now()}));}catch{}
+}
+function clearPendingGameClaim(){
+ pendingGameClaim=null;
+ try{sessionStorage.removeItem('shursh-pending-game-claim');}catch{}
+}
 let authReturnNotice = null;
 let authReturnError = false;
 let confirmationToken = null;
