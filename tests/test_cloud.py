@@ -878,7 +878,7 @@ def test_browser_card_clicks_and_santa_settings(browser_http):
             expect(owner.locator('#fld-title')).to_have_value('Настольная игра')
             owner.locator('.modal-close').click()
 
-            owner.locator('header .nav [data-nav="/"]').click()
+            owner.locator('header .logo[data-nav="/"]').click()
             target=owner.locator('.dashboard-page .list-card .card-hitarea').first
             target.focus()
             owner.keyboard.press('Enter')
