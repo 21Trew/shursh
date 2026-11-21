@@ -838,8 +838,12 @@ function resendConfirmationModal(email=''){
 }
 function loginModal(mode='login'){
  const register=mode==='register';
+ // Registering or logging in directly from a private participant page
+ // is an explicit membership recovery action, even via the header.
+ const pageToken=!currentUser&&currentPath().match(/^\/p\/([A-Za-z0-9_-]{43})$/)?.[1];
+ if(pageToken&&!pendingGameClaim)savePendingGameClaim(pageToken);
  modal({title:register?'Давай знакомиться!':'С возвращением!',
-  subtitle:register?'Создай аккаунт, чтобы хранить свои списки и организовывать игры':'Твои желания уже соскучились',
+  subtitle:pendingGameClaim?'После входа сохраним эту игру в твоём аккаунте':register?'Создай аккаунт, чтобы хранить свои списки и организовывать игры':'Твои желания уже соскучились',
   content:(register?field('Как тебя зовут?','name','Например, Саша','text','',true,'maxlength="40"'):'')+
    field('Почта','email','you@example.com','email','',true,'autocomplete="email"')+passwordField(register),
   submitLabel:register?'Создать аккаунт':'Войти',
