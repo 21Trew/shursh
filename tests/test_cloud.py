@@ -194,15 +194,23 @@ def test_booking_isolation_and_private_images(application):
     call(guest,'GET',path)
     reserve=f'/api/public/{key}/reserve/{wid}'
     call(c,'POST',reserve,{'guest_name':'Owner'},403)
+    call(guest,'POST',reserve,{},401)
+    call(guest,'DELETE',reserve,status=401)
+    # Concurrent authenticated requests preserve the one-active-reservation invariant.
+    clients=[login(application,'other@example.test') for _ in range(6)]
     with ThreadPoolExecutor(max_workers=6) as pool:
-        responses=list(pool.map(lambda _: application.test_client().post(reserve,base_url=BASE,json={'guest_name':'Guest'}), range(6)))
+        responses=list(pool.map(lambda client: client.post(reserve,base_url=BASE,json={}),clients))
     assert sorted(r.status_code for r in responses)==[201]+[409]*5
-    token=next(r.json['manage_token'] for r in responses if r.status_code==201)
-    assert call(guest,'GET',f'/api/public/{key}').json['wishes'][0]['reserved'] is True
+    assert all('manage_token' not in r.json for r in responses)
+    public=call(guest,'GET',f'/api/public/{key}').json['wishes'][0]
+    assert public['reserved'] is True and public['reserved_by_me'] is False
+    assert call(other,'GET',f'/api/public/{key}').json['wishes'][0]['reserved_by_me'] is True
     assert 'reserved' not in call(c,'GET',f'/api/public/{key}').json['wishes'][0]
+    assert 'reserved_by_me' not in call(c,'GET',f'/api/public/{key}').json['wishes'][0]
     assert 'reserved' not in call(c,'GET',f'/api/lists/{lid}').json['wishes'][0]
-    call(guest,'DELETE',f'/api/reservations/{token}')
-    call(guest,'DELETE',f'/api/reservations/{token}',status=409)
+    call(c,'DELETE',reserve,status=403)
+    call(other,'DELETE',reserve)
+    call(other,'DELETE',reserve,status=409)
     call(c,'PATCH',f'/api/lists/{lid}',{'visibility':'private'})
     call(guest,'GET',f'/api/public/{key}',status=404)
     call(guest,'GET',path,status=404)
@@ -340,7 +348,14 @@ def test_direct_browser_links_and_api_errors(application):
     eid=call(owner,'POST','/api/santas',{'title':'Deep links'},201).json['id']
     invite=call(owner,'GET',f'/api/santas/{eid}').json['event']['invite_key']
     participant=call(guest,'POST',f'/api/invites/{invite}/join',{'name':'Guest'},201).json['participant_token']
-    reservation=call(guest,'POST',f'/api/public/{key}/reserve/{wid}',{'guest_name':'Guest'},201).json['manage_token']
+    # Legacy bearer routes stay addressable for pre-existing bookings,
+    # but anonymous users can no longer create new reservations.
+    call(guest,'POST',f'/api/public/{key}/reserve/{wid}',{},401)
+    from server import token, token_hash
+    reservation=token()
+    with psycopg.connect(os.environ['SHURSH_DATABASE_URL']) as con:
+        con.execute("""INSERT INTO public.reservations(wish_id,guest_name,manage_hash)
+                       VALUES (%s,%s,%s)""",(wid,'Guest',token_hash(reservation)))
     for path in ['/', '/lists', '/santas', f'/list/{lid}', f'/santa/{eid}',
                  f'/w/{key}', f'/join/{invite}', f'/p/{participant}', f'/r/{reservation}']:
         page=call(guest,'GET',path)
@@ -702,11 +717,19 @@ def test_browser_register_wishlist_reservation_and_isolation(browser_http):
             expect(guest.locator('.wishlist-grid')).to_contain_text(wish)
             assert guest.evaluate('document.documentElement.scrollWidth <= window.innerWidth + 2'), 'Mobile horizontal overflow'
             guest.locator('button[data-action="reserve"]').click()
+            expect(guest.get_by_role('dialog')).to_contain_text('Давай знакомиться!')
+            assert guest.evaluate("async k => (await fetch('/api/public/'+k)).status",key)==200
+            guest.locator('[data-close]').first.click()
+            # Login on the same shared list preserves its URL.
+            guest.goto(browser_http+'/')
+            browser_login(guest,'other@example.test')
+            guest.goto(share)
+            guest.locator('button[data-action="reserve"]').click()
             expect(guest).to_have_url(share)
             expect(guest.locator('button[data-action="reserve"]')).to_contain_text('Отменить бронь')
             assert guest.locator('#fld-guest_name').count()==0
             assert guest.locator('.modal').count()==0
-            assert guest.evaluate("Object.keys(localStorage).some(k=>k.startsWith('shursh-reservation-v2:'))")
+            assert not guest.evaluate("Object.keys(localStorage).some(k=>k.startsWith('shursh-reservation-v2:'))")
             assert '/r/' not in guest.url
 
             watcher_ctx = browser.new_context()
@@ -732,9 +755,13 @@ def test_browser_register_wishlist_reservation_and_isolation(browser_http):
             other_summary=other.evaluate('''async () => (await (await fetch('/api/dashboard')).json())''')
             assert not any(l['id']==int(lid) for l in other_summary['lists'])
 
-            guest.locator('button[data-action="reserve"]').click()
+            # A second device with the same account can cancel the reservation.
+            other.goto(share)
+            expect(other.locator('button[data-action="reserve"]')).to_contain_text('Отменить бронь')
+            other.locator('button[data-action="reserve"]').click()
+            expect(other.locator('button[data-action="reserve"]')).to_contain_text('Забронировать')
+            guest.reload()
             expect(guest.locator('button[data-action="reserve"]')).to_contain_text('Забронировать')
-            assert not guest.evaluate("Object.keys(localStorage).some(k=>k.startsWith('shursh-reservation-v2:'))")
             watcher.reload()
             expect(watcher.locator('button[data-action="reserve"]')).to_be_enabled()
 
@@ -1549,9 +1576,10 @@ def test_social_gift_request_and_anonymous_booking(application):
     assert any(x['kind']=='wish_request' for x in items)
     call(owner,'POST',f'/api/wishes/{wid}/request-friend/{friend_id}',{},409)
     guest=application.test_client()
-    reservation=call(guest,'POST',f'/api/public/{key}/reserve/{wid}',{},201).json['manage_token']
-    management=call(guest,'GET',f'/api/reservations/{reservation}').json['reservation']
-    assert management['guest_name']=='Анонимный даритель'
+    call(guest,'POST',f'/api/public/{key}/reserve/{wid}',{},401)
+    response=call(friend,'POST',f'/api/public/{key}/reserve/{wid}',{},201).json
+    assert response=={'ok':True}
+    assert call(friend,'GET',f'/api/public/{key}').json['wishes'][0]['reserved_by_me'] is True
     feed=[x for x in call(owner,'GET','/api/notifications').json['items']
           if x['kind']=='reservation_anonymous']
     assert feed
@@ -1924,3 +1952,55 @@ def test_finished_santa_state_and_mutual_friend_games(application):
                for g in call(member,'GET',f'/api/users/{owner_id}').json['shared_games'])
     call(owner,'POST',f'/api/santas/{eid}/draw',{},409)
     call(owner,'POST',f'/api/santas/{eid}/participants',{'name':'Too late'},409)
+
+
+def test_private_finished_santa_memory_upload_and_no_public_leak(application):
+    from server import token
+    owner=login(application)
+    member=login(application,'other@example.test')
+    anonymous=application.test_client()
+    title='Photo memory '+token()[:8]
+    eid=call(owner,'POST','/api/santas',{'title':title},201).json['id']
+    base=f'/api/santas/{eid}/memory'
+    invite=call(owner,'GET',f'/api/santas/{eid}').json['event']['invite_key']
+    guest_link=call(anonymous,'POST',f'/api/invites/{invite}/join',{'name':'Guest'},201).json['participant_token']
+    call(owner,'POST',base,{'image_data':PNG},405)
+    call(owner,'PUT',base,{'image_data':PNG},409)
+    call(owner,'GET',base,status=409)
+    call(member,'GET',base,status=404)
+    member_link=call(member,'POST',f'/api/invites/{invite}/join',{'name':'Member'},201).json['participant_token']
+    call(owner,'POST',f'/api/santas/{eid}/draw',{},200)
+    call(owner,'POST',f'/api/santas/{eid}/finish',{},200)
+    assert call(owner,'GET',base).json['memory'] is None
+    assert call(anonymous,'GET',f'/api/participant/{guest_link}/memory').json['memory'] is None
+    call(anonymous,'PUT',base,{'image_data':PNG},401)
+    call(member,'PUT',base,{'image_data':PNG},403)
+    call(anonymous,'GET',f'/api/participant/{token()}/memory',status=404)
+    assert call(owner,'PUT',base,{'image_data':PNG}).json=={'ok':True}
+    assert call(owner,'PUT',base,{'image_data':PNG}).json=={'ok':True}
+    assert call(member,'GET',f'/api/member/{eid}/memory').json['memory']['image_data']==PNG
+    assert call(anonymous,'GET',f'/api/participant/{guest_link}/memory').json['memory']['image_data']==PNG
+    assert call(owner,'GET',base).json['can_edit'] is True
+    assert call(member,'GET',base).json['can_edit'] is False
+    assert PNG not in str(call(owner,'GET',f'/api/santas/{eid}').json)
+    assert PNG not in str(call(owner,'GET','/api/dashboard').json)
+    call(member,'DELETE',base,status=404)
+
+
+def test_db_persisted_admin_permission_is_identity_scoped(application,monkeypatch):
+    monkeypatch.delenv('SHURSH_ADMIN_EMAILS',raising=False)
+    owner=login(application)
+    other=login(application,'other@example.test')
+    assert call(other,'GET','/api/admin/overview',status=403).status_code==403
+    with psycopg.connect(os.environ['SHURSH_DATABASE_URL']) as con:
+        con.execute('INSERT INTO public.site_admins(user_id) VALUES(%s) ON CONFLICT DO NOTHING',
+                    (IDS['owner@example.test'],))
+    try:
+        role=login(application)
+        assert call(role,'GET','/api/me').json['user']['is_admin'] is True
+        assert call(role,'GET','/api/admin/overview').json['stats']['users']>=2
+        call(other,'GET','/api/admin/feedback',status=403)
+    finally:
+        with psycopg.connect(os.environ['SHURSH_DATABASE_URL']) as con:
+            con.execute('DELETE FROM public.site_admins WHERE user_id=%s',(IDS['owner@example.test'],))
+    assert call(login(application),'GET','/api/me').json['user']['is_admin'] is False
