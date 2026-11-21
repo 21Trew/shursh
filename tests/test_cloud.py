@@ -1505,10 +1505,18 @@ def test_social_friends_profiles_and_notifications(application):
     assert any(x['id']==public_id for x in profile['lists'])
     assert all(x['id']!=private_id for x in profile['lists'])
     assert 'email' not in str(profile)
+    shared=call(friend,'GET','/api/friends/wishlists').json['lists']
+    assert any(x['id']==public_id for x in shared)
+    assert all(x['id']!=private_id for x in shared)
+    assert all('email' not in str(x) for x in shared)
     call(owner,'POST','/api/lists',{'title':'Gift list added with friends'},201)
     feed=call(friend,'GET','/api/notifications').json['items']
     assert any(n['kind']=='wishlist_new' for n in feed)
     call(friend,'POST',f'/api/notifications/{first}/read',{})
+    call(owner,'POST','/api/notifications/read-all',{})
+    assert all(x['read_at'] is not None for x in
+               call(owner,'GET','/api/notifications').json['items'])
+    call(application.test_client(),'POST','/api/notifications/read-all',{},401)
     assert any(n['id']==first and n['read_at'] is not None
                for n in call(friend,'GET','/api/notifications').json['items'])
     search=call(friend,'GET','/api/users/search?q=Own').json['users']
@@ -1520,6 +1528,9 @@ def test_social_friends_profiles_and_notifications(application):
     call(owner,'PATCH','/api/profile/me',{'discoverable':True})
     call(friend,'DELETE',f'/api/friends/{owner_id}',{})
     assert call(friend,'GET',f'/api/users/{owner_id}').json['lists']==[]
+    assert not any(x['id']==public_id for x in
+                   call(friend,'GET','/api/friends/wishlists').json['lists'])
+    call(application.test_client(),'GET','/api/friends/wishlists',status=401)
 
 
 def test_social_gift_request_and_anonymous_booking(application):
@@ -1535,11 +1546,13 @@ def test_social_gift_request_and_anonymous_booking(application):
     assert any(x['kind']=='wish_request' for x in items)
     call(owner,'POST',f'/api/wishes/{wid}/request-friend/{friend_id}',{},409)
     guest=application.test_client()
-    call(guest,'POST',f'/api/public/{key}/reserve/{wid}',{'guest_name':'Secret Donor'},201)
+    reservation=call(guest,'POST',f'/api/public/{key}/reserve/{wid}',{},201).json['manage_token']
+    management=call(guest,'GET',f'/api/reservations/{reservation}').json['reservation']
+    assert management['guest_name']=='Анонимный даритель'
     feed=[x for x in call(owner,'GET','/api/notifications').json['items']
           if x['kind']=='reservation_anonymous']
     assert feed
-    assert all('Secret Donor' not in x['message'] and 'Gift' not in x['message']
+    assert all('Анонимный даритель' not in x['message'] and 'Gift' not in x['message']
                and str(wid) not in x['target_path'] for x in feed)
 
 
@@ -1561,9 +1574,12 @@ def test_social_game_invitation_member_permissions_and_admin(application,monkeyp
     invitation=[x for x in call(friend,'GET','/api/notifications').json['items']
                 if x['kind']=='santa_invitation']
     assert invitation
+    assert any(x['id']==event_id for x in call(friend,'GET','/api/santas').json['invitations'])
+    assert not any(x['id']==event_id for x in call(owner,'GET','/api/santas').json['invitations'])
     key=call(owner,'GET',f'/api/santas/{event_id}').json['event']['invite_key']
     joined=call(friend,'POST',f'/api/invites/{key}/join',{'name':'Friend'},201)
     assert joined.json['participant_token']
+    assert not any(x['id']==event_id for x in call(friend,'GET','/api/santas').json['invitations'])
     game=call(friend,'GET',f'/api/member/{event_id}').json
     assert game['event']['id']==event_id and game['participant']['name']=='Friend'
     assert 'assignments' not in str(game)
