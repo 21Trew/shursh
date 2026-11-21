@@ -965,7 +965,7 @@ async function importOwnWishesModal(el){
      const wish_ids=[...form.querySelectorAll('[name="wish_ids"]:checked')].map(input=>Number(input.value));
      if(!wish_ids.length)throw new Error('Выбери хотя бы один подарок');
      const result=await api(endpoint,{method:'POST',body:{list_id,wish_ids}});
-     notice(result.added?'Добавлено подарков: '+result.added:'Эти подарки уже добавлены');
+     notice(result.added?'Добавлено '+result.added+' '+plural(result.added,'подарок','подарка','подарков'):'Эти подарки уже добавлены');
      await render();
    }});
  const select=modalRoot.querySelector('#import-list');
