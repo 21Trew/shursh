@@ -439,11 +439,16 @@ function heroArt(){return `<svg viewBox="0 0 570 535" aria-hidden="true" role="p
  </g><g fill="#edc76c" stroke="#29292c" stroke-width="2"><path d="m161 343 7 19 20 6-20 7-7 20-7-20-20-7 20-6Z"/><path d="m444 310 6 14 14 6-14 6-6 15-5-15-15-6 15-6Z"/></g><path d="M130 252c-12-24-4-36 10-29 8 4 9 13 9 13s12-13 23-4c13 14-5 27-23 40Z" fill="#e98e86"/><path d="m460 212 13-3m-9-15 11-9" stroke="#27272b" stroke-width="3" stroke-linecap="round"/></svg>`;}
 function santaArt(){return `<svg viewBox="0 0 600 430" aria-hidden="true"><path d="M5 210c70-180 229-206 353-138s202 176 220 266v92H0Z" fill="#f3d1c2"/><g transform="translate(60 70) rotate(-12 110 145)"><rect x="25" y="32" width="195" height="232" rx="17" fill="#f5e8ce" stroke="#2c292b" stroke-width="4"/><path d="M45 72h150m-150 31h105m-105 31h130" stroke="#d5baa5" stroke-width="6" stroke-linecap="round"/><circle cx="122" cy="195" r="33" fill="#eeb5a0" stroke="#2c292b" stroke-width="3"/><path d="m106 197 12 12 24-26" stroke="#2c292b" stroke-width="5" fill="none"/></g><g transform="translate(310 91) rotate(13 110 125)"><rect x="18" y="25" width="202" height="230" rx="17" fill="#d4c5ef" stroke="#2c292b" stroke-width="4"/><path d="M19 45 119 139 219 45M19 250l71-91m129 91-72-91" stroke="#2c292b" stroke-width="4" fill="none"/><circle cx="118" cy="150" r="33" fill="#f8c18a" stroke="#2c292b" stroke-width="4"/><path d="M107 152c0-9 7-12 11-4 4-8 12-5 11 4-2 7-11 12-11 12s-11-5-11-12" fill="#fff"/></g><path d="M277 47v29m-14-14h29m204 217 7 17 17 8-17 7-7 17-8-17-17-7 17-8Z" stroke="#2c292b" stroke-width="3" fill="#f2d990"/></svg>`;}
 function stepArt(num){if(num===1)return `<svg viewBox="0 0 130 112">${fallbackArt('book').replace(/viewBox="[^"]*"/,'viewBox="0 0 170 160"')}</svg>`;if(num===2)return `<svg viewBox="0 0 130 112"><rect x="13" y="28" width="104" height="67" rx="10" fill="#fff" stroke="#29292b" stroke-width="3"/><path d="m15 40 50 38 50-38" stroke="#29292b" stroke-width="3" fill="none"/><circle cx="67" cy="73" r="15" fill="#e5bcf0" stroke="#29292b" stroke-width="2"/><path d="M62 72c1-5 5-5 6-1 4-6 9-2 7 3l-7 7Z" fill="#e27f9a"/></svg>`;return `<svg viewBox="0 0 130 112"><rect x="23" y="36" width="86" height="65" fill="#f1b0ac" stroke="#29292b" stroke-width="3"/><rect x="16" y="27" width="100" height="18" fill="#ffdc98" stroke="#29292b" stroke-width="3"/><path d="M65 28v72M65 28c-27 1-25-24-12-23 10 1 12 20 12 23Zm0 0c25-1 24-24 11-23-9 1-11 20-11 23Z" fill="#e5d1f4" stroke="#29292b" stroke-width="3"/></svg>`;}
-function header(){const path=currentPath();return `<header class="site-header"><div class="container topbar"><a class="logo" href="/" data-nav="/" aria-label="Шурш! Главная">шурш<span>!</span></a>${currentUser?`<nav class="nav" aria-label="Главная навигация"><a href="/" data-nav="/" class="${path==='/'?'active':''}">${currentUser?'Кабинет':'Главная'}</a><a href="/lists" data-nav="/lists" class="${path.startsWith('/lists')||path.startsWith('/list/')?'active':''}">Вишлисты</a><a href="/santas" data-nav="/santas" class="${path.startsWith('/santas')||path.startsWith('/santa/')?'active':''}">Тайный Санта</a>${!isPreview?`<a href="/friends" data-nav="/friends" class="${path==='/friends'?'active':''}">Друзья</a><a href="/profile" data-nav="/profile" class="${path==='/profile'||path.startsWith('/users/')?'active':''}">Профиль</a>${currentUser.is_admin?`<a href="/admin" data-nav="/admin" class="${path.startsWith('/admin')?'active':''}">Админка</a>`:''}`:''}</nav>`:""}<div class="header-actions">${currentUser?`<span class="user-name">Привет, ${esc(currentUser.name)}!</span><button class="header-bell ${path==='/notifications'?'active':''}" type="button" data-social-action="open-notifications" title="Уведомления" aria-label="Уведомления">${ico('bell',21)}<span class="nav-unread" data-notification-count hidden></span></button><button class="header-avatar" type="button" data-nav="/profile" aria-label="Мой профиль">${esc(currentUser.avatar_emoji||"🎁")}</button><button class="btn btn-ghost" data-action="logout" title="Выйти">${ico('logout')} Выйти</button>`:`<button class="btn btn-ghost" data-open="login">Войти</button>`}</div></div></header>${isPreview?`<div class="preview-ribbon"><div class="container">Интерактивное демо · данные хранятся только в этом браузере · ссылки не работают на других устройствах <button type="button" data-action="reset-preview">Сбросить демо</button></div></div>`:''}`;}
+function header(){const path=currentPath();return `<header class="site-header"><div class="container topbar"><a class="logo" href="/" data-nav="/" aria-label="Шурш! Главная">шурш<span>!</span></a>${currentUser?`<nav class="nav" aria-label="Главная навигация"><a href="/" data-nav="/" class="${path==='/'?'active':''}">${currentUser?'Кабинет':'Главная'}</a><a href="/lists" data-nav="/lists" class="${path.startsWith('/lists')||path.startsWith('/list/')?'active':''}">Вишлисты</a><a href="/santas" data-nav="/santas" class="${path.startsWith('/santas')||path.startsWith('/santa/')?'active':''}">Тайный Санта</a>${!isPreview?`<a href="/friends" data-nav="/friends" class="${path==='/friends'?'active':''}">Друзья</a><a href="/profile" data-nav="/profile" class="${path==='/profile'||path.startsWith('/users/')?'active':''}">Профиль</a>${currentUser.is_admin?`<a href="/admin" data-nav="/admin" class="${path.startsWith('/admin')?'active':''}">Админка</a>`:''}`:''}</nav>`:""}<div class="header-actions">${currentUser?`<button class="header-bell ${path==='/notifications'?'active':''}" type="button" data-social-action="open-notifications" title="Уведомления" aria-label="Уведомления">${ico('bell',21)}<span class="nav-unread" data-notification-count hidden></span></button><button class="header-avatar" type="button" data-nav="/profile" aria-label="Мой профиль">${esc(currentUser.avatar_emoji||"🎁")}</button><button class="btn btn-ghost" data-action="logout" title="Выйти">${ico('logout')} Выйти</button>`:`<button class="btn btn-ghost" data-open="login">Войти</button>`}</div></div></header>${isPreview?`<div class="preview-ribbon"><div class="container">Интерактивное демо · данные хранятся только в этом браузере · ссылки не работают на других устройствах <button type="button" data-action="reset-preview">Сбросить демо</button></div></div>`:''}`;}
 function footer(){return `<footer class="container footer"><div><a class="logo" data-nav="/" href="/">шурш<span>!</span></a><small>Место для хотелок и сюрпризов</small></div><p class="footer-credit">Сделано с заботой о сюрпризах <span aria-hidden="true">·</span> <button class="footer-developer" type="button" data-action="contact-developer">L-code</button></p></footer>`;}
 let shellUserSignature='';
 let headerScrollQueued=false;
+function updateScrollTopButton(){
+ const btn=document.getElementById('scroll-to-top');
+ if(btn){const visible=scrollY>440;btn.classList.toggle('is-visible',visible);btn.tabIndex=visible?0:-1;btn.setAttribute('aria-hidden',String(!visible));}
+}
 window.addEventListener('scroll',()=>{
+ updateScrollTopButton();
  if(headerScrollQueued)return;
  headerScrollQueued=true;
  requestAnimationFrame(()=>{
@@ -487,6 +492,14 @@ function shell(body){
  let view=app.querySelector('#page-view');
  if(!view){
   app.innerHTML=header()+'<div id="page-view"></div>'+footer();
+  if(!document.getElementById('scroll-to-top')){
+   const top=document.createElement('button');
+   top.id='scroll-to-top';top.type='button';top.className='scroll-to-top';top.setAttribute('aria-label','Наверх');
+   top.innerHTML=ico('back',22);
+   top.addEventListener('click',()=>window.scrollTo({top:0,behavior:matchMedia('(prefers-reduced-motion: reduce)').matches?'instant':'smooth'}));
+   document.body.append(top);
+   updateScrollTopButton();
+  }
   view=app.querySelector('#page-view');shellUserSignature=identity;
  }else if(shellUserSignature!==identity){
   const head=app.querySelector('.site-header');
@@ -594,17 +607,36 @@ function errorView(err,title='Что-то пошло не так'){shell(`<main 
 function emptyState(title,desc,button,open){return `<div class="blank-state"><div class="blank-illustration">${fallbackArt('gift')}</div><h3>${esc(title)}</h3><p>${esc(desc)}</p><button class="btn btn-dark" data-open="${attr(open)}">${esc(button)} ${ico('plus')}</button></div>`;}
 let wishlistTabGeneration=0;
 let currentOwnedWishlists=[];
+function wishlistCategoryFilter(lists){
+ const categories=[...new Set(lists.map(x=>x.occasion?.trim()).filter(Boolean))].sort((a,b)=>a.localeCompare(b,'ru'));
+ return '<div class="wishlist-filters" role="group" aria-label="Фильтр категорий">'+['Все',...categories].map((x,i)=>
+  '<button type="button" class="filter-chip'+(i===0?' active':'')+'" aria-pressed="'+(i===0)+'" data-wishlist-filter="'+attr(x)+'">'+esc(x)+'</button>').join('')+'</div>';
+}
+function ownWishlistTiles(lists){
+ return lists.length?wishlistCategoryFilter(lists)+
+  '<div class="cards-grid">'+lists.map(l=>listCard(l).replace('<article class="list-card">','<article class="list-card" data-occasion="'+attr(l.occasion?.trim()||'')+'">')).join('')+'</div>':
+  emptyState('Здесь пока тихо','Создай первый список и добавь пару желаний','Создать список','list');
+}
 function friendWishlistTiles(lists){
- const occasions=[...new Set(lists.map(x=>x.occasion||'Просто так'))];
- const chips=['Все',...occasions].map((name,index)=>
-  '<button type="button" class="filter-chip'+(!index?' active':'')+'" data-wishlist-filter="'+attr(name)+'" aria-pressed="'+(!index?'true':'false')+'">'+esc(name)+'</button>').join('');
- return (lists.length?'<div class="wishlist-filters" role="group" aria-label="Поводы вишлистов">'+chips+'</div>'+
- '<div class="cards-grid friend-wishlist-grid">'+lists.map(l=>
-  '<article class="list-card" data-occasion="'+attr(l.occasion||'Просто так')+'"><a class="card-hitarea" href="/w/'+attr(l.share_key)+'" data-nav="/w/'+attr(l.share_key)+'" aria-label="Открыть вишлист '+attr(l.title)+'"></a>'+
-  '<div class="list-cover cover-'+attr(l.theme)+'">'+fallbackArt('gift')+'</div>'+
-  '<div class="list-info"><span class="section-label">'+esc(l.owner_name)+'</span><h3>'+esc(l.title)+'</h3><p>'+esc(l.description||l.occasion||'Список подарков')+'</p>'+
-  '<div class="list-bottom"><span>'+ruCount(l.wish_count,'желание','желания','желаний')+'</span><button class="text-link" data-nav="/w/'+attr(l.share_key)+'">Открыть '+ico('arrow')+'</button></div></div></article>').join('')+'</div>':
-  '<div class="blank-state"><h3>Пока нет доступных вишлистов друзей</h3><p>Добавь друзей, которые открыли свои списки по ссылке</p><button class="btn btn-soft" data-nav="/friends">Мои друзья</button></div>');
+ if(!lists.length)return '<div class="blank-state"><h3>Пока нет доступных вишлистов друзей</h3><p>Добавь друзей, которые открыли свои списки по ссылке</p><button class="btn btn-soft" data-nav="/friends">Мои друзья</button></div>';
+ const groups=new Map();
+ for(const l of lists){
+  const id=String(l.owner_id||l.owner_name);
+  if(!groups.has(id))groups.set(id,{name:l.owner_name,avatar:l.avatar_emoji||'🎁',id:l.owner_id,lists:[]});
+  groups.get(id).lists.push(l);
+ }
+ const cards=[...groups.values()].map(friend=>{
+  const name=esc(friend.name);
+  const tiles=friend.lists.map(l=>
+   '<article class="list-card friend-stack-list" data-occasion="'+attr(l.occasion?.trim()||'')+'">'+
+   '<a class="card-hitarea" href="/w/'+attr(l.share_key)+'" data-nav="/w/'+attr(l.share_key)+'" aria-label="Открыть вишлист '+attr(l.title)+'"></a>'+
+   '<div class="list-cover cover-'+attr(l.theme)+'">'+fallbackArt('gift')+'</div>'+
+   '<div class="list-info"><h3>'+esc(l.title)+'</h3><p>'+esc(l.description||l.occasion||'Список подарков')+'</p>'+
+   '<div class="list-bottom"><span>'+ruCount(l.wish_count,'желание','желания','желаний')+'</span><button class="text-link" data-nav="/w/'+attr(l.share_key)+'">Открыть '+ico('arrow')+'</button></div></div></article>').join('');
+  return '<section class="friend-wishlist-stack" data-friend-stack><div class="friend-stack-heading"><span class="friend-stack-avatar">'+esc(friend.avatar)+'</span><div><strong>'+name+'</strong><span>'+ruCount(friend.lists.length,'вишлист','вишлиста','вишлистов')+'</span></div>'+
+   (friend.id?'<button class="text-link" data-nav="/users/'+attr(friend.id)+'">Профиль '+ico('arrow')+'</button>':'')+'</div><div class="friend-stack-cards">'+tiles+'</div></section>';
+ }).join('');
+ return wishlistCategoryFilter(lists)+'<div class="friend-stack-grid">'+cards+'</div>';
 }
 async function listsPage(marker=lastRenderToken){
  if(!currentUser){shell('<main class="container page"><h1>Мои вишлисты</h1><p>Войди, чтобы создавать списки</p><button class="btn btn-dark" data-open="login">Войти</button></main>');return;}
@@ -613,7 +645,7 @@ async function listsPage(marker=lastRenderToken){
  shell('<main class="container page wishlists-page"><div class="page-hero"><div><div class="section-label">Коллекция желаний</div><h1>Твои вишлисты</h1><p>Мои желания и открытые списки друзей</p></div><div class="btn-row"><button class="btn btn-dark" data-open="list">Новый список '+ico('plus')+'</button></div></div>'+
  '<div class="wishlist-view-tabs" role="tablist" aria-label="Вишлисты"><button type="button" role="tab" aria-selected="true" class="active" data-wishlist-view="mine">Мои вишлисты</button><button type="button" role="tab" aria-selected="false" data-wishlist-view="friends">Вишлисты друзей</button></div>'+
  '<div id="wishlist-view-content" role="tabpanel">'+
- (lists.length?'<div class="cards-grid">'+lists.map(l=>listCard(l)).join('')+'</div>':emptyState('Здесь пока тихо','Создай первый список и добавь пару желаний','Создать список','list'))+
+ ownWishlistTiles(lists)+
  '</div></main>');
 }
 document.addEventListener('click',async event=>{
@@ -626,8 +658,7 @@ document.addEventListener('click',async event=>{
   if(!region)return;
   const generation=++wishlistTabGeneration;
   if(tab.dataset.wishlistView==='mine'){
-   region.innerHTML=currentOwnedWishlists.length?'<div class="cards-grid">'+currentOwnedWishlists.map(x=>listCard(x)).join('')+'</div>':
-    emptyState('Здесь пока тихо','Создай первый список и добавь пару желаний','Создать список','list');
+   region.innerHTML=ownWishlistTiles(currentOwnedWishlists);
    return;
   }
   region.innerHTML='<p class="note" role="status">Загружаем вишлисты друзей…</p>';
@@ -643,7 +674,10 @@ document.addEventListener('click',async event=>{
   event.preventDefault();
   const panel=filter.closest('#wishlist-view-content');if(!panel)return;
   for(const item of panel.querySelectorAll('[data-wishlist-filter]')){const selected=item===filter;item.classList.toggle('active',selected);item.setAttribute('aria-pressed',String(selected));}
-  for(const tile of panel.querySelectorAll('[data-occasion]'))tile.hidden=filter.dataset.wishlistFilter!=='Все'&&tile.dataset.occasion!==filter.dataset.wishlistFilter;
+  for(const tile of panel.querySelectorAll('[data-occasion]'))
+   tile.hidden=filter.dataset.wishlistFilter!=='Все'&&tile.dataset.occasion!==filter.dataset.wishlistFilter;
+  for(const stack of panel.querySelectorAll('[data-friend-stack]'))
+   stack.hidden=![...stack.querySelectorAll('[data-occasion]')].some(tile=>!tile.hidden);
  }
 });
 function listCard(l){return `<article class="list-card"><a class="card-hitarea" href="/list/${l.id}" data-nav="/list/${l.id}" aria-label="Открыть вишлист ${attr(l.title)}"></a><div class="list-cover cover-${attr(l.theme)}"><span class="cover-stamp">${esc(l.occasion)}</span>${fallbackArt('gift')}</div><div class="list-info"><h3>${esc(l.title)}</h3><p>${esc(l.description||'Место для твоих желаний')}</p><div class="list-bottom"><span>${ruCount(l.wish_count,'желание','желания','желаний')}</span><button class="text-link" data-nav="/list/${l.id}">Открыть ${ico('arrow')}</button></div></div></article>`;}
