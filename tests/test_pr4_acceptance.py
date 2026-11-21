@@ -954,3 +954,64 @@ def test_pr4_p1_mobile_contrast_touch_targets_and_scroll_cue(browser_https):
                     context.close()
             finally:
                 browser.close()
+
+
+@pytest.mark.browser
+def test_pr4_post_release_mobile_controls_chromium_webkit(browser_https):
+    """The new compact header, notifications and wishlist tabs work on mobile."""
+    output=OUTPUT/"ux-follow-up"
+    output.mkdir(parents=True,exist_ok=True)
+    with sync_playwright() as play:
+        for engine in ("chromium","webkit"):
+            browser=getattr(play,engine).launch(
+                headless=True,args=["--no-sandbox"] if engine=="chromium" else [])
+            try:
+                for width in (375,390):
+                    context=browser.new_context(
+                        viewport={"width":width,"height":844},device_scale_factor=1,
+                        reduced_motion="reduce",ignore_https_errors=True,
+                        is_mobile=engine=="webkit",has_touch=engine=="webkit")
+                    page=context.new_page()
+                    page.set_default_timeout(15000)
+                    page.goto(browser_https+"/",wait_until="domcontentloaded")
+                    browser_login(page)
+                    expect(page.locator(".dashboard-page")).to_be_visible()
+                    page.locator("header .header-bell").click()
+                    dialog=page.get_by_role("dialog",name="Уведомления")
+                    expect(dialog).to_be_visible()
+                    expect(dialog.locator('[data-notification-tab]')).to_have_count(4)
+                    expect(dialog.get_by_role("button",name="Прочесть все")).to_be_visible()
+                    assert page.evaluate("document.documentElement.scrollWidth<=innerWidth+2")
+                    page.screenshot(path=str(output/f"{engine}-{width}-notifications.png"),
+                                    animations="disabled")
+                    page.keyboard.press("Escape")
+                    expect(dialog).to_have_count(0)
+                    page.locator('header .nav [data-nav="/lists"]').click()
+                    expect(page.get_by_role("tab",name="Вишлисты друзей")).to_be_visible()
+                    page.get_by_role("tab",name="Вишлисты друзей").click()
+                    expect(page.get_by_role("tab",name="Вишлисты друзей")).to_have_attribute(
+                        "aria-selected","true")
+                    expect(page.locator("#wishlist-view-content")).not_to_contain_text(
+                        "Загружаем вишлисты друзей…",timeout=15000)
+                    page.screenshot(path=str(output/f"{engine}-{width}-friend-wishlists.png"),
+                                    animations="disabled")
+                    page.get_by_role("tab",name="Мои вишлисты").click()
+                    page.locator('main button[data-open="list"]').first.click()
+                    expect(page.locator(".modal>.modal-fixed-header")).to_be_visible()
+                    expect(page.locator(".modal>.modal-fixed-footer")).to_be_visible()
+                    assert page.locator(".modal-fixed-footer button[type=submit]").get_attribute(
+                        "form")=="modal-form"
+                    page.keyboard.press("Escape")
+                    page.locator("header .logo").first.click()
+                    page.evaluate("window.scrollTo(0,document.documentElement.scrollHeight)")
+                    expect(page.locator("header.site-header")).to_have_class(
+                        re.compile("is-condensed"))
+                    for selector in ("header .logo","header .header-bell",
+                                     "header .header-avatar",'header [data-action="logout"]'):
+                        expect(page.locator(selector)).to_be_visible()
+                    assert page.evaluate("document.documentElement.scrollWidth<=innerWidth+2")
+                    page.screenshot(path=str(output/f"{engine}-{width}-compact-header.png"),
+                                    animations="disabled")
+                    context.close()
+            finally:
+                browser.close()
