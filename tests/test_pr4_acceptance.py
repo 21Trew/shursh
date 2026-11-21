@@ -1027,7 +1027,9 @@ def test_shursh_ux_followup_finish_game_and_sticky_modal(browser_https):
     with sync_playwright() as play:
         browser=play.chromium.launch(headless=True,args=['--no-sandbox'])
         try:
-            page=browser.new_page(viewport={'width':390,'height':844},reduced_motion='reduce')
+            context=browser.new_context(viewport={'width':390,'height':844},
+                reduced_motion='reduce',ignore_https_errors=True)
+            page=context.new_page()
             page.set_default_timeout(15000)
             page.goto(browser_https+'/',wait_until='domcontentloaded')
             browser_login(page)
