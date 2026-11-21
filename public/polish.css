@@ -80,3 +80,136 @@
 @media(prefers-reduced-motion:reduce){
  .site-header,.header-avatar,.wishlist-view-tabs button,.notification-tabs button,.filter-chip,#page-view>main{animation:none!important;transition:none!important}
 }
+
+
+/* 21 Nov follow-up: unified marker navigation, overlays and compact gifts. */
+.site-header .nav a::before{transition:opacity .14s ease,transform .25s ease}
+.site-header .nav a:not(.active):hover::before,.site-header .nav a:not(.active):focus-visible::before{
+ opacity:.48;transform:translateY(-50%) rotate(-1deg) scaleX(1)
+}
+.site-header .nav a.active::before{animation:shursh-marker-stroke .35s cubic-bezier(.2,.7,.17,1) both}
+@keyframes shursh-marker-stroke{
+ 0%{clip-path:polygon(0 0,0 0,0 0,0 0);opacity:.35;transform:translateY(-50%) rotate(-1deg) scaleX(.85)}
+ 48%{clip-path:polygon(0 0,100% 0,28% 100%,0 100%)}
+ 100%{clip-path:polygon(0 0,100% 0,100% 100%,0 100%);opacity:.98;transform:translateY(-50%) rotate(-1deg) scaleX(1)}
+}
+.wishlist-view-tabs button,.notification-tabs button,.filter-chip,.game-chat-tabs button{
+ isolation:isolate;position:relative;transition:color .18s ease,transform .18s ease,border-color .18s ease;
+}
+.wishlist-view-tabs button::before,.notification-tabs button::before,.filter-chip::before,.game-chat-tabs button::before{
+ content:'';position:absolute;inset:2px;border-radius:inherit;background:#f5cf83;z-index:-1;opacity:0;
+ transform:scaleX(.84);transform-origin:left center;pointer-events:none;
+ transition:opacity .16s ease,transform .24s ease;
+}
+.wishlist-view-tabs button.active,.notification-tabs button.active,.filter-chip.active,.game-chat-tabs button[aria-pressed="true"]{
+ background:transparent!important;color:#29272b;border-color:#e5d3b5;
+}
+.wishlist-view-tabs button.active::before,.notification-tabs button.active::before,.filter-chip.active::before,.game-chat-tabs button[aria-pressed="true"]::before{
+ opacity:.97;transform:scaleX(1);animation:shursh-tab-paint .34s cubic-bezier(.2,.7,.17,1) both;
+}
+@keyframes shursh-tab-paint{
+ 0%{clip-path:polygon(0 0,0 0,0 0,0 0);opacity:.3}
+ 50%{clip-path:polygon(0 0,100% 0,30% 100%,0 100%)}
+ 100%{clip-path:polygon(0 0,100% 0,100% 100%,0 100%);opacity:.97}
+}
+.wishlist-view-tabs button:not(.active):hover::before,.notification-tabs button:not(.active):hover::before,.filter-chip:not(.active):hover::before,
+.game-chat-tabs button[aria-pressed="false"]:hover::before{
+ opacity:.42;transform:scaleX(1)
+}
+.wishlist-view-tabs button:hover,.notification-tabs button:hover,.filter-chip:hover{background:transparent;transform:translateY(-1px)}
+.wishlist-filters{margin-top:8px}
+.friend-stack-grid{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:20px;align-items:start}
+.friend-wishlist-stack{background:#fffefa;border:1px solid #e9e0d3;border-radius:24px;padding:16px;min-width:0;box-shadow:0 5px 18px rgba(55,40,30,.035)}
+.friend-stack-heading{display:flex;gap:12px;align-items:center;padding:3px 3px 15px;margin-bottom:14px;border-bottom:1px solid #efe8dc}
+.friend-stack-heading>div{display:flex;flex-direction:column;gap:2px;min-width:0;flex:1}
+.friend-stack-heading strong{font-size:15px;overflow-wrap:anywhere}
+.friend-stack-heading span:not(.friend-stack-avatar){font-size:12px;color:#6a6159}
+.friend-stack-avatar{display:grid;place-items:center;flex:0 0 45px;width:45px;height:45px;border-radius:14px;background:#f5e7dc;font-size:24px}
+.friend-stack-heading .text-link{font-size:12px}
+.friend-stack-cards{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:10px}
+.friend-stack-list{min-width:0}
+.friend-stack-list .list-cover{height:105px}
+.friend-stack-list .list-cover svg{max-height:88px;max-width:105px}
+.friend-stack-list .list-info{padding:12px}
+.friend-stack-list .list-info h3{font-size:14px;min-height:0}
+.friend-stack-list .list-info p{min-height:0}
+.friend-stack-list .list-bottom{gap:8px;align-items:flex-start}
+.friend-stack-list .list-bottom .text-link{font-size:11px;white-space:nowrap}
+.shared-santa-grid{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:12px}
+.shared-santa-card{display:flex;gap:12px;align-items:center;padding:16px;background:#f8ebdd;border:1px solid #e8d7c8;border-radius:20px}
+.shared-santa-gift{display:grid;place-items:center;border-radius:13px;background:#fff9ee;width:43px;height:43px;flex:0 0 43px}
+.shared-santa-card>div{flex:1;min-width:0}
+.shared-santa-card h3{font-family:var(--heading);font-size:16px;line-height:1.3;margin:0;overflow-wrap:anywhere}
+.shared-santa-card p{margin:5px 0 0;font-size:12px;color:#6d5d56}
+.santa-game-status{display:flex;align-items:center;gap:10px;flex-wrap:wrap}
+.scroll-to-top{position:fixed;right:max(22px,env(safe-area-inset-right));bottom:max(25px,env(safe-area-inset-bottom));z-index:35;
+ border:1px solid rgba(255,255,255,.66);background:rgba(250,248,239,.45);color:#343038;
+ -webkit-backdrop-filter:blur(14px) saturate(1.3);backdrop-filter:blur(14px) saturate(1.3);
+ box-shadow:0 5px 17px rgba(36,29,25,.09),inset 0 1px rgba(255,255,255,.62);
+ border-radius:18px;display:grid;place-items:center;width:48px;height:48px;opacity:0;pointer-events:none;
+ transform:translateY(10px);transition:opacity .2s ease,transform .2s ease,background .2s ease}
+.scroll-to-top svg{transform:rotate(90deg)}
+.scroll-to-top.is-visible{opacity:.75;pointer-events:auto;transform:translateY(0)}
+.scroll-to-top.is-visible:hover,.scroll-to-top.is-visible:focus-visible{opacity:1;background:rgba(255,253,248,.95);transform:translateY(-3px)}
+/* Priority chips must remain legible on every illustration color. */
+.wish-image .wish-priority,.wish-image .chip{background:rgba(255,237,217,.97);color:#603924;border:1px solid rgba(103,64,44,.2);box-shadow:0 2px 8px rgba(28,24,24,.09);font-weight:800}
+.wish-image .priority-nice{background:rgba(249,245,233,.98);color:#443c34}
+.modal-backdrop{z-index:1000;box-sizing:border-box;inset:0;padding:clamp(14px,3vw,28px);display:flex;align-items:center;justify-content:center;overflow:hidden}
+.modal-backdrop .modal{margin:auto;max-height:calc(100dvh - 2 * clamp(14px,3vw,28px));min-height:0;flex:0 1 auto;overflow:hidden}
+.modal-backdrop .modal .modal-scroll-area{min-height:0;overflow-y:auto;overscroll-behavior:contain}
+.modal-backdrop .modal .modal-fixed-header{flex-shrink:0}
+.modal-backdrop .modal .modal-fixed-footer{flex-shrink:0}
+.modal-backdrop .gift-details-modal{width:min(780px,100%)}
+.gift-dialog-layout{display:grid;grid-template-columns:minmax(0,43%) minmax(0,57%);gap:24px;align-items:stretch}
+.gift-dialog-media{display:grid;place-items:center;min-height:235px;max-height:440px;overflow:hidden;background:#f6ede4;border-radius:20px;padding:12px}
+.gift-dialog-image{width:100%;height:100%;max-height:415px;object-fit:contain;border-radius:14px}
+.gift-dialog-fallback{display:grid;place-items:center}
+.gift-dialog-fallback svg{max-width:100%;max-height:210px}
+.gift-dialog-copy{display:flex;flex-direction:column;align-items:flex-start;gap:18px;padding:9px 2px}
+.gift-dialog-price{font-size:24px;font-weight:850;color:#29272b}
+.gift-dialog-description{width:100%}
+.gift-dialog-description strong{font-size:12px;color:#5a4c45}
+.gift-dialog-description p{font-size:14px;color:#504c49;line-height:1.65;overflow-wrap:anywhere;margin:8px 0 0}
+.gift-dialog-copy>.btn{margin-top:auto}
+.gift-dialog-footer{display:flex;width:100%;align-items:center;justify-content:space-between;gap:16px}
+.gift-dialog-footer .btn{min-height:44px}
+.game-gift-card{position:relative}
+.game-gift-card .wish-content{gap:7px}
+.game-gift-card .wish-desc{margin:2px 0;min-height:0}
+.game-gift-inline-price{font-size:12px;font-weight:850;margin-top:auto;color:#29272b}
+.game-gift-store-hint{display:flex;align-items:center;gap:4px;color:#504a4b;font-size:10px;line-height:1.3}
+.game-gift-overlay-actions{position:absolute;right:6px;top:6px;display:flex;gap:5px;z-index:5;opacity:0;transform:translateY(-3px);pointer-events:none;transition:opacity .15s ease,transform .15s ease}
+.game-gift-card:hover .game-gift-overlay-actions,.game-gift-card:focus-within .game-gift-overlay-actions{opacity:1;transform:none;pointer-events:auto}
+.game-gift-overlay-actions .btn{width:37px;height:37px;min-height:37px;display:grid;place-items:center;padding:8px;background:#fffdf8;border:1px solid #e0d7c8;box-shadow:0 2px 9px rgba(33,25,22,.12)}
+.game-gift-overlay-actions .btn svg{width:17px;height:17px}
+@media(hover:none){.game-gift-overlay-actions{opacity:1;transform:none;pointer-events:auto}}
+@media(max-width:760px){
+ .friend-stack-grid,.shared-santa-grid{grid-template-columns:1fr}
+ .friend-stack-cards{grid-template-columns:repeat(2,minmax(0,1fr))}
+ .modal-backdrop{padding:max(12px,env(safe-area-inset-top)) 12px max(12px,env(safe-area-inset-bottom))!important;
+  align-items:center!important;justify-content:center!important;overflow:hidden!important}
+ .modal-backdrop .modal,.modal-backdrop .wish-edit-modal{width:min(540px,100%)!important;height:auto!important;
+  max-width:100%!important;max-height:calc(100dvh - 24px - env(safe-area-inset-top) - env(safe-area-inset-bottom))!important;
+  border-radius:24px!important;border:1px solid #e7dece!important;margin:auto!important;padding-bottom:0!important;
+  box-shadow:0 16px 60px rgba(25,22,27,.24)!important;display:flex!important;flex-direction:column!important}
+ .modal-backdrop .wish-edit-modal .modal-scroll-area{flex:1 1 auto;min-height:0}
+ .gift-dialog-layout{grid-template-columns:1fr;gap:14px}
+ .gift-dialog-media{min-height:150px;max-height:220px}
+ .gift-dialog-image{max-height:195px}
+ .gift-dialog-copy{gap:9px}
+ .gift-dialog-price{font-size:20px}
+ .gift-dialog-footer{gap:8px}
+ .gift-dialog-footer .btn{min-width:0}
+ .scroll-to-top{right:15px;bottom:20px}
+}
+@media(max-width:390px){
+ .friend-stack-cards{grid-template-columns:1fr 1fr}
+ .friend-stack-heading .text-link{font-size:0}
+ .friend-stack-heading .text-link svg{width:19px;height:19px}
+}
+@media(prefers-reduced-motion:reduce){
+ .site-header .nav a.active::before,.wishlist-view-tabs button.active::before,
+ .notification-tabs button.active::before,.filter-chip.active::before,
+ .game-chat-tabs button[aria-pressed="true"]::before{animation:none!important;clip-path:none!important}
+ .scroll-to-top,.game-gift-overlay-actions{transition:none!important}
+}
