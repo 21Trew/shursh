@@ -3,6 +3,7 @@
 .site-header.is-condensed{box-shadow:0 7px 24px rgba(39,39,43,.08)}
 .site-header.is-condensed .topbar{height:62px;min-height:62px;padding-block:4px;align-items:center;flex-wrap:nowrap}
 .site-header.is-condensed .nav{display:none}
+.site-header.is-condensed .topbar::before,.site-header.is-condensed .topbar::after{content:none!important}
 .site-header.is-condensed .topbar .logo{font-size:24px}
 .site-header.is-condensed .header-actions{margin-left:auto}
 .site-header.is-condensed .user-name{display:none}
