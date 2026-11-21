@@ -126,7 +126,7 @@ then removed empty rules. 2705 final declaration winners retain the exact
 pre-change values and importance per at-rule context and selector, independently
 checked by `tools/css_effective_check.py` and its anchored SHA-256 reference.
 
-The visual gate samples accepted flat interiors of real buttons, both alternating Santa card variants and fields
+The visual gate samples accepted flat interiors of real buttons, both alternating Santa card variants, input and textarea (select uses native nonpixel checks)
 in both Chromium and WebKit across five viewports, plus radius/border assertions.
 Complex imagery and text are screenshot artifacts for human review, not silently
 approved new full-component goldens. Do not merge or publish Production without

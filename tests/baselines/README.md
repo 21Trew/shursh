@@ -23,7 +23,7 @@ the PNG in a reviewed PR with screenshot evidence.
 ## Component surface screenshot regression
 
 `ui-components-flat.png` adds a fixed pixel atlas for **stable color interiors**
-of 5 existing button variants, 4 card surfaces and 3 form controls. Each strip is
+of 5 existing button variants, 4 card surfaces and 2 stable form controls. Each strip is
 96 × 24 pixels, sampled from a real Playwright screenshot of the actual
 production CSS selector in Chromium and WebKit at 375/390/768/1024/1440 px.
 
@@ -66,3 +66,7 @@ without explicit review of intended style changes.
 
 The Santa cards have a deliberate alternating :nth-child(even) lilac background.
 Both even/odd variants are now independently pixel-gated and border-checked.
+
+Native select is intentionally omitted from pixel exactness: WebKit uses
+platform-specific native painting. Its actual screenshot is still captured,
+and CSS radius, border color and layout are asserted in both engines.
