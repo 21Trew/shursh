@@ -4,7 +4,9 @@ No new outbound integrations or background jobs.
 """
 import re
 from uuid import UUID
-from server import ApiError, req, optional
+
+PROFILE_EMOJIS = frozenset(["🎁","🎄","🐱","🦊","🐻","🐼","🐸","🦄","🐰","🧸","✨","🌸","🌼","🌙","⭐","🎮","🎨","📚","🎵","🚀","☕","🍓","💚"])
+from server import ApiError, req, optional, token_hash
 
 def _uuid(value):
     try:
@@ -40,7 +42,7 @@ def _notify(con, recipient, kind, message, url='/', actor=None):
                    VALUES(?,?,?,?,?)''',(recipient,actor,kind,message[:240],url[:300]))
 
 def _friends(con, current):
-    rows = con.execute('''SELECT p.id,p.name,p.bio FROM friendships f
+    rows = con.execute('''SELECT p.id,p.name,p.bio,p.handle,p.avatar_emoji FROM friendships f
          JOIN profiles p ON p.id=(CASE WHEN f.user_low=? THEN f.user_high ELSE f.user_low END)
          WHERE f.status='accepted' AND (f.user_low=? OR f.user_high=?)
          ORDER BY lower(p.name),p.id''',(current,current,current))
@@ -74,7 +76,17 @@ def handle(handler, method, path, con):
                         WHERE mine.event_id=e.id AND mine.user_id=?)
                     GROUP BY e.id ORDER BY e.id DESC''',
                     (user['id'],user['id'],user['id']))
-        return 200,{'events':[dict(e) for e in rows]},None
+        invitations=con.execute('''SELECT e.id,e.title,e.description,e.exchange_date,
+                      e.budget_cents,e.currency,e.invite_key
+                      FROM santa_friend_invitations i
+                      JOIN santa_events e ON e.id=i.event_id
+                      WHERE i.invited_user_id=? AND i.status='pending'
+                        AND e.status='open' AND NOT EXISTS(
+                            SELECT 1 FROM participants p
+                            WHERE p.event_id=e.id AND p.user_id=?)
+                      ORDER BY i.created_at DESC LIMIT 30''',(user['id'],user['id']))
+        return 200,{'events':[dict(e) for e in rows],
+                    'invitations':[dict(e) for e in invitations]},None
 
     if path == '/api/admin/overview' and method == 'GET':
         handler.is_site_admin(con)
@@ -95,6 +107,22 @@ def handle(handler, method, path, con):
                 fields['name']=req(data['name'],'Имя',40)
             if 'bio' in data:
                 fields['bio']=optional(data['bio'],'О себе',500)
+            if 'handle' in data:
+                handle=data['handle']
+                if not isinstance(handle,str):
+                    raise ApiError(400,'Неверный никнейм')
+                handle=handle.strip().lower()
+                if handle and not re.fullmatch(r'[a-z][a-z0-9_]{2,19}',handle):
+                    raise ApiError(400,'Никнейм: 3–20 латинских символов, цифры и _; первая — буква')
+                if handle and con.execute('SELECT 1 FROM profiles WHERE lower(handle)=? AND id<>?',(handle,user['id'])).fetchone():
+                    raise ApiError(409,'Этот никнейм уже занят')
+                fields['handle']=handle or None
+            if 'avatar_emoji' in data:
+                if not isinstance(data['avatar_emoji'],str) or data['avatar_emoji'] not in PROFILE_EMOJIS:
+                    raise ApiError(400,'Выбери аватар из предложенных эмодзи')
+                fields['avatar_emoji']=data['avatar_emoji']
+            if 'city' in data:
+                fields['city']=optional(data['city'],'Город',60)
             if 'discoverable' in data:
                 if not isinstance(data['discoverable'],bool):
                     raise ApiError(400,'Неверная настройка видимости')
@@ -103,24 +131,29 @@ def handle(handler, method, path, con):
                 raise ApiError(400,'Нет изменений')
             con.execute('UPDATE profiles SET '+', '.join(k+'=?' for k in fields)+' WHERE id=?',
                         (*fields.values(),user['id']))
-        p=con.execute('SELECT id,name,bio,discoverable FROM profiles WHERE id=?',(user['id'],)).fetchone()
-        return 200,{'profile':dict(p)},None
+        p=con.execute('SELECT id,name,bio,discoverable,handle,avatar_emoji,city FROM profiles WHERE id=?',(user['id'],)).fetchone()
+        lists=con.execute("""SELECT l.id,l.title,l.description,l.occasion,l.theme,l.share_key,
+                            count(w.id) AS wish_count FROM wishlists l
+                            LEFT JOIN wishes w ON w.list_id=l.id
+                            WHERE l.owner_id=? AND l.visibility='link'
+                            GROUP BY l.id ORDER BY l.id DESC""",(user['id'],)).fetchall()
+        return 200,{'profile':{**dict(p),'email':user['email']},'lists':[dict(l) for l in lists]},None
 
     if path == '/api/users/search' and method=='GET':
         user=handler.auth(con)
         q=(handler.request.args.get('q') or '').strip()
         if len(q)<2 or len(q)>40:
             return 200,{'users':[]},None
-        rows=con.execute('''SELECT p.id,p.name FROM profiles p
-              WHERE p.discoverable=true AND p.id<>? AND p.name ILIKE ?
-              ORDER BY lower(p.name),p.id LIMIT 20''',(user['id'],'%'+q+'%'))
+        rows=con.execute('''SELECT p.id,p.name,p.handle,p.avatar_emoji FROM profiles p
+              WHERE p.discoverable=true AND p.id<>? AND (p.name ILIKE ? OR p.handle ILIKE ?)
+              ORDER BY lower(p.name),p.id LIMIT 20''',(user['id'],'%'+q+'%','%'+q.lstrip('@')+'%'))
         return 200,{'users':[dict(p) for p in rows]},None
 
     match=re.fullmatch(r'/api/users/([0-9a-fA-F-]{36})',path)
     if match and method=='GET':
         user=handler.auth(con)
         uid=_uuid(match.group(1))
-        profile=con.execute('SELECT id,name,bio,discoverable FROM profiles WHERE id=?',(uid,)).fetchone()
+        profile=con.execute('SELECT id,name,bio,discoverable,handle,avatar_emoji,city FROM profiles WHERE id=?',(uid,)).fetchone()
         state=_relationship(con,user['id'],uid)
         if not profile or (not profile['discoverable'] and state not in ('self','friends')):
             raise ApiError(404,'Профиль не найден')
@@ -132,20 +165,46 @@ def handle(handler, method, path, con):
                        WHERE l.owner_id=? AND l.visibility='link'
                        GROUP BY l.id ORDER BY l.id DESC''',(uid,))
             lists=[dict(r) for r in rows]
-        return 200,{'profile':{'id':profile['id'],'name':profile['name'],'bio':profile['bio']},
-                    'relationship':state,'lists':lists},None
+        shared_games=[]
+        if state in ('friends','self'):
+            # Both authenticated users must belong to the game. No secret pairing or
+            # third-party game is revealed by the profile endpoint.
+            rows=con.execute("""SELECT DISTINCT e.id,e.title,e.exchange_date,e.status
+                                FROM santa_events e
+                                JOIN participants a ON a.event_id=e.id AND a.user_id=?
+                                JOIN participants b ON b.event_id=e.id AND b.user_id=?
+                                ORDER BY e.id DESC LIMIT 40""",(user['id'],uid))
+            shared_games=[dict(row) for row in rows]
+        return 200,{'profile':{'id':profile['id'],'name':profile['name'],'bio':profile['bio'],'handle':profile['handle'],'avatar_emoji':profile['avatar_emoji'],'city':profile['city']},
+                    'relationship':state,'lists':lists,'shared_games':shared_games},None
+
+    if path=='/api/friends/wishlists' and method=='GET':
+        user=handler.auth(con)
+        rows=con.execute('''SELECT l.id,l.title,l.description,l.occasion,l.theme,
+                         l.share_key,p.name AS owner_name,p.avatar_emoji,l.owner_id AS owner_id,
+                         count(w.id) AS wish_count
+                     FROM wishlists l
+                     JOIN profiles p ON p.id=l.owner_id
+                     JOIN friendships f ON f.status='accepted'
+                       AND ((f.user_low=? AND f.user_high=l.owner_id)
+                         OR (f.user_high=? AND f.user_low=l.owner_id))
+                     LEFT JOIN wishes w ON w.list_id=l.id
+                     WHERE l.visibility='link'
+                     GROUP BY l.id,p.id ORDER BY l.id DESC LIMIT 150''',
+                     (user['id'],user['id']))
+        return 200,{'lists':[dict(r) for r in rows]},None
 
     if path=='/api/friends' and method=='GET':
         user=handler.auth(con)
         rows=con.execute('''SELECT f.user_low,f.user_high,f.requested_by,f.status,
-                    p.id AS other_id,p.name AS other_name
+                    p.id AS other_id,p.name AS other_name,p.handle AS other_handle,p.avatar_emoji AS other_avatar_emoji
                     FROM friendships f
                     JOIN profiles p ON p.id=(CASE WHEN f.user_low=? THEN f.user_high ELSE f.user_low END)
                     WHERE f.user_low=? OR f.user_high=?
                     ORDER BY f.updated_at DESC''',(user['id'],user['id'],user['id']))
         friends=[];incoming=[];outgoing=[]
         for item in rows:
-            data={'id':item['other_id'],'name':item['other_name']}
+            data={'id':item['other_id'],'name':item['other_name'],'handle':item['other_handle'],'avatar_emoji':item['other_avatar_emoji']}
             if item['status']=='accepted':
                 friends.append(data)
             elif item['status']=='pending':
@@ -186,7 +245,15 @@ def handle(handler, method, path, con):
             if choice=='accept':
                 _notify(con,other,'friend_accept','Твою заявку в друзья приняли',f'/users/{user["id"]}',user['id'])
         else:
+            existing=con.execute('SELECT requested_by,status FROM friendships WHERE user_low=? AND user_high=?',(a,b)).fetchone()
+            if not existing or (existing['status']=='pending' and existing['requested_by']!=user['id']):
+                raise ApiError(404,'Исходящая заявка не найдена')
             con.execute('DELETE FROM friendships WHERE user_low=? AND user_high=?',(a,b))
+            if existing['status']=='pending':
+                # Suppress only this outstanding unread friend-request alert.
+                con.execute("""DELETE FROM social_notifications
+                       WHERE recipient_id=? AND actor_id=? AND kind='friend_request'
+                         AND read_at IS NULL""",(other,user['id']))
         return 200,{'ok':True},None
 
     if path=='/api/notifications' and method=='GET':
@@ -202,6 +269,11 @@ def handle(handler, method, path, con):
         count=con.execute('SELECT count(*) AS n FROM social_notifications WHERE recipient_id=? AND read_at IS NULL',
                           (user['id'],)).fetchone()['n']
         return 200,{'unread':count},None
+    if path=='/api/notifications/read-all' and method=='POST':
+        user=handler.auth(con)
+        con.execute('''UPDATE social_notifications SET read_at=now()
+                     WHERE recipient_id=? AND read_at IS NULL''',(user['id'],))
+        return 200,{'ok':True,'unread':0},None
     match=re.fullmatch(r'/api/notifications/(\d+)/read',path)
     if match and method=='POST':
         user=handler.auth(con)
@@ -246,9 +318,40 @@ def handle(handler, method, path, con):
                 '/w/'+wish['share_key'],user['id'])
         return 201,{'ok':True},None
 
+    # Possession of a private capability permits binding an unclaimed player.
+    match=re.fullmatch(r'/api/participant/([A-Za-z0-9_-]{43})/claim',path)
+    if match and method=='POST':
+        user=handler.auth(con)
+        participant=con.execute('SELECT id,event_id,user_id FROM participants WHERE access_hash=?',
+                                (token_hash(match.group(1)),)).fetchone()
+        if not participant:
+            raise ApiError(404,'Личная ссылка недействительна')
+        if participant['user_id'] is not None:
+            if participant['user_id']==user['id']:
+                return 200,{'ok':True,'event_id':participant['event_id']},None
+            raise ApiError(409,'Этот участник уже привязан к другому аккаунту')
+        if con.execute('SELECT id FROM participants WHERE event_id=? AND user_id=?',
+                       (participant['event_id'],user['id'])).fetchone():
+            raise ApiError(409,'Ты уже участвуешь в этой игре')
+        # Use a conditional row update to reject a second, concurrent claim.
+        # A stale read must never be reported as a successful account binding.
+        updated=con.execute('''UPDATE participants SET user_id=?
+                              WHERE id=? AND user_id IS NULL
+                                AND NOT EXISTS (
+                                  SELECT 1 FROM participants other
+                                  WHERE other.event_id=? AND other.user_id=?)
+                              RETURNING id''',
+                            (user['id'],participant['id'],participant['event_id'],user['id'])).fetchone()
+        if not updated:
+            raise ApiError(409,'Эта личная ссылка уже привязана или ты участвуешь в игре')
+        con.execute("""UPDATE santa_friend_invitations SET status='accepted'
+                       WHERE event_id=? AND invited_user_id=?""",
+                    (participant['event_id'],user['id']))
+        return 200,{'ok':True,'event_id':participant['event_id']},None
+
     # Authenticated game members can revisit the same game without keeping
     # a bearer URL in localStorage. Member-only projections are enforced by UID.
-    match=re.fullmatch(r'/api/member/(\d+)(?:/(roster|preferences|wishes|wishes/import|wishes/\d+|messages/(?:general|to-recipient|from-santa)|reveal))?',path)
+    match=re.fullmatch(r'/api/member/(\d+)(?:/(roster|preferences|wishes|wishes/import|wishes/\d+|messages/(?:general|to-recipient|from-santa)|reveal|memory))?',path)
     if match:
         eid=int(match.group(1));sub=match.group(2)
         part=_member(con,handler,eid)
@@ -258,11 +361,13 @@ def handle(handler, method, path, con):
             detail=dict(event)
             if detail['status']!='open':
                 detail.pop('invite_key',None)
-            assignment=handler.assignment_view(con,eid,part['id']) if event['status']=='drawn' else None
+            assignment=handler.assignment_view(con,eid,part['id']) if event['status'] in ('drawn','finished') else None
             return 200,{'event':detail,'participant':dict(part),'participants':participants,
                         'wishes':handler.game_wishes(con,part['id']),
                         'preferences':handler.participant_preferences(con,part['id']),
                         'assignment':assignment,'rich_enabled':handler.santa_schema_ready(con)},None
+        if sub=='memory' and method=='GET':
+            return handler.santa_memory(con,eid,'GET')
         if sub=='roster' and method=='GET':
             e=con.execute('SELECT status FROM santa_events WHERE id=?',(eid,)).fetchone()
             return 200,{'status':e['status'],'participants':handler.santa_roster(con,eid)},None

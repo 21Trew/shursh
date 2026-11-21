@@ -91,3 +91,35 @@ def verified_user(access_token):
     if not isinstance(user, dict) or not user.get('email_confirmed_at') or not user.get('email'):
         raise ApiError(401, 'Адрес электронной почты ещё не подтверждён')
     return user
+
+def update_verified_account(user_id,email,current_password,change):
+    """Supabase Auth owns password/email. A valid Shursh cookie is necessary,
+    but never sufficient to alter credentials: verify current password first.
+    The upstream access token is short-lived and never returned to the browser.
+    """
+    reauth=auth_request('login',email=email,password=current_password)
+    identity=reauth.get('user') or {}
+    access=reauth.get('access_token')
+    if not isinstance(access,str) or str(identity.get('id'))!=str(user_id):
+        raise ApiError(401,'Текущий пароль неверный')
+    assert_staging_target(require_database=False)
+    base=os.environ.get('SUPABASE_URL','').rstrip('/')
+    key=os.environ.get('SUPABASE_PUBLISHABLE_KEY','')
+    req=Request(f'{base}/auth/v1/user',method='PUT',
+                data=json.dumps(change).encode(),
+                headers={'apikey':key,'Authorization':f'Bearer {access}',
+                         'Content-Type':'application/json'})
+    try:
+        with urlopen(req,timeout=10) as response:
+            updated=json.load(response)
+    except HTTPError as error:
+        if error.code==429:
+            raise ApiError(429,'Слишком много попыток, попробуй позже') from None
+        if error.code in (400,401,403,422):
+            raise ApiError(400,'Не получилось изменить данные. Проверь пароль и новый адрес') from None
+        raise ApiError(503,'Изменить данные сейчас не удалось') from None
+    except (URLError,TimeoutError,ValueError):
+        raise ApiError(503,'Изменить данные сейчас не удалось') from None
+    if not isinstance(updated,dict) or str(updated.get('id'))!=str(user_id):
+        raise ApiError(503,'Не удалось подтвердить изменение в системе входа')
+    return True

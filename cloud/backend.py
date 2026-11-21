@@ -55,14 +55,20 @@ class CloudRequest(Handler):
             self._user_loaded = True
             raw = self.request.cookies.get('shursh_sid', '')
             if re.fullmatch(r'[A-Za-z0-9_-]{43}', raw):
-                self._user = con.execute('''SELECT p.id,p.name,s.email FROM app_sessions s
-                    JOIN profiles p ON p.id=s.user_id WHERE s.token_hash=? AND s.expires_at>?''',
+                self._user = con.execute('''SELECT p.id,p.name,p.avatar_emoji,p.handle,s.email,(a.user_id IS NOT NULL) AS admin_granted FROM app_sessions s
+                    JOIN profiles p ON p.id=s.user_id LEFT JOIN site_admins a ON a.user_id=p.id WHERE s.token_hash=? AND s.expires_at>?''',
                     (token_hash(raw), int(time.time()))).fetchone()
                 if self._user:
                     self._user=dict(self._user)
                     admins={a.strip().casefold() for a in os.getenv('SHURSH_ADMIN_EMAILS','').split(',') if a.strip()}
-                    self._user['is_admin']=bool(admins and self._user['email'].casefold() in admins)
+                    self._user['is_admin']=bool(self._user.pop('admin_granted',False) or (admins and self._user['email'].casefold() in admins))
         return self._user
+
+    def is_site_admin(self,con):
+        user=self.auth(con)
+        if not user.get('is_admin'):
+            raise ApiError(403,'Недостаточно прав')
+        return user
 
     def throttled(self, action, limit=25, window=60):
         # Vercel sets this header itself; outside Vercel trust only the peer.
@@ -172,10 +178,16 @@ class CloudRequest(Handler):
             con.execute('DELETE FROM app_sessions WHERE token_hash=?',(token_hash(previous),))
         con.execute('INSERT INTO app_sessions(token_hash,user_id,email,expires_at) VALUES(?,?,?,?)',
                     (token_hash(value),uid,verified_email,now+SESSION_SECONDS))
-        rec = con.execute('SELECT id,name FROM profiles WHERE id=?',(uid,)).fetchone()
+        rec = con.execute('''SELECT p.id,p.name,p.avatar_emoji,p.handle,
+                        (a.user_id IS NOT NULL) AS admin_granted
+                        FROM profiles p LEFT JOIN site_admins a ON a.user_id=p.id
+                        WHERE p.id=?''',(uid,)).fetchone()
         admins={a.strip().casefold() for a in os.getenv('SHURSH_ADMIN_EMAILS','').split(',') if a.strip()}
-        return 200, {'user': {**rec,'email':verified_email,
-                 'is_admin':bool(admins and verified_email.casefold() in admins)}}, self.send_cookie(value)
+        granted=dict(rec)
+        is_admin=bool(granted.pop('admin_granted',False) or
+                      (admins and verified_email.casefold() in admins))
+        return 200, {'user': {**granted,'email':verified_email,
+                 'is_admin':is_admin}}, self.send_cookie(value)
 
     def handle_api(self, method, path, con):
         if method == 'GET' and path == '/api/me':
@@ -187,8 +199,9 @@ class CloudRequest(Handler):
             if user is None:
                 return 200, {'user': None, 'demo': False, 'lists': [], 'events': []}, None
             lists = super().handle_api('GET', '/api/lists', con)[1]['lists']
-            events = social.handle(self, 'GET', '/api/santas', con)[1]['events']
-            return 200, {'user': user, 'demo': False, 'lists': lists, 'events': events}, None
+            santa = social.handle(self, 'GET', '/api/santas', con)[1]
+            return 200, {'user': user, 'demo': False, 'lists': lists,
+                         'events': santa['events'], 'invitations': santa['invitations']}, None
         if method == 'POST' and path == '/api/logout':
             raw = self.request.cookies.get('shursh_sid','')
             if re.fullmatch(r'[A-Za-z0-9_-]{43}',raw):

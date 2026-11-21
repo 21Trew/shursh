@@ -1,0 +1,538 @@
+/* Shursh UX follow-up. Isolated additions preserve the reviewed UI-kit cascade. */
+.site-header{position:sticky;top:0;z-index:30;background:var(--paper);transition:box-shadow .2s ease}
+.site-header.is-condensed{box-shadow:0 7px 24px rgba(39,39,43,.08)}
+.site-header.is-condensed .topbar{height:62px;min-height:62px;padding-block:4px;align-items:center;flex-wrap:nowrap}
+.site-header.is-condensed .nav{display:none}
+.site-header.is-condensed .topbar::before,.site-header.is-condensed .topbar::after{content:none!important}
+.site-header.is-condensed .topbar .logo{font-size:24px}
+.site-header.is-condensed .header-actions{margin-left:auto}
+.site-header.is-condensed .user-name{display:none}
+.header-avatar{width:44px;height:44px;min-width:44px;display:grid;place-items:center;border:1px solid var(--border);border-radius:15px;background:#f3eae0;color:var(--ink);font-size:23px;line-height:1;transition:background .18s ease,transform .18s ease}
+.header-avatar:hover{background:var(--lilac);transform:translateY(-1px)}
+.header-avatar:focus-visible{outline:var(--focus-width) solid var(--focus-color);outline-offset:3px}
+.modal>.modal-fixed-header{flex:0 0 auto;min-width:0;padding:25px 68px 17px 32px;background:#fffefa;border-bottom:1px solid #ede5d8}
+.modal>.modal-fixed-header h2{margin:0;font-size:clamp(22px,3vw,32px);line-height:1.2;overflow-wrap:anywhere}
+.modal>.modal-scroll-area{flex:1 1 auto;min-height:0;overflow-y:auto;overscroll-behavior:contain;padding:22px 32px 26px}
+.modal>.modal-scroll-area>.modal-subtitle{margin:0 0 17px}
+.modal>.modal-fixed-footer{flex:0 0 auto;background:#fffefa;border-top:1px solid #ede5d8;padding:14px 32px max(14px,env(safe-area-inset-bottom))}
+.modal>.modal-fixed-footer .form-actions{position:static;display:flex;justify-content:flex-end;flex-wrap:wrap;gap:10px;margin:0;padding:0;border:0;background:transparent}
+.modal>.modal-fixed-footer .modal-foot{margin:0;padding:0;border:0}
+.modal>.modal-close{z-index:7}
+.modal .form input[type="date"]{min-height:var(--control-height);width:100%;cursor:pointer;background:#fffefa;border:1.5px solid #e6dfd6;border-radius:var(--radius-control);padding:12px 15px;color:var(--ink)}
+.modal .form input[type="date"]:hover{border-color:#bba9a1}
+.modal .form input[type="date"]::-webkit-calendar-picker-indicator{cursor:pointer;opacity:.75}
+.wishlist-view-tabs,.notification-tabs{display:flex;gap:9px;flex-wrap:wrap;align-items:center}
+.wishlist-view-tabs{margin-bottom:25px}
+.wishlist-view-tabs button,.notification-tabs button{border:1px solid var(--border);border-radius:100px;background:#fffefa;color:var(--ink);padding:11px 16px;min-height:44px;font-weight:750;position:relative;transition:background .18s ease,transform .18s ease,border-color .18s ease}
+.wishlist-view-tabs button:hover,.notification-tabs button:hover{background:#faf0d5;transform:translateY(-1px)}
+.wishlist-view-tabs button.active,.notification-tabs button.active{background:var(--yellow);border-color:#e4cf8c}
+.wishlist-filters{display:flex;flex-wrap:wrap;gap:8px;margin:0 0 19px}
+.filter-chip{border:1px solid var(--border);border-radius:100px;background:#fffefa;padding:9px 14px;min-height:44px;font-size:13px;font-weight:750;transition:background .18s ease}
+.filter-chip:hover{background:#f7f0df}
+.filter-chip.active{background:var(--mint);border-color:#a8c8b7}
+.friend-wishlist-grid .list-info .section-label{font-size:11px}
+.friend-wishlist-grid .list-info h3{margin-top:8px}
+.priority-nice{background:#f1ecdf;color:#65594f}
+.santa-create-cta{border-color:#edb7a2;background:#f9c6ac}
+.santa-create-cta:hover{background:#f6d5c4;border-color:#e9ad91}
+.santa-pending h2{font-family:var(--heading);font-size:19px;letter-spacing:-.04em}
+.santa-pending-row{display:flex;align-items:center;justify-content:space-between;gap:12px;padding:13px 0;border-top:1px solid var(--border)}
+.santa-pending-row strong{font-size:15px}
+.santa-pending-row .note{margin-top:4px}
+.santa-player-actions{display:flex;gap:7px;align-items:center;flex-wrap:wrap}
+.santa-player-actions .btn{font-size:12px;padding:9px 11px;min-height:44px;margin:0!important}
+.social-page .panel:not(.social-search):has(> .social-person){display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:8px}
+.social-page .panel:not(.social-search):has(> .social-person)>h2{grid-column:1/-1}
+.social-page .panel:not(.social-search)>.social-person{padding:10px 12px;border:1px solid var(--border);border-radius:15px;background:#fffefa;gap:8px}
+.social-person-link{flex:1;min-width:0}
+.social-person-name{font-size:13px;line-height:1.4}
+.social-person-name small{font-size:11px}
+.social-person .btn{min-height:44px;padding:10px 12px;font-size:12px}
+.notification-dialog{min-width:0}
+.notification-dialog-toolbar{display:flex;flex-wrap:wrap;gap:12px;justify-content:space-between;align-items:center;margin-bottom:14px}
+.notification-tabs button{font-size:12px;padding-inline:12px}
+.notification-read-all{white-space:nowrap}
+#notification-modal-list{display:grid;gap:3px;min-height:60px}
+#notification-modal-list .notification-item{padding:12px 6px}
+#notification-modal-list .notification-item.unread{margin-inline:0;padding:12px}
+#notification-modal-list .notification-open{min-height:44px}
+#page-view>main{animation:shursh-page-in .22s ease-out both}
+@keyframes shursh-page-in{from{opacity:.92;transform:translateY(4px)}to{opacity:1;transform:none}}
+@media(max-width:760px){
+ .site-header.is-condensed .topbar{padding-top:4px;padding-bottom:4px;min-height:62px}
+ .site-header.is-condensed .nav{display:none}
+ .site-header .header-actions{gap:6px}
+ .site-header .header-avatar{width:44px;height:44px;min-width:44px;border-radius:13px}
+ .site-header.is-condensed .header-actions .btn-ghost{font-size:0;gap:0;padding:9px;min-width:44px}
+ .site-header.is-condensed .header-actions .btn-ghost svg{width:20px;height:20px}
+ .modal>.modal-fixed-header{padding:18px 58px 14px 20px}
+ .modal>.modal-scroll-area{padding:17px 20px 22px}
+ .modal>.modal-fixed-footer{padding:12px 20px max(12px,env(safe-area-inset-bottom))}
+ .modal>.modal-fixed-footer .form-actions{display:grid;grid-template-columns:1fr 1fr}
+ .modal>.modal-fixed-footer .form-actions .btn{min-width:0;padding-inline:10px;white-space:normal}
+ .social-page .panel:not(.social-search):has(> .social-person){grid-template-columns:1fr}
+ .notification-dialog-toolbar{align-items:flex-start}
+ .notification-tabs{width:100%;gap:6px}
+ .notification-tabs button{flex:1 1 auto}
+ .santa-pending-row{flex-wrap:wrap}
+ .santa-pending-row .btn{min-height:44px}
+}
+@media(prefers-reduced-motion:reduce){
+ .site-header,.header-avatar,.wishlist-view-tabs button,.notification-tabs button,.filter-chip,#page-view>main{animation:none!important;transition:none!important}
+}
+
+
+/* 21 Nov follow-up: unified marker navigation, overlays and compact gifts. */
+.site-header .nav a::before{transition:opacity .14s ease,transform .25s ease}
+.site-header .nav a:not(.active):hover::before,.site-header .nav a:not(.active):focus-visible::before{
+ opacity:.48;transform:translateY(-50%) rotate(-1deg) scaleX(1)
+}
+.site-header .nav a.active::before{animation:shursh-marker-stroke .35s cubic-bezier(.2,.7,.17,1) both}
+@keyframes shursh-marker-stroke{
+ 0%{clip-path:polygon(0 0,0 0,0 0,0 0);opacity:.35;transform:translateY(-50%) rotate(-1deg) scaleX(.85)}
+ 48%{clip-path:polygon(0 0,100% 0,28% 100%,0 100%)}
+ 100%{clip-path:polygon(0 0,100% 0,100% 100%,0 100%);opacity:.98;transform:translateY(-50%) rotate(-1deg) scaleX(1)}
+}
+.wishlist-view-tabs button,.notification-tabs button,.filter-chip,.game-chat-tabs button{
+ isolation:isolate;position:relative;transition:color .18s ease,transform .18s ease,border-color .18s ease;
+}
+.wishlist-view-tabs button::before,.notification-tabs button::before,.filter-chip::before,.game-chat-tabs button::before{
+ content:'';position:absolute;inset:2px;border-radius:inherit;background:#f5cf83;z-index:-1;opacity:0;
+ transform:scaleX(.84);transform-origin:left center;pointer-events:none;
+ transition:opacity .16s ease,transform .24s ease;
+}
+.wishlist-view-tabs button.active,.notification-tabs button.active,.filter-chip.active,.game-chat-tabs button[aria-pressed="true"]{
+ background:transparent!important;color:#29272b;border-color:#e5d3b5;
+}
+.wishlist-view-tabs button.active::before,.notification-tabs button.active::before,.filter-chip.active::before,.game-chat-tabs button[aria-pressed="true"]::before{
+ opacity:.97;transform:scaleX(1);animation:shursh-tab-paint .34s cubic-bezier(.2,.7,.17,1) both;
+}
+@keyframes shursh-tab-paint{
+ 0%{clip-path:polygon(0 0,0 0,0 0,0 0);opacity:.3}
+ 50%{clip-path:polygon(0 0,100% 0,30% 100%,0 100%)}
+ 100%{clip-path:polygon(0 0,100% 0,100% 100%,0 100%);opacity:.97}
+}
+.wishlist-view-tabs button:not(.active):hover::before,.notification-tabs button:not(.active):hover::before,.filter-chip:not(.active):hover::before,
+.game-chat-tabs button[aria-pressed="false"]:hover::before{
+ opacity:.42;transform:scaleX(1)
+}
+.wishlist-view-tabs button:hover,.notification-tabs button:hover,.filter-chip:hover{background:transparent;transform:translateY(-1px)}
+.wishlist-filters{margin-top:8px}
+.friend-stack-grid{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:20px;align-items:start}
+.friend-wishlist-stack{background:#fffefa;border:1px solid #e9e0d3;border-radius:24px;padding:16px;min-width:0;box-shadow:0 5px 18px rgba(55,40,30,.035)}
+.friend-stack-heading{display:flex;gap:12px;align-items:center;padding:3px 3px 15px;margin-bottom:14px;border-bottom:1px solid #efe8dc}
+.friend-stack-heading>div{display:flex;flex-direction:column;gap:2px;min-width:0;flex:1}
+.friend-stack-heading strong{font-size:15px;overflow-wrap:anywhere}
+.friend-stack-heading span:not(.friend-stack-avatar){font-size:12px;color:#6a6159}
+.friend-stack-avatar{display:grid;place-items:center;flex:0 0 45px;width:45px;height:45px;border-radius:14px;background:#f5e7dc;font-size:24px}
+.friend-stack-heading .text-link{font-size:12px}
+.friend-stack-cards{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:10px}
+.friend-stack-list{min-width:0}
+.friend-stack-list .list-cover{height:105px}
+.friend-stack-list .list-cover svg{max-height:88px;max-width:105px}
+.friend-stack-list .list-info{padding:12px}
+.friend-stack-list .list-info h3{font-size:14px;min-height:0}
+.friend-stack-list .list-info p{min-height:0}
+.friend-stack-list .list-bottom{gap:8px;align-items:flex-start}
+.friend-stack-list .list-bottom .text-link{font-size:11px;white-space:nowrap}
+.shared-santa-grid{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:12px}
+.shared-santa-card{display:flex;gap:12px;align-items:center;padding:16px;background:#f8ebdd;border:1px solid #e8d7c8;border-radius:20px}
+.shared-santa-gift{display:grid;place-items:center;border-radius:13px;background:#fff9ee;width:43px;height:43px;flex:0 0 43px}
+.shared-santa-card>div{flex:1;min-width:0}
+.shared-santa-card h3{font-family:var(--heading);font-size:16px;line-height:1.3;margin:0;overflow-wrap:anywhere}
+.shared-santa-card p{margin:5px 0 0;font-size:12px;color:#6d5d56}
+.santa-game-status{display:flex;align-items:center;gap:10px;flex-wrap:wrap}
+.scroll-to-top{position:fixed;right:max(22px,env(safe-area-inset-right));bottom:max(25px,env(safe-area-inset-bottom));z-index:35;
+ border:1px solid rgba(255,255,255,.66);background:rgba(250,248,239,.45);color:#343038;
+ -webkit-backdrop-filter:blur(14px) saturate(1.3);backdrop-filter:blur(14px) saturate(1.3);
+ box-shadow:0 5px 17px rgba(36,29,25,.09),inset 0 1px rgba(255,255,255,.62);
+ border-radius:18px;display:grid;place-items:center;width:48px;height:48px;opacity:0;pointer-events:none;
+ transform:translateY(10px);transition:opacity .2s ease,transform .2s ease,background .2s ease}
+.scroll-to-top svg{transform:rotate(90deg)}
+.scroll-to-top.is-visible{opacity:.75;pointer-events:auto;transform:translateY(0)}
+.scroll-to-top.is-visible:hover,.scroll-to-top.is-visible:focus-visible{opacity:1;background:rgba(255,253,248,.95);transform:translateY(-3px)}
+/* Priority chips must remain legible on every illustration color. */
+.wish-image .wish-priority,.wish-image .chip{background:rgba(255,237,217,.97);color:#603924;border:1px solid rgba(103,64,44,.2);box-shadow:0 2px 8px rgba(28,24,24,.09);font-weight:800}
+.wish-image .priority-nice{background:rgba(249,245,233,.98);color:#443c34}
+.modal-backdrop{z-index:1000;box-sizing:border-box;inset:0;padding:clamp(14px,3vw,28px);display:flex;align-items:center;justify-content:center;overflow:hidden}
+.modal-backdrop .modal{margin:auto;max-height:calc(100dvh - 2 * clamp(14px,3vw,28px));min-height:0;flex:0 1 auto;overflow:hidden}
+.modal-backdrop .modal .modal-scroll-area{min-height:0;overflow-y:auto;overscroll-behavior:contain}
+.modal-backdrop .modal .modal-fixed-header{flex-shrink:0}
+.modal-backdrop .modal .modal-fixed-footer{flex-shrink:0}
+.modal-backdrop .gift-details-modal{width:min(780px,100%)}
+.gift-dialog-layout{display:grid;grid-template-columns:minmax(0,43%) minmax(0,57%);gap:24px;align-items:stretch}
+.gift-dialog-media{display:grid;place-items:center;min-height:235px;max-height:440px;overflow:hidden;background:#f6ede4;border-radius:20px;padding:12px}
+.gift-dialog-image{width:100%;height:100%;max-height:415px;object-fit:contain;border-radius:14px}
+.gift-dialog-fallback{display:grid;place-items:center}
+.gift-dialog-fallback svg{max-width:100%;max-height:210px}
+.gift-dialog-copy{display:flex;flex-direction:column;align-items:flex-start;gap:18px;padding:9px 2px}
+.gift-dialog-price{font-size:24px;font-weight:850;color:#29272b}
+.gift-dialog-description{width:100%}
+.gift-dialog-description strong{font-size:12px;color:#5a4c45}
+.gift-dialog-description p{font-size:14px;color:#504c49;line-height:1.65;overflow-wrap:anywhere;margin:8px 0 0}
+.gift-dialog-copy>.btn{margin-top:auto}
+.gift-dialog-footer{display:flex;width:100%;align-items:center;justify-content:space-between;gap:16px}
+.gift-dialog-footer .btn{min-height:44px}
+.game-gift-card{position:relative}
+.game-gift-card .wish-content{gap:7px}
+.game-gift-card .wish-desc{margin:2px 0;min-height:0}
+.game-gift-inline-price{font-size:12px;font-weight:850;margin-top:auto;color:#29272b}
+.game-gift-store-hint{display:flex;align-items:center;gap:4px;color:#504a4b;font-size:10px;line-height:1.3}
+.game-gift-overlay-actions{position:absolute;right:6px;top:6px;display:flex;gap:5px;z-index:5;opacity:0;transform:translateY(-3px);pointer-events:none;transition:opacity .15s ease,transform .15s ease}
+.game-gift-card:hover .game-gift-overlay-actions,.game-gift-card:focus-within .game-gift-overlay-actions{opacity:1;transform:none;pointer-events:auto}
+.game-gift-overlay-actions .btn{width:37px;height:37px;min-height:37px;display:grid;place-items:center;padding:8px;background:#fffdf8;border:1px solid #e0d7c8;box-shadow:0 2px 9px rgba(33,25,22,.12)}
+.game-gift-overlay-actions .btn svg{width:17px;height:17px}
+@media(hover:none){.game-gift-overlay-actions{opacity:1;transform:none;pointer-events:auto}}
+@media(max-width:760px){
+ .friend-stack-grid,.shared-santa-grid{grid-template-columns:1fr}
+ .friend-stack-cards{grid-template-columns:repeat(2,minmax(0,1fr))}
+ .modal-backdrop{padding:max(12px,env(safe-area-inset-top)) 12px max(12px,env(safe-area-inset-bottom))!important;
+  align-items:center!important;justify-content:center!important;overflow:hidden!important}
+ .modal-backdrop .modal,.modal-backdrop .wish-edit-modal{width:min(540px,100%)!important;height:auto!important;
+  max-width:100%!important;max-height:calc(100dvh - 24px - env(safe-area-inset-top) - env(safe-area-inset-bottom))!important;
+  border-radius:24px!important;border:1px solid #e7dece!important;margin:auto!important;padding-bottom:0!important;
+  box-shadow:0 16px 60px rgba(25,22,27,.24)!important;display:flex!important;flex-direction:column!important}
+ .modal-backdrop .wish-edit-modal .modal-scroll-area{flex:1 1 auto;min-height:0}
+ .gift-dialog-layout{grid-template-columns:1fr;gap:14px}
+ .gift-dialog-media{min-height:150px;max-height:220px}
+ .gift-dialog-image{max-height:195px}
+ .gift-dialog-copy{gap:9px}
+ .gift-dialog-price{font-size:20px}
+ .gift-dialog-footer{gap:8px}
+ .gift-dialog-footer .btn{min-width:0}
+ .scroll-to-top{right:15px;bottom:20px}
+}
+@media(max-width:390px){
+ .friend-stack-cards{grid-template-columns:1fr 1fr}
+ .friend-stack-heading .text-link{font-size:0}
+ .friend-stack-heading .text-link svg{width:19px;height:19px}
+}
+@media(prefers-reduced-motion:reduce){
+ .site-header .nav a.active::before,.wishlist-view-tabs button.active::before,
+ .notification-tabs button.active::before,.filter-chip.active::before,
+ .game-chat-tabs button[aria-pressed="true"]::before{animation:none!important;clip-path:none!important}
+ .scroll-to-top,.game-gift-overlay-actions{transition:none!important}
+}
+
+/* Form errors remain readable above a focused modal without dismissing it. */
+.toast{z-index:1100}
+
+/* One private memory photo per completed game */
+.santa-memory-panel{margin-top:22px}
+.santa-memory-panel .panel-heading-actions{align-items:center;gap:16px}
+.santa-memory-panel .panel-heading-actions h2{margin:0 0 8px}
+.santa-memory-upload{position:relative;overflow:hidden;cursor:pointer;white-space:nowrap}
+.santa-memory-upload input[type="file"]{position:absolute;width:1px;height:1px;opacity:0;pointer-events:none}
+.santa-memory-upload:focus-within{outline:3px solid #a58bd8;outline-offset:3px}
+.santa-memory-photo{width:100%;max-height:580px;object-fit:contain;border-radius:21px;background:#f5ede3;display:block}
+.santa-memory-empty{display:grid;justify-items:center;gap:8px;padding:42px 16px;border:1px dashed #d6c6b4;border-radius:20px;background:#fbf6ee;color:#625b57;text-align:center}
+.santa-memory-empty p{max-width:350px;margin:0}
+@media(max-width:760px){.santa-memory-panel .panel-heading-actions{align-items:stretch;flex-direction:column}.santa-memory-upload{align-self:flex-start}.santa-memory-photo{max-height:390px}}
+
+
+/* UX release: fixed header does not reflow the document when condensed. */
+#app{padding-top:90px}
+.site-header{position:fixed!important;top:0;left:0;right:0;width:100%;z-index:30;
+ background:var(--paper);height:90px;contain:layout style;transition:height .16s ease,box-shadow .18s ease}
+.site-header.is-condensed{height:62px}
+.site-header.is-condensed .topbar{height:62px}
+@media(max-width:760px){
+ #app{padding-top:70px}
+ #app:has(.site-header .nav){padding-top:139px}
+ .site-header{height:auto;min-height:69px}
+ .site-header.is-condensed{height:62px;min-height:62px}
+ .site-header.is-condensed .topbar{height:62px!important;min-height:62px!important}
+}
+
+/* All tabs use the identical brush-stroke geometry as header navigation.
+   Borders, pill shadows and opaque button fills have deliberately been removed. */
+.wishlist-view-tabs,.wishlist-filters,.notification-tabs,.game-chat-tabs,.santa-state-tabs{
+ display:flex;align-items:center;flex-wrap:wrap;gap:10px
+}
+.santa-state-tabs{margin:8px 0 22px}
+.wishlist-view-tabs button,.notification-tabs button,.wishlist-filters .filter-chip,
+.game-chat-tabs button,.santa-state-tabs button{
+ position:relative;z-index:0;isolation:isolate;flex:0 0 auto;
+ display:inline-flex;align-items:center;justify-content:center;gap:7px;
+ min-height:44px;padding:10px 12px;margin:0;border:0!important;border-radius:7px;
+ background:transparent!important;color:var(--ink)!important;
+ font-family:var(--body);font-size:14px;font-weight:750;line-height:1.25;
+ box-shadow:none!important;outline-offset:5px;
+ transition:color .18s ease,opacity .18s ease!important
+}
+.wishlist-view-tabs button::before,.notification-tabs button::before,
+.wishlist-filters .filter-chip::before,.game-chat-tabs button::before,
+.santa-state-tabs button::before{
+ content:'';position:absolute;z-index:-1;left:-3px;right:-3px;top:49%;
+ width:auto;height:63%;inset-inline:-3px;
+ background:#f5cf83;opacity:0;transform:translateY(-50%) rotate(-1deg) scaleX(0);
+ transform-origin:0 50%;border-radius:46% 19% 32% 27% / 33% 48% 27% 52%;
+ clip-path:polygon(0 7%,97% 0,100% 78%,90% 100%,3% 93%);
+ transition:transform .3s cubic-bezier(.18,.74,.24,1),opacity .16s ease
+}
+.wishlist-view-tabs button.active::before,.notification-tabs button.active::before,
+.wishlist-filters .filter-chip.active::before,.game-chat-tabs button[aria-pressed="true"]::before,
+.santa-state-tabs button.active::before{
+ opacity:.98;transform:translateY(-50%) rotate(-1deg) scaleX(1);
+ animation:shursh-marker-stroke .35s cubic-bezier(.2,.7,.17,1) both
+}
+.wishlist-view-tabs button:not(.active):hover::before,.notification-tabs button:not(.active):hover::before,
+.wishlist-filters .filter-chip:not(.active):hover::before,.game-chat-tabs button[aria-pressed="false"]:hover::before,
+.santa-state-tabs button:not(.active):hover::before{
+ opacity:.45;transform:translateY(-50%) rotate(-1deg) scaleX(1)
+}
+.wishlist-view-tabs button:hover,.notification-tabs button:hover,.wishlist-filters .filter-chip:hover,
+.game-chat-tabs button:hover,.santa-state-tabs button:hover{
+ transform:none!important;background:transparent!important;box-shadow:none!important
+}
+.wishlist-view-tabs button.active,.notification-tabs button.active,.wishlist-filters .filter-chip.active,
+.game-chat-tabs button[aria-pressed="true"],.santa-state-tabs button.active{border:0!important}
+.santa-state-tabs .tab-count{font-size:11px;font-weight:800;color:#655c57}
+.santa-state-empty{text-align:center;padding:46px 18px;border-radius:24px;border:1px dashed #ded4c7;background:#fcf8ef}
+.santa-state-empty h3{font-family:var(--heading);font-size:19px;line-height:1.5}
+.santa-state-empty p{color:var(--muted);margin-top:8px;font-size:14px}
+[data-santa-card-state][hidden],.santa-state-empty[hidden]{display:none!important}
+
+/* Deterministic pastel palette, independent of list order and filtering. */
+.dashboard-santa-card.santa-tone-apricot,.santa-list-card.santa-tone-apricot{
+ background:#f8e7dc;border-color:#edcdbb
+}
+.dashboard-santa-card.santa-tone-lilac,.santa-list-card.santa-tone-lilac{
+ background:#eee7f5;border-color:#dcd0ea
+}
+.dashboard-santa-card.santa-tone-mint,.santa-list-card.santa-tone-mint{
+ background:#e6f2e9;border-color:#c9ddce
+}
+.dashboard-santa-card.santa-tone-butter,.santa-list-card.santa-tone-butter{
+ background:#f8efd6;border-color:#e6d8af
+}
+.dashboard-santa-card.santa-tone-apricot .dashboard-santa-symbol{color:#aa7056}
+.dashboard-santa-card.santa-tone-lilac .dashboard-santa-symbol{color:#8570a4}
+.dashboard-santa-card.santa-tone-mint .dashboard-santa-symbol{color:#568b72}
+.dashboard-santa-card.santa-tone-butter .dashboard-santa-symbol{color:#9a833f}
+.shared-santa-grid{grid-template-columns:repeat(2,minmax(0,1fr));gap:16px}
+.shared-santa-grid .dashboard-santa-card{min-width:0;min-height:235px}
+.shared-santa-grid .dashboard-santa-card .text-link,
+.dashboard-santa-card .dashboard-card-footer .text-link{
+ color:#29272b;font-weight:800;position:relative;z-index:2
+}
+.shared-santa-grid .dashboard-card-footer{border-top-color:rgba(55,42,49,.16)}
+.shared-santa-grid .dashboard-card-footer span{color:#474044}
+.shared-santa-grid .dashboard-santa-card .section-label{color:#514b51}
+.shared-santa-grid .dashboard-santa-card .text-link:hover{text-decoration:underline}
+
+/* Desktop notifications belong directly under the bell rather than in a centered modal. */
+@media(min-width:761px){
+ .modal-backdrop.notification-popover{
+  align-items:flex-start!important;justify-content:flex-end!important;overflow:hidden;
+  padding:var(--notification-top,76px) var(--notification-right,22px) 14px 12px!important;
+  background:rgba(39,39,43,.16)
+ }
+ .modal-backdrop.notification-popover .modal{
+  position:fixed!important;top:var(--notification-top,76px)!important;right:var(--notification-right,22px)!important;
+  margin:0!important;flex:0 1 auto;max-height:calc(100dvh - var(--notification-top,76px) - 14px)!important;
+  width:min(510px,calc(100vw - 24px))!important;max-width:510px!important;
+  border-radius:22px;box-shadow:0 22px 58px rgba(41,34,40,.21)
+ }
+ .modal-backdrop.notification-popover .modal-fixed-header{padding-block:20px 13px}
+ .modal-backdrop.notification-popover .modal-scroll-area{padding-block:16px 18px}
+}
+@media(max-width:760px){
+ .modal-backdrop.notification-popover .modal{position:relative!important;top:auto!important;right:auto!important;margin:auto!important}
+ .notification-tabs{gap:2px;justify-content:flex-start}
+ .notification-tabs button{padding:10px 7px;font-size:12px}
+ .shared-santa-grid{grid-template-columns:1fr}
+ .santa-state-tabs{gap:7px}
+ .santa-state-tabs button{padding-inline:10px}
+}
+@media(prefers-reduced-motion:reduce){
+ .wishlist-view-tabs button.active::before,.notification-tabs button.active::before,
+ .wishlist-filters .filter-chip.active::before,.game-chat-tabs button[aria-pressed="true"]::before,
+ .santa-state-tabs button.active::before{animation:none!important;clip-path:none!important}
+ .site-header{transition:none!important}
+}
+
+/* Shared UX consistency: warm focus, stable geometry, steady motion */
+:root{--focus-color:#a66d43;--focus-width:2px;--focus-offset:2px}
+:is(input,textarea,select,.ui-select-trigger,.ui-calendar-trigger):focus-visible{
+ outline:2px solid #b8794f!important;outline-offset:0!important;
+ box-shadow:0 0 0 3px rgba(205,146,98,.19)!important
+}
+:is(input,textarea,select,.ui-select-trigger):focus:not(:focus-visible){outline:none!important}
+.field :is(input,textarea,select):focus-visible{border-color:#b8794f!important}
+.btn,.input,.ui-select-trigger,.emoji-choice{box-sizing:border-box}
+.btn:focus-visible,.header-bell:focus-visible,.header-avatar:focus-visible{outline-color:#a66d43!important}
+.site-header,.site-header .topbar,.site-header .topbar .logo,.site-header .nav{
+ transition:height .28s cubic-bezier(.2,.7,.2,1),min-height .28s cubic-bezier(.2,.7,.2,1),
+ padding .28s cubic-bezier(.2,.7,.2,1),font-size .28s ease,opacity .2s ease,
+ box-shadow .24s ease
+}
+.site-header.is-condensed .nav{display:flex;position:absolute;opacity:0;visibility:hidden;pointer-events:none}
+.header-bell{opacity:.48;transition:opacity .2s ease,color .2s ease,background .2s ease!important}
+.header-bell:hover,.header-bell:focus-visible,.header-bell.active,
+.header-bell:has(.nav-unread:not([hidden])){opacity:1}
+.header-bell:hover{background:#f3e3ca!important;color:#875637!important}
+.dashboard-welcome .btn-row .btn{min-height:49px;font-size:14px;font-weight:800;padding-inline:22px}
+.santa-create-cta{background:var(--ink)!important;border-color:var(--ink)!important;color:white!important}
+.santa-create-cta:hover{background:#45434a!important}
+.santa-draw-hint{display:flex!important;align-items:center;gap:12px;line-height:1.5}
+.santa-draw-hint-icon{flex:0 0 22px;display:grid;place-items:center}
+.santa-draw-hint-icon svg{width:22px;height:22px}
+.person-row[data-santa-profile]{cursor:pointer;position:relative;border-radius:14px;transition:background .15s ease}
+.person-row[data-santa-profile]:hover,.person-row[data-santa-profile]:focus-visible{background:#f4e9d9}
+.person-row[data-santa-profile]:focus-visible{outline:2px solid #b8794f;outline-offset:1px}
+.person-row[data-santa-profile]::after{content:'Открыть профиль';position:absolute;right:9px;bottom:100%;background:#27272b;color:#fff;font-size:11px;font-weight:750;padding:6px 9px;border-radius:9px;opacity:0;pointer-events:none;transition:opacity .15s ease;z-index:5}
+.person-row[data-santa-profile]:hover::after,.person-row[data-santa-profile]:focus-visible::after{opacity:1}
+:is(.detail-actions,.dashboard-section-head,.panel-heading-actions,.friend-stack-heading) h2:has(.chip){
+ display:inline-flex;align-items:center;flex-wrap:wrap;gap:10px;line-height:1.25
+}
+:is(.detail-actions,.dashboard-section-head,.panel-heading-actions,.friend-stack-heading) h2 .chip{vertical-align:middle;flex:0 0 auto;letter-spacing:0}
+.santa-list-card .list-bottom{align-items:center;gap:12px}
+.santa-list-card .list-bottom>span{display:inline-flex;align-items:center;gap:6px;line-height:1.4;flex-wrap:wrap}
+.santa-list-card .list-bottom>span svg{width:18px;height:18px;flex:0 0 18px}
+.game-gift-card .wish-content{padding:11px 12px 14px!important}
+.game-gift-card .wish-content h3{margin:0;min-height:0!important;line-height:1.4}
+.game-gift-overlay-actions{top:7px;right:7px;gap:6px}
+.game-gift-overlay-actions .btn{width:34px;height:34px;min-height:34px;border:0!important;border-radius:11px;padding:7px;background:#fffdf9;box-shadow:0 2px 10px rgba(28,23,25,.12)}
+.game-gift-overlay-actions .btn svg{width:17px;height:17px}
+.game-gift-overlay-actions .btn:hover{background:#f7dbb4;transform:none}
+@media(hover:none){.game-gift-overlay-actions{opacity:1;pointer-events:auto}}
+.gift-dialog-layout{grid-template-columns:minmax(0,42%) minmax(0,1fr);gap:22px}
+.gift-dialog-media{padding:0;border:0;background:transparent;min-height:180px;max-height:350px;overflow:hidden}
+.gift-dialog-image{object-fit:contain;width:100%;height:auto;max-height:340px;display:block;border:0;border-radius:15px}
+.gift-dialog-copy{min-height:180px;gap:15px;padding:0}
+.gift-dialog-copy>.btn{margin-top:auto}
+.gift-dialog-footer{justify-content:flex-end;gap:9px}
+.gift-dialog-footer .btn{min-width:112px;justify-content:center}
+.gift-details-modal .modal-fixed-footer{min-height:68px}
+.modal-backdrop .modal{interpolate-size:allow-keywords}
+/* Viewport resizing must be immediate; content-only changes animate with WAAPI. */
+.game-chat-form{display:flex;align-items:center;gap:8px}
+.game-chat-form .input{min-height:48px;min-width:0;border-radius:18px}
+.game-chat-send{width:49px!important;min-width:49px!important;min-height:49px!important;height:49px;flex:0 0 49px;border-radius:17px;padding:0!important;display:grid;place-items:center}
+.game-chat-send svg{width:23px;height:23px}
+@media(max-width:760px){
+ .site-header{height:139px;min-height:0}
+ .site-header:not(:has(.nav)){height:70px}
+ .site-header.is-condensed{height:62px;min-height:62px}
+ .site-header .topbar{height:139px;align-content:start}
+ .site-header:not(:has(.nav)) .topbar{height:70px}
+ .site-header.is-condensed .topbar{height:62px!important;min-height:62px!important;flex-wrap:nowrap}
+ .site-header.is-condensed .nav{position:absolute;top:100%;left:0;opacity:0;visibility:hidden}
+ .gift-dialog-layout{grid-template-columns:minmax(0,1fr);gap:12px}
+ .gift-dialog-media{min-height:0;max-height:225px}
+ .gift-dialog-image{max-height:225px}
+ .gift-dialog-copy{min-height:0;gap:12px}
+ .game-chat-form{flex-direction:row!important;align-items:center;margin-top:12px}
+ .game-chat-form .input{flex:1 1 auto;min-height:49px;font-size:16px;padding-inline:15px}
+ .game-chat-form .game-chat-send{width:49px!important;flex:0 0 49px}
+}
+@media(prefers-reduced-motion:reduce){
+ .site-header,.site-header .topbar,.site-header .nav,.modal-backdrop .modal,.header-bell,.game-gift-overlay-actions{transition:none!important}
+}
+
+/* Date picker from the common UI-kit, independent of native browser calendar skin. */
+.modal .ui-calendar-native{position:absolute!important;width:1px!important;height:1px!important;opacity:0!important;pointer-events:none!important;clip-path:inset(50%);padding:0!important;border:0!important}
+.ui-calendar-trigger{width:100%;display:flex;justify-content:space-between;align-items:center;gap:10px;min-height:var(--control-height);padding:12px 15px;border:1.5px solid #e6dfd6;border-radius:var(--radius-control);background:#fffefa;color:var(--ink);text-align:left;cursor:pointer}
+.ui-calendar-trigger:hover{border-color:#bba08a;background:#fffaf3}
+.ui-calendar-trigger svg{width:19px;height:19px;flex:0 0 19px}
+.ui-calendar-popover{position:fixed;z-index:2000;width:312px;max-width:calc(100vw - 16px);border:1px solid #e5d9c9;border-radius:20px;background:#fffdf8;padding:13px;box-shadow:0 16px 40px rgba(34,27,24,.2);color:var(--ink);font-family:var(--body)}
+.ui-calendar-toolbar{display:flex;align-items:center;justify-content:space-between;gap:8px;margin-bottom:12px}
+.ui-calendar-toolbar strong{font-size:13px;font-weight:800;text-transform:capitalize}
+.ui-calendar-toolbar button{display:grid;place-items:center;width:38px;height:38px;border:0;border-radius:12px;background:transparent;font-size:26px;line-height:1}
+.ui-calendar-toolbar button:hover{background:#faebcf}
+.ui-calendar-days,.ui-calendar-grid{display:grid;grid-template-columns:repeat(7,minmax(0,1fr));gap:3px;text-align:center}
+.ui-calendar-days span{font-size:11px;font-weight:750;color:#766c68;padding:5px 0 8px}
+.ui-calendar-day{min-height:35px;min-width:0;padding:0;border:0;border-radius:11px;background:transparent;color:var(--ink);font-size:13px}
+.ui-calendar-day:hover{background:#f7dfbb}
+.ui-calendar-day[aria-selected="true"]{background:#ecc78e;font-weight:850}
+.ui-calendar-day[data-today="true"]:not([aria-selected="true"]){box-shadow:inset 0 0 0 1.5px #b87548}
+.ui-calendar-day:disabled{opacity:.3;cursor:default}
+.ui-calendar-actions{display:flex;justify-content:space-between;margin-top:10px;border-top:1px solid #eee5db;padding-top:9px}
+.ui-calendar-actions button{border:0;background:transparent;color:#875936;font-size:12px;font-weight:800;min-height:36px;padding:6px 10px;border-radius:9px}
+.ui-calendar-actions button:hover{background:#faebcf}
+@media(max-width:760px){.ui-calendar-popover{max-height:calc(100dvh - 16px);overflow:auto}}
+
+/* Keep the card hit surface above decorative SVGs, below interactive actions. */
+.game-gift-card .wish-image{isolation:auto}
+.game-gift-card>.card-hitarea{z-index:4}
+.game-gift-card .game-gift-overlay-actions{z-index:5}
+.game-gift-card .game-gift-overlay-actions .btn{z-index:6}
+/* Mobile navigation gradients must sit entirely BELOW every 44px tab. */
+@media(max-width:760px){
+ .site-header .topbar:has(.nav-scroll-more-right)::after,
+ .site-header .topbar:has(.nav-scroll-more-left)::before{bottom:-4px!important}
+ .modal-backdrop .modal,.modal-backdrop .wish-edit-modal{transition:none!important}
+}
+
+/* The decorative cover never steals the card's primary hit target.
+   Action buttons opt back in so their hover/focus controls remain usable. */
+.game-gift-card .wish-image,.game-gift-card .wish-content{pointer-events:none!important}
+.game-gift-card .game-gift-overlay-actions{pointer-events:none}
+.game-gift-card:hover .game-gift-overlay-actions,
+.game-gift-card:focus-within .game-gift-overlay-actions{pointer-events:auto}
+.game-gift-card .game-gift-overlay-actions button{pointer-events:auto}
+
+@media(hover:hover){
+ .game-gift-card:not(:hover):not(:focus-within) .game-gift-overlay-actions button{pointer-events:none}
+}
+
+/* Native, accessible gift-card button owns both the image and title.
+   Decorative children cannot intercept a click on their own parent. */
+.game-gift-card>.game-gift-primary{
+ position:relative;inset:auto;z-index:1;display:flex;flex-direction:column;
+ width:100%;min-height:100%;padding:0;margin:0;border:0;
+ border-radius:inherit;background:transparent;text-align:left;color:inherit;
+ white-space:normal;box-shadow:none;transform:none;overflow:hidden
+}
+.game-gift-card>.game-gift-primary:hover,.game-gift-card>.game-gift-primary:active{
+ box-shadow:none;transform:none;background:transparent
+}
+.game-gift-primary .wish-image,.game-gift-primary .wish-content{width:100%;flex-shrink:0}
+.game-gift-primary .wish-content{flex:1;display:flex;flex-direction:column}
+.game-gift-card .game-gift-overlay-actions{position:absolute;top:7px;right:7px;z-index:5}
+.game-gift-card .game-gift-overlay-actions .btn{position:relative;z-index:6}
+
+
+/* Auth UX: keep the guest login CTA readable in the condensed mobile header. */
+@media(max-width:760px){
+ .site-header.is-condensed .header-actions button[data-open="login"]{
+  display:inline-flex!important;
+  font-size:14px!important;
+  line-height:1.15;
+  min-height:44px;
+  min-width:80px;
+  width:auto;
+  padding:10px 14px!important;
+  gap:6px;
+  white-space:nowrap;
+ }
+ /* Existing mobile marquee takes 25 seconds. Slightly faster, no extra layers. */
+ .marquee-line .marquee-inner{animation-duration:19s}
+}
+/* Same spacing for login, registration and confirmation-resend footer actions. */
+.modal>.modal-fixed-footer .form-actions + .modal-foot{
+ margin-top:18px;
+ padding-top:0;
+ border-top:0;
+ line-height:1.6;
+}
+/* Browser autofill paints the blue fill shown in Chromium/WebKit.
+   Keep autofilled email/password and focused fields within the warm UI-kit. */
+.modal .field input:not([type="checkbox"]):focus,
+.modal .field textarea:focus{
+ background-color:#fff9e9;
+}
+.modal .field input:-webkit-autofill,
+.modal .field input:-webkit-autofill:hover,
+.modal .field input:-webkit-autofill:focus,
+.modal .field input:autofill{
+ background-color:#fff5dc!important;
+ -webkit-text-fill-color:var(--ink)!important;
+ caret-color:var(--ink);
+ box-shadow:inset 0 0 0 1000px #fff5dc!important;
+}
+.modal .field input:-webkit-autofill:focus-visible,
+.modal .field input:autofill:focus-visible{
+ box-shadow:inset 0 0 0 1000px #fff5dc,0 0 0 3px rgba(205,146,98,.19)!important;
+}

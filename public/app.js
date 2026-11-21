@@ -29,7 +29,8 @@ const ico = (name, size=20) => `<svg class="icon" width="${size}" height="${size
   mail:'<rect x="3" y="5" width="18" height="14" rx="2"/><path d="m3 7 9 7 9-7"/>',
   info:'<circle cx="12" cy="12" r="10"/><path d="M12 11v6m0-10v1"/>',
   logout:'<path d="M10 4H5a2 2 0 0 0-2 2v12a2 2 0 0 0 2 2h5M14 16l4-4-4-4m4 4H9"/>',
-  home:'<path d="m3 11 9-8 9 8v10H3V11ZM9 21v-7h6v7"/>'
+  home:'<path d="m3 11 9-8 9 8v10H3V11ZM9 21v-7h6v7"/>',
+  bell:'<path d="M18 8a6 6 0 0 0-12 0c0 7-3 7-3 9h18c0-2-3-2-3-9M10 21h4"/>'
 })[name]||''}</svg>`;
 function esc(value){return String(value??'').replace(/[&<>"']/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));}
 function attr(value){return esc(value);}
@@ -43,30 +44,38 @@ function getLink(path){return isPreview?location.href.split('#')[0]+'#'+path:loc
 /* Owner-only tabs preserve their live DOM between navigations.
    Capability/bearer URLs are deliberately excluded. */
 const ownerTabViews=new Map();
-const OWNER_VIEW_TTL=45000;
+// Kept until an explicitly relevant mutation or the authenticated session ends.
+const OWNER_VIEW_TTL=Number.POSITIVE_INFINITY;
+const OWNER_VIEW_LIMIT=6;
 let renderedOwnerTab=null;
-function ownerTab(path){return !!currentUser&&['/','/lists','/santas'].includes(path);}
+function ownerTab(path){return !!currentUser&&['/','/lists','/santas','/friends','/profile','/notifications'].includes(path);}
 function clearOwnerTabViews(paths=null){
  if(!paths){ownerTabViews.clear();return;}
  for(const path of paths)ownerTabViews.delete(path);
 }
 function rememberOwnerTab(){
- if(!ownerTab(renderedOwnerTab)||app.querySelector('.dashboard-skeleton'))return;
+ if(!ownerTab(renderedOwnerTab)||app.querySelector('.dashboard-skeleton, .route-skeleton'))return;
  const node=app.querySelector('#page-view > main');
  if(!node)return;
- node.remove();ownerTabViews.set(renderedOwnerTab,{node,expires:Date.now()+OWNER_VIEW_TTL});
+ node.remove();ownerTabViews.delete(renderedOwnerTab);ownerTabViews.set(renderedOwnerTab,{node,expires:Date.now()+OWNER_VIEW_TTL});
+ while(ownerTabViews.size>OWNER_VIEW_LIMIT)ownerTabViews.delete(ownerTabViews.keys().next().value);
 }
 function restoreOwnerTab(path){
  if(!ownerTab(path))return false;
  const saved=ownerTabViews.get(path);
- if(!saved||saved.expires<=Date.now()){ownerTabViews.delete(path);return false;}
+ if(!saved){ownerTabViews.delete(path);return false;}
  const view=app.querySelector('#page-view');if(!view)return false;
  ownerTabViews.delete(path);view.replaceChildren(saved.node);
  view.removeAttribute('aria-busy');app.classList.remove('route-loading');
  app.querySelectorAll('.site-header .nav [data-nav]').forEach(link=>{
   const href=link.dataset.nav;link.classList.toggle('active',href===path);
  });
- renderedOwnerTab=path;return true;
+ const bell=app.querySelector('.header-bell');if(bell)bell.classList.toggle('active',path==='/notifications');
+ renderedOwnerTab=path;
+ const refreshPath=ownerApiForTab(path);
+ const stale=refreshPath&&ownerDataCache.get(refreshPath);
+ if(stale&&stale.expires<=Date.now())void revalidateOwnerRead(refreshPath,stale);
+ return true;
 }
 
 function nav(path,{force=false}={}){
@@ -83,13 +92,32 @@ function nav(path,{force=false}={}){
 // Cache only authenticated owner data in RAM, never public bearer-link data.
 const ownerDataCache=new Map();
 let ownerCacheVersion=0;
-function ownerCacheTTL(path){return /^\/api\/(?:santas|lists)\/\d+/.test(path)?15000:45000;}
+function ownerCacheTTL(path){return /^\/api\/(?:santas|lists)\/\d+/.test(path)?30000:45000;}
 function cacheableOwnerRead(path){
- return !!currentUser&&(/^\/api\/(?:lists|santas|dashboard)$/.test(path)||
+ return !!currentUser&&(path==='/api/friends/wishlists'||/^\/api\/(?:lists|santas|dashboard|friends|notifications)$/.test(path)||
+  path==='/api/profile/me'||
   /^\/api\/(?:lists|santas)\/\d+$/.test(path));
 }
-function clearOwnerDataCache(){ownerCacheVersion++;ownerDataCache.clear();clearOwnerTabViews();}
+function clearOwnerDataCache(){
+ ownerCacheVersion++;ownerDataCache.clear();clearOwnerTabViews();ownerRevalidating.clear();
+ ownerWarmupIdentity=null;ownerWarmupReady=false;ownerWarmupPromise=null;
+}
 function invalidateOwnerDataForMutation(path){
+ // A social write may change one section, but must not discard unrelated views.
+ const isFriendWrite=/^\/api\/friends\//.test(path);
+ const isNotificationWrite=/^\/api\/notifications\/(?:\d+\/read|read-all)$/.test(path);
+ const isAccountWrite=path==='/api/profile/me'||/^\/api\/account\/(?:email|password)$/.test(path);
+ if(isFriendWrite||isNotificationWrite||isAccountWrite){
+  const tabs=isFriendWrite?['/friends','/notifications']:isNotificationWrite?['/notifications']:['/profile'];
+  clearOwnerTabViews(tabs);
+  for(const endpoint of isFriendWrite?['/api/friends','/api/friends/wishlists','/api/notifications']:
+    isNotificationWrite?['/api/notifications']:['/api/profile/me']){
+   ownerDataCache.delete(endpoint);
+  }
+  ownerCacheVersion++;
+  if(tabs.includes(renderedOwnerTab))renderedOwnerTab=null;
+  return;
+ }
  // Chat, profile notes and support do not affect dashboard/list snapshots.
  // Clearing all cached owner views after every message caused needless work.
  if(/^\/api\/(?:santas\/\d+|participant\/[^/]+)\/(?:messages\/|preferences$)/.test(path)
@@ -98,9 +126,10 @@ function invalidateOwnerDataForMutation(path){
  // and changing a Santa event does not change owned wishlists.
  const listMutation=/^\/api\/(?:lists|wishes)(?:\/|$)/.test(path);
  const santaMutation=/^\/api\/santas(?:\/|$)/.test(path) ||
-  /^\/api\/participant\/[^/]+\/wishes$/.test(path) ||
+  /^\/api\/participant\/[^/]+\/(?:wishes|claim)$/.test(path) ||
   /^\/api\/invites\/[^/]+\/join$/.test(path);
  if(!listMutation&&!santaMutation){clearOwnerDataCache();return;}
+ ownerCacheVersion++;
  const invalidTabs=['/'].concat(listMutation?['/lists']:[]).concat(santaMutation?['/santas']:[]);
  clearOwnerTabViews(invalidTabs);
  // The currently displayed page can be stale too: never put it back in RAM
@@ -116,19 +145,71 @@ function seedOwnerCache(path,value){
  ownerDataCache.set(path,{value,expires:Date.now()+ownerCacheTTL(path)});
  if(path==='/api/dashboard'&&value?.user){
   if(Array.isArray(value.lists))ownerDataCache.set('/api/lists',{value:{lists:value.lists},expires:Date.now()+ownerCacheTTL('/api/lists')});
-  if(Array.isArray(value.events))ownerDataCache.set('/api/santas',{value:{events:value.events},expires:Date.now()+ownerCacheTTL('/api/santas')});
+  if(Array.isArray(value.events))ownerDataCache.set('/api/santas',{value:{events:value.events,invitations:value.invitations||[]},expires:Date.now()+ownerCacheTTL('/api/santas')});
  }
 }
 function cachedOwnerValue(path){
  const entry=ownerDataCache.get(path);
- return entry&&entry.expires>Date.now()&&Object.hasOwn(entry,'value')?entry.value:null;
+ return entry&&Object.hasOwn(entry,'value')?entry.value:null;
+}
+function ownerApiForTab(path){
+ return ({'/':'/api/dashboard','/lists':'/api/lists','/santas':'/api/santas',
+  '/friends':'/api/friends','/profile':'/api/profile/me',
+  '/notifications':'/api/notifications'})[path]||null;
+}
+const ownerRevalidating=new Map();
+function revalidateOwnerRead(path,entry){
+ if(!currentUser||isPreview||!entry||ownerDataCache.get(path)!==entry)return Promise.resolve();
+ if(ownerRevalidating.has(path))return ownerRevalidating.get(path);
+ const version=ownerCacheVersion,identity=currentUser.id;
+ const job=(async()=>{
+  try{
+   const response=await fetch(path,{credentials:'same-origin',headers:{Accept:'application/json'}});
+   if(!response.ok)return;
+   const value=await response.json();
+   if(version!==ownerCacheVersion||currentUser?.id!==identity||ownerDataCache.get(path)!==entry)return;
+   const changed=JSON.stringify(value)!==JSON.stringify(entry.value);
+   seedOwnerCache(path,value);
+   if(changed){
+    const tab=Object.keys({'/':'/api/dashboard','/lists':'/api/lists',
+     '/santas':'/api/santas','/friends':'/api/friends','/profile':'/api/profile/me',
+     '/notifications':'/api/notifications'}).find(tab=>ownerApiForTab(tab)===path);
+    if(tab){
+     clearOwnerTabViews([tab]);
+     if(renderedOwnerTab===tab)renderedOwnerTab=null;
+    }
+   }
+  }catch{
+   // A network outage must not destroy a previously rendered private page.
+  }
+ })();
+ ownerRevalidating.set(path,job);
+ void job.finally(()=>{if(ownerRevalidating.get(path)===job)ownerRevalidating.delete(path);});
+ return job;
+}
+let ownerWarmupIdentity=null,ownerWarmupReady=false,ownerWarmupPromise=null;
+function scheduleOwnerWarmup(){
+ if(isPreview||!currentUser||ownerWarmupIdentity===currentUser.id)return;
+ const identity=currentUser.id;
+ ownerWarmupIdentity=identity;ownerWarmupReady=false;
+ // Do not block the first paint. The initial dashboard already seeds lists/Santa.
+ setTimeout(()=>{
+  if(currentUser?.id!==identity)return;
+  ownerWarmupPromise=Promise.allSettled(
+   ['/api/friends','/api/profile/me','/api/notifications'].map(path=>api(path))
+  ).finally(()=>{if(currentUser?.id===identity)ownerWarmupReady=true;});
+ },0);
 }
 async function api(path,opts={}){
  if(isPreview)return window.previewApi(path,opts);
  const method=opts.method||'GET',cached=method==='GET'&&cacheableOwnerRead(path);
  if(cached){
   const entry=ownerDataCache.get(path);
-  if(entry&&entry.expires>Date.now())return entry.promise||entry.value;
+  if(entry?.promise)return entry.promise;
+  if(entry&&Object.hasOwn(entry,'value')){
+   if(entry.expires<=Date.now())void revalidateOwnerRead(path,entry);
+   return entry.value;
+  }
  }
  const version=ownerCacheVersion;
  const request=(async()=>{
@@ -151,15 +232,52 @@ async function api(path,opts={}){
 }
 function notice(message,error=false){const n=document.createElement('div');n.className='toast'+(error?' error':'');n.textContent=message;document.getElementById('toast-root').replaceChildren(n);clearTimeout(toastTimeout);toastTimeout=setTimeout(()=>n.remove(),4500);}
 async function clipboard(value){try{await navigator.clipboard.writeText(value);notice('Ссылка скопирована!');}catch{modal({title:'Скопируй ссылку',content:`<div class="field"><label>Ссылка</label><input class="input" autofocus readonly value="${attr(value)}" onclick="this.select()"></div>`});}}
+let modalContentObserver=null;
 function modal({title,subtitle='',content='',onSubmit=null,submitLabel='Сохранить',size='normal',footer=''}){
- closeUiSelect();
+ const oldHeight=modalRoot.querySelector('.modal')?.getBoundingClientRect().height||0;
+ modalContentObserver?.disconnect();modalContentObserver=null;
+ closeCalendar();closeUiSelect();
  modalRoot.innerHTML=`<div class="modal-backdrop" data-backdrop><div class="modal" role="dialog" aria-modal="true" aria-label="${attr(title)}"><button class="modal-close" type="button" data-close aria-label="Закрыть">×</button><div class="modal-scroll-area"><h2>${esc(title)}</h2>${subtitle?`<p class="modal-subtitle">${esc(subtitle)}</p>`:''}<form class="form" id="modal-form">${content}${onSubmit?`<div class="form-actions"><button type="button" class="btn btn-soft" data-close>Отмена</button><button type="submit" class="btn btn-dark">${esc(submitLabel)} ${ico('arrow')}</button></div>`:''}</form>${footer?`<div class="modal-foot">${footer}</div>`:''}</div></div></div>`;
- enhanceSelects(modalRoot);
+ const scroller=modalRoot.querySelector('.modal-scroll-area');
+ const dialog=modalRoot.querySelector('.modal');
+ const titleNode=scroller.querySelector(':scope > h2');
+ if(titleNode){
+  const headerRail=document.createElement('div');headerRail.className='modal-fixed-header';
+  headerRail.append(titleNode);dialog.insertBefore(headerRail,scroller);
+ }
+ const actionRow=scroller.querySelector('#modal-form > .form-actions');
+ const extra=scroller.querySelector(':scope > .modal-foot');
+ if(actionRow||extra){
+  const footerRail=document.createElement('div');footerRail.className='modal-fixed-footer';
+  if(actionRow){actionRow.querySelector('[type=submit]')?.setAttribute('form','modal-form');footerRail.append(actionRow);}
+  if(extra)footerRail.append(extra);
+  dialog.append(footerRail);
+ }
+ enhanceSelects(modalRoot);enhanceCalendars(modalRoot);
+ // Animate actual content-height changes instead of repeatedly forcing a layout on scroll.
+ if(!matchMedia('(prefers-reduced-motion: reduce)').matches&&typeof dialog.animate==='function'){
+  let priorHeight=oldHeight||dialog.getBoundingClientRect().height;
+  const animateTo=current=>{
+   if(!dialog.isConnected)return;
+   const next=dialog.getBoundingClientRect().height;
+   if(Math.abs(next-current)>7)dialog.animate(
+    [{height:current+'px'},{height:next+'px'}],
+    {duration:230,easing:'cubic-bezier(.2,.7,.2,1)'});
+   priorHeight=next;
+  };
+  if(oldHeight)requestAnimationFrame(()=>animateTo(oldHeight));
+  let queued=false;
+  modalContentObserver=new MutationObserver(()=>{
+   if(queued)return;queued=true;
+   requestAnimationFrame(()=>{queued=false;if(dialog.isConnected)animateTo(priorHeight);});
+  });
+  modalContentObserver.observe(scroller,{childList:true,characterData:true,subtree:true});
+ }
  document.body.style.overflow='hidden';const bd=modalRoot.querySelector('[data-backdrop]');bd.addEventListener('click',e=>{if(e.target===bd)closeModal()});modalRoot.querySelectorAll('[data-close]').forEach(b=>b.addEventListener('click',closeModal));
  if(onSubmit){modalRoot.querySelector('form').addEventListener('submit',async e=>{e.preventDefault();const btn=e.currentTarget.querySelector('[type=submit]')||modalRoot.querySelector('.modal-fixed-footer [type=submit]');btn.disabled=true;try{const submitted=e.currentTarget;await onSubmit(submitted);if(modalRoot.querySelector('form')===submitted)closeModal();}catch(err){notice(err.message,true)}finally{if(btn.isConnected)btn.disabled=false;}});}
  // No delayed autofocus: it can steal focus while the user types in the
  // password field, silently redirecting keystrokes to email after 10 ms.
- modalRoot.querySelector('input:not([type=hidden]),textarea,.ui-select-trigger,select:not(.ui-select-native)')?.focus({preventScroll:true});
+ // Fields focus on the first intentional click; avoid noisy autofocus rings.
 }
 function contactDeveloperModal(){
  modal({title:'Написать разработчику',subtitle:'Есть идея, вопрос или нашли ошибку? Напишите прямо здесь',
@@ -174,8 +292,14 @@ function contactDeveloperModal(){
   }});
  const message=modalRoot.querySelector('#fld-message');if(message){message.required=true;message.minLength=5;message.maxLength=3000;}
 }
-function closeModal(){closeUiSelect();modalRoot.replaceChildren();document.body.style.overflow='';}
-document.addEventListener('keydown',e=>{if(e.key==='Escape'){if(uiSelectOpen){e.preventDefault();closeUiSelect(true);}else closeModal();}});
+function closeModal(){modalContentObserver?.disconnect();modalContentObserver=null;closeCalendar();closeUiSelect();modalRoot.replaceChildren();document.body.style.overflow='';}
+document.addEventListener('keydown',e=>{if(e.key==='Escape'){if(activeCalendar){e.preventDefault();closeCalendar(true);}else if(uiSelectOpen){e.preventDefault();closeUiSelect(true);}else closeModal();}});
+document.addEventListener('click',e=>{
+ const picker=e.target.closest('input[type="date"]');
+ if(picker&&!picker.disabled&&typeof picker.showPicker==='function'){
+  try{picker.showPicker();}catch{/* Keep native fallback. */}
+ }
+});
 function field(label,name,placeholder='',type='text',value='',required=false,extra=''){
  return `<div class="field"><label for="fld-${attr(name)}">${esc(label)}</label><input id="fld-${attr(name)}" name="${attr(name)}" type="${attr(type)}" placeholder="${attr(placeholder)}" value="${attr(value??'')}" ${required?'required':''} ${extra}></div>`;
 }
@@ -232,7 +356,13 @@ function openUiSelect(select,button){
   });
   button.setAttribute('aria-activedescendant',list.id+'-opt-'+highlighted);
   const target=list.querySelector('[data-ui-index="'+highlighted+'"]');
-  target?.scrollIntoView({block:'nearest'});
+  // Scroll only the portal menu, never the modal behind it: outer
+  // scrolling would trigger the document scroll listener and close the menu.
+  if(target){
+   const top=target.offsetTop,bottom=top+target.offsetHeight;
+   if(top<list.scrollTop)list.scrollTop=top;
+   else if(bottom>list.scrollTop+list.clientHeight)list.scrollTop=bottom-list.clientHeight;
+  }
  };
  const choose=(i)=>{
   if(!opts[i]||opts[i].disabled)return;
@@ -296,10 +426,85 @@ function enhanceSelects(root){
 document.addEventListener('pointerdown',e=>{
  if(uiSelectOpen&&!uiSelectOpen.button.contains(e.target)&&!uiSelectOpen.menu.contains(e.target))closeUiSelect();
 });
-document.addEventListener('scroll',e=>{
+// Close on intentional scrolling, not layout/auto-scroll while clicking a portal
+// option: the latter detached the option before Playwright and users could click.
+const closeOnScrollIntent=e=>{
  if(uiSelectOpen&&!uiSelectOpen.menu.contains(e.target))closeUiSelect();
-},true);
+};
+document.addEventListener('wheel',closeOnScrollIntent,{passive:true,capture:true});
+document.addEventListener('touchmove',closeOnScrollIntent,{passive:true,capture:true});
 window.addEventListener('resize',()=>closeUiSelect());
+
+
+/* Shared date picker; native input retains the value for FormData. */
+let activeCalendar=null;
+function closeCalendar(refocus=false){
+ if(!activeCalendar)return;
+ const {popup,button}=activeCalendar;activeCalendar=null;popup.remove();
+ button.setAttribute('aria-expanded','false');
+ if(refocus&&button.isConnected)button.focus({preventScroll:true});
+}
+function enhanceCalendars(root){
+ root.querySelectorAll('input[type="date"]:not([data-ui-calendar])').forEach(input=>{
+  input.dataset.uiCalendar='true';input.classList.add('ui-calendar-native');
+  const button=document.createElement('button');button.type='button';button.className='ui-calendar-trigger';
+  button.setAttribute('aria-label',input.closest('.field')?.querySelector('label')?.textContent||'Дата');
+  button.setAttribute('aria-haspopup','dialog');button.setAttribute('aria-expanded','false');
+  input.insertAdjacentElement('afterend',button);
+  const iso=date=>[date.getFullYear(),String(date.getMonth()+1).padStart(2,'0'),String(date.getDate()).padStart(2,'0')].join('-');
+  const parse=value=>{
+   if(!/^\d{4}-\d\d-\d\d$/.test(value||''))return null;
+   const [y,m,d]=value.split('-').map(Number),dt=new Date(y,m-1,d,12);
+   return dt.getFullYear()===y&&dt.getMonth()+1===m&&dt.getDate()===d?dt:null;
+  };
+  const sync=()=>{
+   const date=parse(input.value);
+   button.innerHTML='<span>'+(date?new Intl.DateTimeFormat('ru-RU',{day:'2-digit',month:'2-digit',year:'numeric'}).format(date):'Выбери дату')+'</span>'+ico('calendar');
+  };
+  input.addEventListener('change',sync);
+  button.addEventListener('click',()=>{
+   if(activeCalendar?.button===button){closeCalendar();return;}
+   closeCalendar();const date=parse(input.value)||new Date();
+   const popup=document.createElement('div');popup.className='ui-calendar-popover';
+   popup.setAttribute('role','dialog');popup.setAttribute('aria-label','Календарь');
+   const state={popup,button,year:date.getFullYear(),month:date.getMonth()};activeCalendar=state;
+   button.setAttribute('aria-expanded','true');modalRoot.append(popup);
+   const choose=value=>{
+    if(value&&((input.min&&value<input.min)||(input.max&&value>input.max)))return;
+    input.value=value;input.dispatchEvent(new Event('change',{bubbles:true}));closeCalendar(true);
+   };
+   const draw=()=>{
+    const first=new Date(state.year,state.month,1,12);
+    const days=new Date(state.year,state.month+1,0).getDate(),skip=(first.getDay()+6)%7;
+    let cells='<span></span>'.repeat(skip);
+    for(let day=1;day<=days;day++){
+     const value=iso(new Date(state.year,state.month,day,12));
+     const disabled=(input.min&&value<input.min)||(input.max&&value>input.max);
+     cells+='<button type="button" class="ui-calendar-day" data-date="'+value+'"'+(input.value===value?' aria-selected="true"':'')+(value===iso(new Date())?' data-today="true"':'')+(disabled?' disabled':'')+'>'+day+'</button>';
+    }
+    popup.innerHTML='<div class="ui-calendar-toolbar"><button type="button" data-shift="-1" aria-label="Предыдущий месяц">‹</button><strong>'+
+     esc(new Intl.DateTimeFormat('ru-RU',{month:'long',year:'numeric'}).format(first))+
+     '</strong><button type="button" data-shift="1" aria-label="Следующий месяц">›</button></div>'+
+     '<div class="ui-calendar-days">'+['Пн','Вт','Ср','Чт','Пт','Сб','Вс'].map(d=>'<span>'+d+'</span>').join('')+'</div>'+
+     '<div class="ui-calendar-grid">'+cells+'</div><div class="ui-calendar-actions"><button type="button" data-clear>Очистить</button><button type="button" data-today>Сегодня</button></div>';
+    const r=button.getBoundingClientRect(),h=popup.getBoundingClientRect().height;
+    popup.style.left=Math.max(8,Math.min(r.left,innerWidth-320))+'px';
+    popup.style.top=(r.bottom+h+8<innerHeight?r.bottom+6:Math.max(8,r.top-h-6))+'px';
+   };
+   popup.addEventListener('click',event=>{
+    const b=event.target.closest('button');if(!b||b.disabled)return;
+    if(b.dataset.shift){const next=new Date(state.year,state.month+Number(b.dataset.shift),1,12);state.year=next.getFullYear();state.month=next.getMonth();draw();}
+    else if(b.dataset.date)choose(b.dataset.date);
+    else if(b.hasAttribute('data-clear'))choose('');
+    else if(b.hasAttribute('data-today'))choose(iso(new Date()));
+   });
+   draw();
+  });sync();
+ });
+}
+document.addEventListener('pointerdown',event=>{if(activeCalendar&&!activeCalendar.popup.contains(event.target)&&!activeCalendar.button.contains(event.target))closeCalendar();});
+document.addEventListener('scroll',event=>{if(activeCalendar&&!activeCalendar.popup.contains(event.target))closeCalendar();},{capture:true,passive:true});
+window.addEventListener('resize',()=>closeCalendar());
 
 function selectField(label,name,options,selected){return `<div class="field"><label for="fld-${name}">${esc(label)}</label><select id="fld-${name}" name="${name}">${options.map(([value,text])=>`<option value="${attr(value)}" ${String(value)===String(selected)?'selected':''}>${esc(text)}</option>`).join('')}</select></div>`;}
 function readForm(form){return Object.fromEntries(new FormData(form).entries());}
@@ -327,18 +532,80 @@ function heroArt(){return `<svg viewBox="0 0 570 535" aria-hidden="true" role="p
  </g><g fill="#edc76c" stroke="#29292c" stroke-width="2"><path d="m161 343 7 19 20 6-20 7-7 20-7-20-20-7 20-6Z"/><path d="m444 310 6 14 14 6-14 6-6 15-5-15-15-6 15-6Z"/></g><path d="M130 252c-12-24-4-36 10-29 8 4 9 13 9 13s12-13 23-4c13 14-5 27-23 40Z" fill="#e98e86"/><path d="m460 212 13-3m-9-15 11-9" stroke="#27272b" stroke-width="3" stroke-linecap="round"/></svg>`;}
 function santaArt(){return `<svg viewBox="0 0 600 430" aria-hidden="true"><path d="M5 210c70-180 229-206 353-138s202 176 220 266v92H0Z" fill="#f3d1c2"/><g transform="translate(60 70) rotate(-12 110 145)"><rect x="25" y="32" width="195" height="232" rx="17" fill="#f5e8ce" stroke="#2c292b" stroke-width="4"/><path d="M45 72h150m-150 31h105m-105 31h130" stroke="#d5baa5" stroke-width="6" stroke-linecap="round"/><circle cx="122" cy="195" r="33" fill="#eeb5a0" stroke="#2c292b" stroke-width="3"/><path d="m106 197 12 12 24-26" stroke="#2c292b" stroke-width="5" fill="none"/></g><g transform="translate(310 91) rotate(13 110 125)"><rect x="18" y="25" width="202" height="230" rx="17" fill="#d4c5ef" stroke="#2c292b" stroke-width="4"/><path d="M19 45 119 139 219 45M19 250l71-91m129 91-72-91" stroke="#2c292b" stroke-width="4" fill="none"/><circle cx="118" cy="150" r="33" fill="#f8c18a" stroke="#2c292b" stroke-width="4"/><path d="M107 152c0-9 7-12 11-4 4-8 12-5 11 4-2 7-11 12-11 12s-11-5-11-12" fill="#fff"/></g><path d="M277 47v29m-14-14h29m204 217 7 17 17 8-17 7-7 17-8-17-17-7 17-8Z" stroke="#2c292b" stroke-width="3" fill="#f2d990"/></svg>`;}
 function stepArt(num){if(num===1)return `<svg viewBox="0 0 130 112">${fallbackArt('book').replace(/viewBox="[^"]*"/,'viewBox="0 0 170 160"')}</svg>`;if(num===2)return `<svg viewBox="0 0 130 112"><rect x="13" y="28" width="104" height="67" rx="10" fill="#fff" stroke="#29292b" stroke-width="3"/><path d="m15 40 50 38 50-38" stroke="#29292b" stroke-width="3" fill="none"/><circle cx="67" cy="73" r="15" fill="#e5bcf0" stroke="#29292b" stroke-width="2"/><path d="M62 72c1-5 5-5 6-1 4-6 9-2 7 3l-7 7Z" fill="#e27f9a"/></svg>`;return `<svg viewBox="0 0 130 112"><rect x="23" y="36" width="86" height="65" fill="#f1b0ac" stroke="#29292b" stroke-width="3"/><rect x="16" y="27" width="100" height="18" fill="#ffdc98" stroke="#29292b" stroke-width="3"/><path d="M65 28v72M65 28c-27 1-25-24-12-23 10 1 12 20 12 23Zm0 0c25-1 24-24 11-23-9 1-11 20-11 23Z" fill="#e5d1f4" stroke="#29292b" stroke-width="3"/></svg>`;}
-function header(){const path=currentPath();return `<header class="site-header"><div class="container topbar"><a class="logo" href="/" data-nav="/" aria-label="Шурш! Главная">шурш<span>!</span></a>${currentUser?`<nav class="nav" aria-label="Главная навигация"><a href="/" data-nav="/" class="${path==='/'?'active':''}">${currentUser?'Кабинет':'Главная'}</a><a href="/lists" data-nav="/lists" class="${path.startsWith('/lists')||path.startsWith('/list/')?'active':''}">Вишлисты</a><a href="/santas" data-nav="/santas" class="${path.startsWith('/santas')||path.startsWith('/santa/')?'active':''}">Тайный Санта</a>${!isPreview?`<a href="/friends" data-nav="/friends" class="${path==='/friends'?'active':''}">Друзья</a><a href="/notifications" data-nav="/notifications" class="${path==='/notifications'?'active':''}">Уведомления <span class="nav-unread" data-notification-count hidden></span></a><a href="/profile" data-nav="/profile" class="${path==='/profile'||path.startsWith('/users/')?'active':''}">Профиль</a>${currentUser.is_admin?`<a href="/admin" data-nav="/admin" class="${path.startsWith('/admin')?'active':''}">Админка</a>`:''}`:''}</nav>`:""}<div class="header-actions">${currentUser?`<span class="user-name">Привет, ${esc(currentUser.name)}!</span><button class="btn btn-ghost" data-action="logout" title="Выйти">${ico('logout')} Выйти</button>`:`<button class="btn btn-ghost" data-open="login">Войти</button>`}</div></div></header>${isPreview?`<div class="preview-ribbon"><div class="container">Интерактивное демо · данные хранятся только в этом браузере · ссылки не работают на других устройствах <button type="button" data-action="reset-preview">Сбросить демо</button></div></div>`:''}`;}
-function footer(){return `<footer class="container footer"><div><a class="logo" data-nav="/" href="/">шурш<span>!</span></a><small>Место для хотелок и сюрпризов</small></div>${currentUser?`<nav><a data-nav="/lists" href="/lists">Вишлисты</a><a data-nav="/santas" href="/santas">Тайный Санта</a>${!isPreview?`<a data-nav="/friends" href="/friends">Друзья</a>`:""}</nav>`:""}<p class="footer-credit">Сделано с заботой о сюрпризах <span aria-hidden="true">·</span> <button class="footer-developer" type="button" data-action="contact-developer">L-code</button></p></footer>`;}
+function header(){const path=currentPath();return `<header class="site-header"><div class="container topbar"><a class="logo" href="/" data-nav="/" aria-label="Шурш! Главная">шурш<span>!</span></a>${currentUser?`<nav class="nav" aria-label="Главная навигация"><a href="/" data-nav="/" class="${path==='/'?'active':''}">${currentUser?'Кабинет':'Главная'}</a><a href="/lists" data-nav="/lists" class="${path.startsWith('/lists')||path.startsWith('/list/')?'active':''}">Вишлисты</a><a href="/santas" data-nav="/santas" class="${path.startsWith('/santas')||path.startsWith('/santa/')?'active':''}">Тайный Санта</a>${!isPreview?`<a href="/friends" data-nav="/friends" class="${path==='/friends'?'active':''}">Друзья</a><a href="/profile" data-nav="/profile" class="${path==='/profile'||path.startsWith('/users/')?'active':''}">Профиль</a>${currentUser.is_admin?`<a href="/admin" data-nav="/admin" class="${path.startsWith('/admin')?'active':''}">Админка</a>`:''}`:''}</nav>`:""}<div class="header-actions">${currentUser?`<button class="header-bell ${path==='/notifications'?'active':''}" type="button" data-social-action="open-notifications" title="Уведомления" aria-label="Уведомления">${ico('bell',21)}<span class="nav-unread" data-notification-count hidden></span></button><button class="header-avatar" type="button" data-nav="/profile" aria-label="Мой профиль">${esc(currentUser.avatar_emoji||"🎁")}</button><button class="btn btn-ghost" data-action="logout" title="Выйти">${ico('logout')} Выйти</button>`:`<button class="btn btn-ghost" data-open="login">Войти</button>`}</div></div></header>${isPreview?`<div class="preview-ribbon"><div class="container">Интерактивное демо · данные хранятся только в этом браузере · ссылки не работают на других устройствах <button type="button" data-action="reset-preview">Сбросить демо</button></div></div>`:''}`;}
+function footer(){return `<footer class="container footer"><div><a class="logo" data-nav="/" href="/">шурш<span>!</span></a><small>Место для хотелок и сюрпризов</small></div><p class="footer-credit">Сделано с заботой о сюрпризах <span aria-hidden="true">·</span> <button class="footer-developer" type="button" data-action="contact-developer">L-code</button></p></footer>`;}
 let shellUserSignature='';
+let headerScrollQueued=false;
+let headerIsCondensed=false;
+function updateScrollTopButton(){
+ const btn=document.getElementById('scroll-to-top');
+ if(btn){const visible=scrollY>440;btn.classList.toggle('is-visible',visible);btn.tabIndex=visible?0:-1;btn.setAttribute('aria-hidden',String(!visible));}
+}
+// A fixed overlay cannot change document scroll height. Hysteresis prevents
+// flip-flopping near the collapse threshold without any extra DOM reads.
+function syncHeaderDensity(){
+ const next=headerIsCondensed?scrollY>36:scrollY>100;
+ if(next===headerIsCondensed)return;
+ headerIsCondensed=next;
+ document.querySelector('.site-header')?.classList.toggle('is-condensed',next);
+}
+window.addEventListener('scroll',()=>{
+ updateScrollTopButton();
+ if(headerScrollQueued)return;
+ headerScrollQueued=true;
+ requestAnimationFrame(()=>{
+  headerScrollQueued=false;syncHeaderDensity();
+ });
+},{passive:true});
+
+// Existing mobile nav gets passive scroll cues; no new elements or fetches.
+let navigationCueNode=null;
+let navigationCueObserver=null;
+function attachNavigationScrollCue(){
+ const nav=app.querySelector('.site-header .nav');
+ if(nav===navigationCueNode)return;
+ navigationCueObserver?.disconnect();
+ navigationCueObserver=null;
+ navigationCueNode=nav;
+ if(!nav)return;
+ let scheduled=false;
+ const sync=()=>{
+  const remaining=Math.max(0,nav.scrollWidth-nav.clientWidth);
+  nav.classList.toggle('nav-scroll-more-right',remaining>2&&nav.scrollLeft<remaining-2);
+  nav.classList.toggle('nav-scroll-more-left',remaining>2&&nav.scrollLeft>2);
+ };
+ const schedule=()=>{
+  if(scheduled)return;
+  scheduled=true;
+  requestAnimationFrame(()=>{scheduled=false;if(nav.isConnected)sync();});
+ };
+ nav.addEventListener('scroll',schedule,{passive:true});
+ if(typeof ResizeObserver==='function'){
+  navigationCueObserver=new ResizeObserver(schedule);
+  navigationCueObserver.observe(nav);
+  nav.querySelectorAll('a').forEach(link=>navigationCueObserver.observe(link));
+ }
+ requestAnimationFrame(sync);
+ if(document.fonts?.ready)void document.fonts.ready.then(schedule);
+}
 function shell(body){
- const identity=(currentUser?.id??'guest')+':'+(currentUser?.name??'')+':'+isDemo+':'+isPreview;
+ const identity=(currentUser?.id??'guest')+':'+(currentUser?.name??'')+':'+(currentUser?.avatar_emoji??'')+':'+!!currentUser?.is_admin+':'+isDemo+':'+isPreview;
  let view=app.querySelector('#page-view');
  if(!view){
   app.innerHTML=header()+'<div id="page-view"></div>'+footer();
+  if(!document.getElementById('scroll-to-top')){
+   const top=document.createElement('button');
+   top.id='scroll-to-top';top.type='button';top.className='scroll-to-top';top.setAttribute('aria-label','Наверх');
+   top.innerHTML=ico('back',22);
+   top.addEventListener('click',()=>window.scrollTo({top:0,behavior:matchMedia('(prefers-reduced-motion: reduce)').matches?'instant':'smooth'}));
+   document.body.append(top);
+   updateScrollTopButton();
+  }
   view=app.querySelector('#page-view');shellUserSignature=identity;
  }else if(shellUserSignature!==identity){
   const head=app.querySelector('.site-header');
   if(head)head.outerHTML=header();
+  app.querySelector('.site-header')?.classList.toggle('is-condensed',headerIsCondensed);
   shellUserSignature=identity;
  }else{
   const path=currentPath();
@@ -352,34 +619,43 @@ function shell(body){
    link.classList.toggle('active',active);
   });
  }
- closeUiSelect();view.innerHTML=body;enhanceSelects(view);view.removeAttribute('aria-busy');app.classList.remove('route-loading');
+ attachNavigationScrollCue();
+ const bell=app.querySelector('.header-bell');if(bell)bell.classList.toggle('active',currentPath()==='/notifications');
+  closeUiSelect();view.innerHTML=body;enhanceSelects(view);view.removeAttribute('aria-busy');app.classList.remove('route-loading');
  renderedOwnerTab=ownerTab(currentPath())?currentPath():null;
- document.title='Шурш! - вишлисты и Тайный Санта';
- if(currentUser&&!isPreview&&typeof socialRefreshBadge==='function')void socialRefreshBadge();
+ document.title='Шурш! - место для хотелок и сюрпризов';
+ if(currentUser&&!isPreview){
+  if(typeof socialRefreshBadge==='function')void socialRefreshBadge();
+  scheduleOwnerWarmup();
+ }
 }
 
+function santaTone(id){
+ return ['apricot','lilac','mint','butter'][Math.abs(Number(id)||0)%4];
+}
+function santaGameCard(game,{shared=false}={}){
+ const status=game.status==='finished'?'Игра завершена':game.status==='drawn'?'Жеребьёвка проведена':'Собираем участников';
+ const detail=shared?(dateRu(game.exchange_date)+' · '+status):(game.description||'Праздник уже на горизонте!');
+ const meta=shared?dateRu(game.exchange_date):ruCount(game.participant_count||0,'участник','участника','участников');
+ return '<article class="dashboard-santa-card santa-tone-'+santaTone(game.id)+'">'+
+  '<a class="card-hitarea" href="/santa/'+game.id+'" data-nav="/santa/'+game.id+'" aria-label="Открыть игру '+attr(game.title)+'"></a>'+
+  '<div class="dashboard-santa-symbol">'+ico('gift',30)+'</div>'+
+  '<div class="section-label">'+status+'</div><h3>'+esc(game.title)+'</h3><p>'+esc(detail)+'</p>'+
+  '<div class="dashboard-card-footer"><span>'+esc(meta)+'</span>'+
+  '<button class="text-link" type="button" data-nav="/santa/'+game.id+'">Открыть '+ico('arrow')+'</button></div></article>';
+}
 function dashboardContent(data){
  const lists=Array.isArray(data.lists)?data.lists:[];
  const events=Array.isArray(data.events)?data.events:[];
  const name=esc((currentUser.name||'Друг').trim().split(/\s+/)[0]);
  const recentLists=lists.slice(0,3).map(listCard).join('');
- const recentEvents=events.slice(0,3).map(e=>
-  '<article class="dashboard-santa-card"><a class="card-hitarea" href="/santa/'+e.id+'" data-nav="/santa/'+e.id+'" aria-label="Открыть игру '+attr(e.title)+'"></a><div class="dashboard-santa-symbol">'+ico('gift',30)+'</div>'+
-  '<div class="section-label">'+(e.status==='drawn'?'Жеребьёвка проведена':'Собираем участников')+'</div>'+
-  '<h3>'+esc(e.title)+'</h3><p>'+esc(e.description||'Праздник уже на горизонте!')+'</p>'+
-  '<div class="dashboard-card-footer"><span>'+Number(e.participant_count||0)+' '+plural(e.participant_count||0,'участник','участника','участников')+'</span>'+
-  '<button class="text-link" data-nav="/santa/'+e.id+'">Открыть '+ico('arrow')+'</button></div></article>'
- ).join('');
+ const recentEvents=events.slice(0,3).map(e=>santaGameCard(e)).join('');
  shell('<main class="container dashboard-page">'+
   '<section class="dashboard-welcome"><div><div class="section-label">Твоё пространство</div><h1>С возвращением, <em>'+name+'!</em></h1>'+
   '<p>Хорошие сюрпризы начинаются здесь. Есть новые идеи подарков?</p>'+
   '<div class="btn-row"><button class="btn btn-dark" data-open="list">Новый вишлист '+ico('plus')+'</button>'+
-  '<button class="btn btn-peach" data-open="santa">Создать Тайного Санту '+ico('gift')+'</button></div></div>'+
+  '<button class="btn btn-dark santa-create-cta" data-open="santa">Тайный Санта ${ico("plus")}</button></div></div>'+
   '<div class="dashboard-welcome-art" aria-hidden="true">'+fallbackArt('gift')+'</div></section>'+
-  '<section class="dashboard-metrics" aria-label="Твоя активность">'+
-  '<div><strong>'+lists.length+'</strong><span>'+plural(lists.length,'вишлист','вишлиста','вишлистов')+'</span></div>'+
-  '<div><strong>'+lists.reduce((sum,l)=>sum+Number(l.wish_count||0),0)+'</strong><span>желаний в списках</span></div>'+
-  '<div><strong>'+events.length+'</strong><span>'+plural(events.length,'игра','игры','игр')+' в Тайного Санту</span></div></section>'+
   '<section class="dashboard-section"><div class="dashboard-section-head"><div><div class="section-label">01 / Вишлисты</div>'+
   '<h2>Твои желания</h2></div><button class="text-link" data-nav="/lists">Все списки '+ico('arrow')+'</button></div>'+
   (lists.length?'<div class="cards-grid">'+recentLists+'</div>':
@@ -399,9 +675,9 @@ function dashboardLoading(){
   '<div class="section-label">Твоё пространство</div><h1>С возвращением, <em>'+name+'!</em></h1>'+
   '<p>Хорошие сюрпризы начинаются здесь</p>'+
   '<div class="btn-row"><button class="btn btn-dark" data-open="list">Новый вишлист '+ico('plus')+'</button>'+
-  '<button class="btn btn-peach" data-open="santa">Создать Тайного Санту '+ico('gift')+'</button></div></div>'+
+  '<button class="btn btn-dark santa-create-cta" data-open="santa">Тайный Санта ${ico("plus")}</button></div></div>'+
   '<div class="dashboard-welcome-art" aria-hidden="true">'+fallbackArt('gift')+'</div></section>'+
-  '<section class="dashboard-skeleton" role="status" aria-live="polite">Загружаем твои списки и игры…</section></main>');
+  '<section class="dashboard-skeleton" role="status" aria-label="Загружаем списки и игры"><div class="skeleton-cards"><div class="skeleton-card"></div><div class="skeleton-card"></div></div></section></main>');
 }
 async function dashboardPage(marker=lastRenderToken){
  if(!currentUser){home();return;}
@@ -423,21 +699,151 @@ function loading(){
  renderedOwnerTab=null;
  const view=app.querySelector('#page-view');
  if(view&&renderStarted){
-  app.classList.add('route-loading');view.setAttribute('aria-busy','true');return;
+  // The old view has been detached. Render a lightweight loading skeleton
+  // rather than leaving a blank screen for the duration of the API call.
+  app.classList.add('route-loading');
+  view.setAttribute('aria-busy','true');
+  view.innerHTML='<main class="container page route-skeleton" role="status" aria-label="Загружаем страницу">'+
+    '<div class="skeleton-bar skeleton-kicker"></div>'+
+    '<div class="skeleton-bar skeleton-title"></div>'+
+    '<div class="skeleton-bar skeleton-subtitle"></div>'+
+    '<div class="skeleton-cards"><div class="skeleton-card"></div><div class="skeleton-card"></div></div>'+
+    '</main>';
+  return;
  }
  app.innerHTML=header()+'<div class="loading-screen"><div class="loading-mark">шурш<span>!</span></div><div class="loading-line"></div></div>';
 }
 function errorView(err,title='Что-то пошло не так'){shell(`<main class="container page"><div class="error-page">${envelopeArt()}<h1>${esc(title)}</h1><p>${esc(err?.message||'Не удалось загрузить страницу')}</p><button class="btn btn-dark" data-nav="/">На главную ${ico('arrow')}</button></div></main>`);}
 function emptyState(title,desc,button,open){return `<div class="blank-state"><div class="blank-illustration">${fallbackArt('gift')}</div><h3>${esc(title)}</h3><p>${esc(desc)}</p><button class="btn btn-dark" data-open="${attr(open)}">${esc(button)} ${ico('plus')}</button></div>`;}
-async function listsPage(marker=lastRenderToken){if(!currentUser){shell(`<main class="container page"><div class="page-hero"><div><div class="section-label">Твой уголок</div><h1>Мои вишлисты</h1><p>Здесь будут все твои желания. Для начала нужно войти</p></div><button class="btn btn-dark" data-open="login">Войти ${ico('arrow')}</button></div>${emptyState('Всё начинается с одного желания','Войди или создай аккаунт, чтобы хранить списки','Создать аккаунт','register')}</main>`);return;}
- const {lists}=await api('/api/lists');if(marker!==lastRenderToken)return;shell(`<main class="container page"><div class="page-hero"><div><div class="section-label">Коллекция желаний</div><h1>Твои вишлисты ${isDemo?'<span class="demo-banner">ДЕМО-ДАННЫЕ</span>':''}</h1><p>Хочешь - по поводу, хочешь - просто потому что</p></div><div class="btn-row"><button class="btn btn-dark" data-open="list">Новый список ${ico('plus')}</button></div></div>${lists.length?`<div class="cards-grid">${lists.map(l=>listCard(l)).join('')}</div>`:emptyState('Здесь пока тихо','Создай первый список и добавь пару желаний','Создать список','list')}</main>`);}
-function listCard(l){return `<article class="list-card"><a class="card-hitarea" href="/list/${l.id}" data-nav="/list/${l.id}" aria-label="Открыть вишлист ${attr(l.title)}"></a><div class="list-cover cover-${attr(l.theme)}"><span class="cover-stamp">${esc(l.occasion)}</span>${fallbackArt('gift')}</div><div class="list-info"><h3>${esc(l.title)}</h3><p>${esc(l.description||'Место для твоих желаний')}</p><div class="list-bottom"><span>${l.wish_count} ${plural(l.wish_count,'желание','желания','желаний')}</span><button class="text-link" data-nav="/list/${l.id}">Открыть ${ico('arrow')}</button></div></div></article>`;}
-function plural(n,a,b,c){const k=Number(n)%100,d=k%10;return k>=11&&k<=14?c:d===1?a:d>=2&&d<=4?b:c;}
+let wishlistTabGeneration=0;
+let currentOwnedWishlists=[];
+function wishlistCategoryFilter(lists){
+ const categories=[...new Set(lists.map(x=>x.occasion?.trim()).filter(Boolean))].sort((a,b)=>a.localeCompare(b,'ru'));
+ return '<div class="wishlist-filters" role="group" aria-label="Фильтр категорий">'+['Все',...categories].map((x,i)=>
+  '<button type="button" class="filter-chip'+(i===0?' active':'')+'" aria-pressed="'+(i===0)+'" data-wishlist-filter="'+attr(x)+'">'+esc(x)+'</button>').join('')+'</div>';
+}
+function ownWishlistTiles(lists){
+ return lists.length?wishlistCategoryFilter(lists)+
+  '<div class="cards-grid">'+lists.map(l=>listCard(l).replace('<article class="list-card">','<article class="list-card" data-occasion="'+attr(l.occasion?.trim()||'')+'">')).join('')+'</div>':
+  emptyState('Здесь пока тихо','Создай первый список и добавь пару желаний','Создать список','list');
+}
+function friendWishlistTiles(lists){
+ if(!lists.length)return '<div class="blank-state"><h3>Пока нет доступных вишлистов друзей</h3><p>Добавь друзей, которые открыли свои списки по ссылке</p><button class="btn btn-soft" data-nav="/friends">Мои друзья</button></div>';
+ const groups=new Map();
+ for(const l of lists){
+  const id=String(l.owner_id||l.owner_name);
+  if(!groups.has(id))groups.set(id,{name:l.owner_name,avatar:l.avatar_emoji||'🎁',id:l.owner_id,lists:[]});
+  groups.get(id).lists.push(l);
+ }
+ const cards=[...groups.values()].map(friend=>{
+  const name=esc(friend.name);
+  const tiles=friend.lists.map(l=>
+   '<article class="list-card friend-stack-list" data-occasion="'+attr(l.occasion?.trim()||'')+'">'+
+   '<a class="card-hitarea" href="/w/'+attr(l.share_key)+'" data-nav="/w/'+attr(l.share_key)+'" aria-label="Открыть вишлист '+attr(l.title)+'"></a>'+
+   '<div class="list-cover cover-'+attr(l.theme)+'">'+fallbackArt('gift')+'</div>'+
+   '<div class="list-info"><h3>'+esc(l.title)+'</h3><p>'+esc(l.description||l.occasion||'Список подарков')+'</p>'+
+   '<div class="list-bottom"><span>'+ruCount(l.wish_count,'желание','желания','желаний')+'</span><button class="text-link" data-nav="/w/'+attr(l.share_key)+'">Открыть '+ico('arrow')+'</button></div></div></article>').join('');
+  return '<section class="friend-wishlist-stack" data-friend-stack><div class="friend-stack-heading"><span class="friend-stack-avatar">'+esc(friend.avatar)+'</span><div><strong>'+name+'</strong><span>'+ruCount(friend.lists.length,'вишлист','вишлиста','вишлистов')+'</span></div>'+
+   (friend.id?'<button class="text-link" data-nav="/users/'+attr(friend.id)+'">Профиль '+ico('arrow')+'</button>':'')+'</div><div class="friend-stack-cards">'+tiles+'</div></section>';
+ }).join('');
+ return wishlistCategoryFilter(lists)+'<div class="friend-stack-grid">'+cards+'</div>';
+}
+async function listsPage(marker=lastRenderToken){
+ if(!currentUser){shell('<main class="container page"><h1>Мои вишлисты</h1><p>Войди, чтобы создавать списки</p><button class="btn btn-dark" data-open="login">Войти</button></main>');return;}
+ const {lists}=await api('/api/lists');if(marker!==lastRenderToken)return;
+ currentOwnedWishlists=lists;wishlistTabGeneration++;
+ shell('<main class="container page wishlists-page"><div class="page-hero"><div><div class="section-label">Коллекция желаний</div><h1>Твои вишлисты</h1><p>Мои желания и открытые списки друзей</p></div><div class="btn-row"><button class="btn btn-dark" data-open="list">Новый список '+ico('plus')+'</button></div></div>'+
+ '<div class="wishlist-view-tabs" role="tablist" aria-label="Вишлисты"><button type="button" role="tab" aria-selected="true" class="active" data-wishlist-view="mine">Мои вишлисты</button><button type="button" role="tab" aria-selected="false" data-wishlist-view="friends">Вишлисты друзей</button></div>'+
+ '<div id="wishlist-view-content" role="tabpanel">'+
+ ownWishlistTiles(lists)+
+ '</div></main>');
+}
+document.addEventListener('click',async event=>{
+ const tab=event.target.closest('[data-wishlist-view]');
+ if(tab){
+  event.preventDefault();const tabs=tab.closest('[role="tablist"]');
+  if(tab.classList.contains('active'))return;
+  for(const el of tabs.querySelectorAll('[data-wishlist-view]')){const selected=el===tab;el.classList.toggle('active',selected);el.setAttribute('aria-selected',String(selected));}
+  const region=document.getElementById('wishlist-view-content');
+  if(!region)return;
+  const generation=++wishlistTabGeneration;
+  if(tab.dataset.wishlistView==='mine'){
+   region.innerHTML=ownWishlistTiles(currentOwnedWishlists);
+   return;
+  }
+  region.innerHTML='<p class="note" role="status">Загружаем вишлисты друзей…</p>';
+  try{
+   const result=await api('/api/friends/wishlists');
+   if(generation!==wishlistTabGeneration)return;
+   region.innerHTML=friendWishlistTiles(result.lists||[]);
+  }catch(err){if(generation===wishlistTabGeneration)region.innerHTML='<p class="note">'+esc(err.message)+'</p>';}
+  return;
+ }
+ const filter=event.target.closest('[data-wishlist-filter]');
+ if(filter){
+  event.preventDefault();
+  const panel=filter.closest('#wishlist-view-content');if(!panel)return;
+  for(const item of panel.querySelectorAll('[data-wishlist-filter]')){const selected=item===filter;item.classList.toggle('active',selected);item.setAttribute('aria-pressed',String(selected));}
+  for(const tile of panel.querySelectorAll('[data-occasion]'))
+   tile.hidden=filter.dataset.wishlistFilter!=='Все'&&tile.dataset.occasion!==filter.dataset.wishlistFilter;
+  for(const stack of panel.querySelectorAll('[data-friend-stack]'))
+   stack.hidden=![...stack.querySelectorAll('[data-occasion]')].some(tile=>!tile.hidden);
+ }
+});
+function listCard(l){return `<article class="list-card"><a class="card-hitarea" href="/list/${l.id}" data-nav="/list/${l.id}" aria-label="Открыть вишлист ${attr(l.title)}"></a><div class="list-cover cover-${attr(l.theme)}"><span class="cover-stamp">${esc(l.occasion)}</span>${fallbackArt('gift')}</div><div class="list-info"><h3>${esc(l.title)}</h3><p>${esc(l.description||'Место для твоих желаний')}</p><div class="list-bottom"><span>${ruCount(l.wish_count,'желание','желания','желаний')}</span><button class="text-link" data-nav="/list/${l.id}">Открыть ${ico('arrow')}</button></div></div></article>`;}
+function plural(n,a,b,c){
+ const value=Math.abs(Math.trunc(Number(n)||0)),k=value%100,d=k%10;
+ return k>=11&&k<=14?c:d===1?a:d>=2&&d<=4?b:c;
+}
+function ruCount(n,one,few,many){
+ const value=Math.max(0,Math.trunc(Number(n)||0));
+ return value+' '+plural(value,one,few,many);
+}
+// Account ownership is authoritative on the server. Legacy reservation links
+// created before login-only booking remain cancellable from their old browser.
+const legacyReservations=new Map();
+function reservationKey(listKey,wishId){return 'shursh-reservation-v2:'+listKey+':'+wishId;}
+function ownReservation(listKey,wishId){
+ const key=reservationKey(listKey,wishId);
+ if(legacyReservations.has(key))return legacyReservations.get(key);
+ try{const saved=localStorage.getItem(key);if(saved&&/^[A-Za-z0-9_-]{43}$/.test(saved)){legacyReservations.set(key,saved);return saved;}}catch{}
+ return null;
+}
+function forgetReservation(listKey,wishId){
+ const key=reservationKey(listKey,wishId);
+ legacyReservations.delete(key);
+ try{localStorage.removeItem(key);}catch{}
+}
+async function toggleGiftReservation(wishId,listKey){
+ if(!currentUser){loginModal('register');return;}
+ const wish=loadedPublicWishes.find(w=>Number(w.id)===Number(wishId));
+ if(!wish)throw new Error('Подарок не найден');
+ const token=ownReservation(listKey,wishId);
+ if(wish.reserved){
+  if(wish.reserved_by_me){
+   await api('/api/public/'+encodeURIComponent(listKey)+'/reserve/'+wishId,{method:'DELETE'});
+   notice('Бронь отменена');
+  }else if(token){
+   // Preserve legacy bookings for their original browser only.
+   try{await api('/api/reservations/'+encodeURIComponent(token),{method:'DELETE'});}
+   catch(err){if(err.status!==404&&err.status!==409)throw err;}
+   forgetReservation(listKey,wishId);
+   notice('Бронь отменена');
+  }else throw new Error('Этот подарок уже забронирован другим человеком');
+ }else{
+  if(token)forgetReservation(listKey,wishId);
+  await api('/api/public/'+encodeURIComponent(listKey)+'/reserve/'+wishId,{method:'POST',body:{}});
+  notice('Подарок забронирован!');
+ }
+ closeModal();
+ await publicListPage(listKey,lastRenderToken);
+}
 function wishCard(w,mode='owner',shareKey=''){
  const reserved=w.reserved===true;
  const cardActions=mode==='owner'?`<div class="wish-controls"><button class="btn btn-soft" data-action="edit-wish" data-id="${w.id}" title="Редактировать">${ico('edit')}</button><button class="btn btn-soft" data-action="delete-wish" data-id="${w.id}" title="Удалить">${ico('trash')}</button></div>`:'';
- const footer=mode==='guest'?`<button class="btn ${reserved?'btn-soft':'btn-dark'} wish-action" ${reserved?'disabled':''} data-action="reserve" data-id="${w.id}" data-key="${attr(shareKey)}">${reserved?`${ico('check')} Уже забронировано`:`${ico('gift')} Забронировать подарок`}</button>`:'';
- return `<article class="wish-card"><button type="button" class="card-hitarea" data-action="show-wish" data-id="${w.id}" data-mode="${attr(mode)}" data-key="${attr(shareKey)}" aria-label="Подробнее о желании ${attr(w.title)}"></button><div class="wish-image">${w.image_path?`<img src="${attr(w.image_path)}" alt="${attr(w.title)}" loading="lazy">`:artFor(w)}${w.priority==='love'?`<span class="wish-priority chip chip-peach">${ico('heart')} Очень хочу</span>`:''}</div><div class="wish-content"><h3>${esc(w.title)}</h3><p class="wish-desc">${esc(w.description|| (w.kind==='experience'?'Впечатление или хорошая идея':'Подарок без комментария'))}</p><div class="wish-card-footer"><div class="wish-price">${money(w.price_cents,w.currency)}</div>${cardActions}</div>${w.shop_url?`<a href="${attr(w.shop_url)}" target="_blank" rel="noopener noreferrer" class="text-link" style="margin-top:12px;font-size:12px">В магазин ${ico('external')}</a>`:''}${footer}</div></article>`;
+ const own=reserved&&!!currentUser&&(w.reserved_by_me||!!ownReservation(shareKey,w.id));
+ const footer=mode==='guest'?`<button type="button" class="btn ${own?'btn-soft':reserved?'btn-soft':'btn-dark'} wish-action" ${reserved&&!own?'disabled':''} data-action="reserve" data-id="${w.id}" data-key="${attr(shareKey)}">${own?`${ico('check')} Отменить бронь`:reserved?`${ico('lock')} Уже забронировано`:currentUser?`${ico('gift')} Забронировать`:`${ico('lock')} Войти и забронировать`}</button>`:'';
+ return `<article class="wish-card"><button type="button" class="card-hitarea" data-action="show-wish" data-id="${w.id}" data-mode="${attr(mode)}" data-key="${attr(shareKey)}" aria-label="Подробнее о желании ${attr(w.title)}"></button><div class="wish-image">${w.image_path?`<img src="${attr(w.image_path)}" alt="${attr(w.title)}" loading="lazy">`:artFor(w)}${w.priority==='love'?`<span class="wish-priority chip chip-peach">${ico('heart')} Очень хочу</span>`:`<span class="wish-priority chip priority-nice">Было бы здорово</span>`}</div><div class="wish-content"><h3>${esc(w.title)}</h3><p class="wish-desc">${esc(w.description|| (w.kind==='experience'?'Впечатление или хорошая идея':'Подарок без комментария'))}</p><div class="wish-card-footer"><div class="wish-price">${money(w.price_cents,w.currency)}</div>${cardActions}</div>${w.shop_url?`<a href="${attr(w.shop_url)}" target="_blank" rel="noopener noreferrer" class="text-link" style="margin-top:12px;font-size:12px">В магазин ${ico('external')}</a>`:''}${footer}</div></article>`;
 }
 function showWishDetails(el){
  const id=Number(el.dataset.id), mode=el.dataset.mode, key=el.dataset.key||'';
@@ -446,7 +852,7 @@ function showWishDetails(el){
  const image=wish.image_path?'<img class="wish-detail-image" src="'+attr(wish.image_path)+'" alt="'+attr(wish.title)+'">':
    '<div class="wish-detail-art">'+artFor(wish)+'</div>';
  const actions=mode==='owner'?'<button class="btn btn-soft" data-action="edit-wish" data-id="'+id+'">'+ico('edit')+' Редактировать</button>'+(isPreview?'':'<button class="btn btn-soft" data-social-action="ask-gift" data-wish-id="'+id+'">'+ico('heart')+' Попросить друга</button>'):
-   mode==='guest'&&!wish.reserved?'<button class="btn btn-dark" data-action="reserve" data-id="'+id+'" data-key="'+attr(key)+'">'+ico('gift')+' Забронировать</button>':'';
+   mode==='guest'&&(!wish.reserved||(currentUser&&(wish.reserved_by_me||ownReservation(key,id))))?'<button class="btn btn-dark" data-action="reserve" data-id="'+id+'" data-key="'+attr(key)+'">'+ico(wish.reserved?'check':'gift')+' '+(wish.reserved?'Отменить бронь':currentUser?'Забронировать':'Войти и забронировать')+'</button>':'';
  const store=wish.shop_url?'<a class="btn btn-soft" href="'+attr(wish.shop_url)+'" target="_blank" rel="noopener noreferrer">В магазин '+ico('external')+'</a>':'';
  modal({title:wish.title,subtitle:money(wish.price_cents,wish.currency),
    content:'<div class="wish-detail">'+image+
@@ -461,8 +867,8 @@ let loadedList = null;
 async function ownerListPage(id,marker=lastRenderToken){if(!currentUser)throw new Error('Войди, чтобы открыть список');const d=await api(`/api/lists/${id}`);if(marker!==lastRenderToken)return;loadedList=d;
  const l=d.list;const url=getLink(`/w/${l.share_key}`);shell(`<main class="container page"><div class="guest-topline"><button class="text-link" data-nav="/lists">${ico('back')} Мои вишлисты</button> <span>/</span> <span>${esc(l.title)}</span></div><div class="detail-top cover-${attr(l.theme)}"><div><span class="chip">${ico('gift')} ${esc(l.occasion)}</span><h1>${esc(l.title)}</h1><p>${esc(l.description||'Список маленьких и больших мечтаний')}</p></div><div class="detail-art">${fallbackArt('gift')}</div></div><div class="detail-actions"><div><h2>Желания <span class="chip">${d.wishes.length}</span></h2><p class="note">Брони друзей здесь никогда не отображаются</p></div><div class="btn-row"><button class="btn btn-soft btn-small" data-action="edit-list">${ico('edit')} Настройки</button><button class="btn btn-soft btn-small" data-action="copy" data-url="${attr(url)}" ${l.visibility==='private'?'disabled title="Сначала открой доступ по ссылке"':''}>${ico('copy')} Ссылка</button><button class="btn btn-dark btn-small" data-open="wish">Добавить желание ${ico('plus')}</button></div></div>${l.visibility==='private'?`<div class="alert">${ico('lock')} Список приватный. Доступ по ссылке выключен в настройках</div>`:''}${d.wishes.length?`<div class="wishlist-grid">${d.wishes.map(w=>wishCard(w)).join('')}</div>`:emptyState('Пока ни одного желания','Вдохновение начинается с первой идеи','Добавить желание','wish')}<div class="divider-line"></div><button class="btn btn-ghost btn-small" data-action="delete-list">${ico('trash')} Удалить весь список</button></main>`);}
 let loadedPublicWishes=[];
-async function publicListPage(key,marker=lastRenderToken){const {list:l,wishes,owner_view}=await api(`/api/public/${key}`);if(marker!==lastRenderToken)return;loadedPublicWishes=wishes;shell(`<main class="container page"><div class="guest-topline">${ico('gift')} <span>Вишлист по ссылке</span><span>/</span><strong>от ${esc(l.owner_name)}</strong></div><div class="detail-top cover-${attr(l.theme)}"><div><span class="chip">${ico('heart')} ${esc(l.occasion)}</span><h1>${esc(l.title)}</h1><p>${esc(l.description)}</p></div><div class="detail-art">${fallbackArt('gift')}</div></div><div class="guest-banner">${ico('lock')} ${owner_view?'Это твой список - статус бронирования для владельца скрыт':'Можешь забронировать понравившийся подарок. Владелец списка не увидит, что выбрано. После брони сохрани приватную ссылку для управления'}</div><div class="detail-actions"><h2>Желания <span class="chip">${wishes.length}</span></h2></div>${wishes.length?`<div class="wishlist-grid">${wishes.map(w=>wishCard(w,owner_view?'view':'guest',key)).join('')}</div>`:emptyState('В этом списке пока пусто','Загляни позже - здесь скоро появятся желания','На главную','login')}</main>`);}
-async function reservationPage(key,marker=lastRenderToken){const {reservation:r}=await api(`/api/reservations/${key}`);if(marker!==lastRenderToken)return;shell(`<main class="container page"><div class="invite-card"><div class="invite-icon">${envelopeArt()}</div><h1>${r.cancelled_at?'Бронь отменена':'Подарок ждёт своего часа!'}</h1><p>${r.cancelled_at?'Этот подарок снова доступен другим дарителям':'Твоя бронь сохранена. Эта ссылка - личный ключ для отмены, береги её'}</p><div class="details-box"><p><strong>Подарок:</strong> ${esc(r.wish_title)}</p><p><strong>Вишлист:</strong> ${esc(r.list_title)}</p><p><strong>Даритель:</strong> ${esc(r.guest_name)}</p></div>${!r.cancelled_at?`<div class="share-field"><input class="input" readonly value="${attr(getLink(`/r/${key}`))}" aria-label="Ссылка управления бронью"><button class="btn btn-dark btn-small" data-action="copy" data-url="${attr(getLink(`/r/${key}`))}">${ico('copy')} Копировать</button></div><button class="btn btn-danger btn-small" data-action="cancel-reservation" data-token="${attr(key)}">Отменить мою бронь</button>`:''}</div></main>`);}
+async function publicListPage(key,marker=lastRenderToken){const {list:l,wishes,owner_view}=await api(`/api/public/${key}`);if(marker!==lastRenderToken)return;loadedPublicWishes=wishes;shell(`<main class="container page"><div class="guest-topline">${ico('gift')} <span>Вишлист по ссылке</span><span>/</span><strong>от ${esc(l.owner_name)}</strong></div><div class="detail-top cover-${attr(l.theme)}"><div><span class="chip">${ico('heart')} ${esc(l.occasion)}</span><h1>${esc(l.title)}</h1><p>${esc(l.description)}</p></div><div class="detail-art">${fallbackArt('gift')}</div></div><div class="guest-banner">${ico('lock')} ${owner_view?'Это твой список - статус бронирования для владельца скрыт':'Можешь забронировать понравившийся подарок. Владелец списка не увидит, что выбрано. Для брони войди в аккаунт. Нажми «Забронировать», чтобы занять подарок, или ту же кнопку, чтобы снять свою бронь с любого устройства'}</div><div class="detail-actions"><h2>Желания <span class="chip">${wishes.length}</span></h2></div>${wishes.length?`<div class="wishlist-grid">${wishes.map(w=>wishCard(w,owner_view?'view':'guest',key)).join('')}</div>`:emptyState('В этом списке пока пусто','Загляни позже - здесь скоро появятся желания','На главную','login')}</main>`);}
+async function reservationPage(key,marker=lastRenderToken){const {reservation:r}=await api(`/api/reservations/${key}`);if(marker!==lastRenderToken)return;shell(`<main class="container page"><div class="invite-card"><div class="invite-icon">${envelopeArt()}</div><h1>${r.cancelled_at?'Бронь отменена':'Подарок ждёт своего часа!'}</h1><p>${r.cancelled_at?'Этот подарок снова доступен другим дарителям':'Твоя бронь сохранена. Эта ссылка - личный ключ для отмены, береги её'}</p><div class="details-box"><p><strong>Подарок:</strong> ${esc(r.wish_title)}</p><p><strong>Вишлист:</strong> ${esc(r.list_title)}</p></div>${!r.cancelled_at?`<div class="share-field"><input class="input" readonly value="${attr(getLink(`/r/${key}`))}" aria-label="Ссылка управления бронью"><button class="btn btn-dark btn-small" data-action="copy" data-url="${attr(getLink(`/r/${key}`))}">${ico('copy')} Копировать</button></div><button class="btn btn-danger btn-small" data-action="cancel-reservation" data-token="${attr(key)}">Отменить мою бронь</button>`:''}</div></main>`);}
 async function adminFeedbackPage(marker=lastRenderToken){
  const {items}=await api('/api/admin/feedback');
  if(marker!==lastRenderToken)return;
@@ -478,12 +884,94 @@ async function adminFeedbackPage(marker=lastRenderToken){
    '" data-status="'+(item.status==='resolved'?'new':'resolved')+'">'+(item.status==='resolved'?'Вернуть в новые':'Отметить решённым')+'</button></div></article>'
   ).join('')+'</div>':'<div class="panel"><p>Сообщений пока нет</p></div>')+'</main>');
 }
-async function santasPage(marker=lastRenderToken){if(!currentUser){shell(`<main class="container page"><div class="page-hero"><div><div class="section-label">Под прикрытием</div><h1>Тайный Санта</h1><p>Чтобы организовать игру, нужно войти. Участникам регистрация не требуется</p></div><button class="btn btn-dark" data-open="login">Войти ${ico('arrow')}</button></div>${emptyState('Собери компанию','Укажите бюджет, зовите друзей и проведите честную жеребьёвку','Создать игру','santa')}</main>`);return;}
- const {events}=await api('/api/santas');if(marker!==lastRenderToken)return;shell(`<main class="container page"><div class="page-hero"><div><div class="section-label">Секретная служба подарков</div><h1>Тайный Санта</h1><p>Здесь живут все твои секретные обмены подарками</p></div><div class="btn-row"><button class="btn btn-dark" data-open="santa">Новая игра ${ico('plus')}</button></div></div>${events.length?`<div class="santa-grid">${events.map(e=>`<div class="santa-list-card"><a class="card-hitarea" href="/santa/${e.id}" data-nav="/santa/${e.id}" aria-label="Открыть игру ${attr(e.title)}"></a><span class="sparkle-deco">✳</span><div class="section-label">${e.status==='drawn'?'Жеребьёвка проведена':'Собираем компанию'}</div><h3>${esc(e.title)}</h3><p>${esc(e.description||'Собираем друзей для хороших сюрпризов')}</p><div class="list-bottom"><span>${ico('users')} ${e.participant_count} участников · ${dateRu(e.exchange_date)}</span><button class="text-link" data-nav="/santa/${e.id}">Открыть ${ico('arrow')}</button></div></div>`).join('')}</div>`:emptyState('Пока без секретов','Первую игру создать проще, чем выбрать подарочную бумагу','Создать игру','santa')}</main>`);}
+async function santasPage(marker=lastRenderToken){if(!currentUser){shell(`<main class="container page"><div class="page-hero"><div><div class="section-label">Под прикрытием</div><h1>Тайный Санта</h1><p>Чтобы организовать игру, нужно войти. Участникам регистрация не требуется</p></div><button class="btn btn-dark" data-open="login">Войти ${ico('arrow')}</button></div>${emptyState('Собери компанию','Укажи бюджет, зови друзей и проведи честную жеребьёвку','Создать игру','santa')}</main>`);return;}
+ const {events,invitations=[]}=await api('/api/santas');if(marker!==lastRenderToken)return;
+ const currentEvents=events.filter(e=>e.status!=='finished');
+ const finishedEvents=events.filter(e=>e.status==='finished');
+ const pending=invitations.length?'<section class="panel santa-pending"><h2>Приглашения <span class="chip">'+invitations.length+'</span></h2>'+
+  invitations.map(i=>'<article class="santa-pending-row"><div><strong>'+esc(i.title)+'</strong><p class="note">'+dateRu(i.exchange_date)+' · '+money(i.budget_cents,i.currency)+'</p></div><button type="button" class="btn btn-peach btn-small" data-action="accept-santa-invite" data-key="'+attr(i.invite_key)+'">Присоединиться</button></article>').join('')+'</section>':'';
+ shell(`<main class="container page"><div class="page-hero"><div><div class="section-label">Секретная служба подарков</div><h1>Тайный Санта</h1><p>Здесь живут все твои секретные обмены подарками</p></div><div class="btn-row"><button class="btn btn-soft btn-small" data-action="connect-game">Привязать игру по ссылке</button><button class="btn btn-dark" data-open="santa">Новая игра ${ico('plus')}</button></div></div>${pending}
+ <div class="santa-state-tabs" role="tablist" aria-label="Статус игр"><button type="button" role="tab" aria-selected="true" class="active" data-santa-state="current">Текущие <span class="tab-count">${currentEvents.length}</span></button>
+ <button type="button" role="tab" aria-selected="false" data-santa-state="finished">Завершённые <span class="tab-count">${finishedEvents.length}</span></button></div>
+ <div id="santa-state-panel" role="tabpanel"><div class="santa-grid">${events.map(e=>`<div class="santa-list-card santa-tone-${santaTone(e.id)}" data-santa-card-state="${e.status==='finished'?'finished':'current'}" ${e.status==='finished'?'hidden':''}><a class="card-hitarea" href="/santa/${e.id}" data-nav="/santa/${e.id}" aria-label="Открыть игру ${attr(e.title)}"></a><span class="sparkle-deco" aria-hidden="true">${ico("spark",72)}</span><div class="section-label">${e.status==='finished'?'Игра завершена':e.status==='drawn'?'Жеребьёвка проведена':'Собираем компанию'}</div><h3>${esc(e.title)}</h3><p>${esc(e.description||'Собираем друзей для хороших сюрпризов')}</p><div class="list-bottom"><span>${ico('users')} ${ruCount(e.participant_count,'участник','участника','участников')} · ${dateRu(e.exchange_date)}</span><button class="text-link" data-nav="/santa/${e.id}">Открыть ${ico('arrow')}</button></div></div>`).join('')}</div>
+ <div class="santa-state-empty" ${currentEvents.length?'hidden':''}><h3>Пока нет текущих игр</h3><p>Создай игру или загляни в завершённые</p></div>
+ </div></main>`);
+}
+document.addEventListener('click',event=>{
+ const tab=event.target.closest('[data-santa-state]');
+ if(!tab)return;
+ event.preventDefault();
+ const panel=document.getElementById('santa-state-panel');if(!panel)return;
+ const state=tab.dataset.santaState;
+ for(const b of document.querySelectorAll('[data-santa-state]')){
+  const active=b===tab;b.classList.toggle('active',active);b.setAttribute('aria-selected',String(active));
+ }
+ let visible=0;
+ for(const card of panel.querySelectorAll('[data-santa-card-state]')){
+  const match=card.dataset.santaCardState===state;
+  card.hidden=!match;if(match)visible++;
+ }
+ const empty=panel.querySelector('.santa-state-empty');
+ if(empty){
+  empty.hidden=visible>0;
+  empty.innerHTML=state==='finished'?'<h3>Пока нет завершённых игр</h3><p>Законченные игры появятся здесь</p>':
+   '<h3>Пока нет текущих игр</h3><p>Создай игру или загляни в завершённые</p>';
+ }
+});
+
 let loadedSanta=null;
 let activeGameContext=null;
 let gameChatTimer=null;
 let gameRosterTimer=null;
+// Standardise every browser image upload to WebP before it reaches the API.
+async function compressToWebp(file,{maxDimension=1280,maxBytes=800000,maxSourceBytes=12000000}={}){
+ if(!['image/jpeg','image/png','image/webp'].includes(file?.type))throw new Error('Выбери изображение JPG, PNG или WEBP');
+ if(file.size>maxSourceBytes)throw new Error('Фотография слишком большая для загрузки');
+ let bitmap;
+ try{bitmap=await createImageBitmap(file);}catch{throw new Error('Не удалось открыть изображение. Попробуй другое фото');}
+ try{
+  const canvas=document.createElement('canvas');
+  let scale=Math.min(1,maxDimension/Math.max(bitmap.width,bitmap.height));
+  for(let i=0;i<10;i++){
+   canvas.width=Math.max(1,Math.round(bitmap.width*scale));
+   canvas.height=Math.max(1,Math.round(bitmap.height*scale));
+   const ctx=canvas.getContext('2d',{alpha:false});
+   if(!ctx)throw new Error('Браузер не поддерживает обработку фото');
+   ctx.fillStyle='#fff';ctx.fillRect(0,0,canvas.width,canvas.height);
+   ctx.drawImage(bitmap,0,0,canvas.width,canvas.height);
+   const result=canvas.toDataURL('image/webp',Math.max(.58,.82-.035*i));
+   if(!result.startsWith('data:image/webp;base64,'))throw new Error('Браузер не поддерживает сохранение WebP');
+   if(result.length<=Math.floor(maxBytes*4/3)+24)return result;
+   scale*=.82;
+  }
+  throw new Error('Не удалось уменьшить фотографию. Выбери файл меньшего размера');
+ }finally{bitmap.close?.();}
+}
+async function compressSantaMemory(file){
+ return compressToWebp(file,{maxDimension:1600,maxBytes:850000});
+}
+async function loadSantaMemory(state){
+ const panel=document.getElementById('santa-memory-content');
+ if(!panel)return;
+ try{
+  const response=await api(state.base+'/memory');
+  if(!panel.isConnected||activeGameContext!==state)return;
+  const memory=response.memory;
+  panel.innerHTML=memory?
+    '<img class="santa-memory-photo" src="'+attr(memory.image_data)+'" alt="Общая фотография участников и подарков">'+
+    '<p class="note">На память о вашей игре!</p>':
+    '<div class="santa-memory-empty">'+ico('gift',28)+'<p>Пока без фотографии. Организатор может добавить один общий снимок</p></div>';
+  const label=document.querySelector('[data-santa-memory-label]');
+  if(label)label.textContent=memory?'Заменить фотографию':'Добавить фотографию';
+ }catch(err){if(panel.isConnected&&activeGameContext===state)panel.innerHTML='<p class="note">'+esc(err.message)+'</p>';}
+}
+function santaMemorySection(event,memberView){
+ if(event.status!=='finished')return '';
+ return '<section class="panel santa-memory-panel" aria-label="Общее фото на память">'+
+  '<div class="panel-heading-actions"><div><h2>Фото на память</h2><p class="note">Один общий снимок участников с подарками, доступный только участникам этой игры</p></div>'+
+  (!memberView?'<label class="btn btn-soft btn-small santa-memory-upload"><span data-santa-memory-label>Добавить фотографию</span><input id="santa-memory-input" type="file" accept="image/jpeg,image/png,image/webp" aria-label="Загрузить общее фото WebP"></label>':'')+
+  '</div><div id="santa-memory-content"><p class="note">Загружаем фотографию…</p></div></section>';
+}
 async function santaAdminPage(id,marker=lastRenderToken){return santaGamePage(id,marker);}
 async function santaGamePage(id,marker=lastRenderToken,participantToken=null){
  let memberView=participantToken!==null,memberBase=null,d;
@@ -500,49 +988,71 @@ async function santaGamePage(id,marker=lastRenderToken,participantToken=null){
  if(marker!==lastRenderToken)return;
  if(!memberView)loadedSanta=d;else loadedSanta=null;
  const e=d.event;
+ const drawPerformed=e.status==='drawn'||(e.status==='finished'&&!!(memberView?d.assignment:d.my_assignment));
  if(memberView)id=e.id;
  const gameWishes=memberView?d.wishes:(d.my_wishes||[]);
   const myPrefs=memberView?d.preferences:d.my_preferences;
  activeGameContext={base:memberView?(memberBase||'/api/participant/'+participantToken):'/api/santas/'+id,
-  event:e,richEnabled:d.rich_enabled!==false,own:gameWishes,memberView,memberId:memberView?d.participant.id:null,currentUserId:currentUser?.id,recipient:e.status==='drawn'?(memberView?d.assignment?.wish_cards:d.my_assignment?.wish_cards)||[]:[]};
+  event:e,richEnabled:d.rich_enabled!==false,own:gameWishes,memberView,memberId:memberView?d.participant.id:null,currentUserId:currentUser?.id,recipient:e.status!=='open'?(memberView?d.assignment?.wish_cards:d.my_assignment?.wish_cards)||[]:[],participants:d.participants};
  const people=d.participants;
  const selects=(id,label)=>selectField(label,id,people.map(p=>[p.id,p.name]),null);
- shell(`<main class="container page"><div class="guest-topline">${memberView? `${ico('lock')} Личный кабинет участника <span>/</span> <strong>${esc(d.participant.name)}</strong>`:`<button class="text-link" data-nav="/santas">${ico('back')} Все игры</button> <span>/</span> <span>${esc(e.title)}</span>`}</div><div class="page-hero"><div><div class="section-label">${e.status==='drawn'?'Жеребьёвка проведена':'Приглашаем участников'}</div><h1>${esc(e.title)}</h1><p>${esc(e.description||'Праздник начинается с маленькой тайны')}</p></div><span class="chip ${e.status==='drawn'?'chip-green':'chip-lilac'}">${ico(e.status==='drawn'?'check':'users')} ${e.status==='drawn'?'Игра началась':'Приём открыт'}</span></div><div class="santa-detail-layout"><div>
- <div class="panel"><div class="panel-heading-actions"><h2>Участники <span class="chip" data-santa-roster-count>${people.length}</span></h2>${!memberView&&e.status==='open'?'<button class="btn btn-soft btn-small" data-action="add-player">'+ico('plus')+' Добавить участника</button>'+(isPreview?'':'<button class="btn btn-soft btn-small" data-social-action="invite-friends">Пригласить друзей</button>'):''}</div><div class="person-list" data-santa-roster>${people.map(p=>santaRosterPerson(p,activeGameContext)).join('')}</div>${e.status==='open'?`<div class="divider-line"></div><p class="note">Пригласи друзей по общей ссылке. Каждый сможет присоединиться без регистрации и получит собственную личную ссылку</p><div class="share-field"><input class="input" aria-label="Ссылка-приглашение" readonly value="${attr(getLink(`/join/${e.invite_key}`))}"><button class="btn btn-dark btn-small" data-action="copy" data-url="${attr(getLink(`/join/${e.invite_key}`))}">${ico('copy')} Копировать</button></div>`:''}</div>
+ shell(`<main class="container page"><div class="guest-topline">${memberView? `${ico('lock')} Личный кабинет участника <span>/</span> <strong>${esc(d.participant.name)}</strong>`:`<button class="text-link" data-nav="/santas">${ico('back')} Все игры</button> <span>/</span> <span>${esc(e.title)}</span>`}</div><div class="page-hero"><div><div class="section-label">${e.status==='finished'?'Игра завершена':e.status==='drawn'?'Жеребьёвка проведена':'Приглашаем участников'}</div><h1>${esc(e.title)}</h1><p>${esc(e.description||'Праздник начинается с маленькой тайны')}</p></div><div class="santa-game-status">${!memberView?'<button type="button" class="btn btn-soft btn-small" data-action="delete-santa">'+ico('trash')+' Удалить игру</button>':''}${!memberView&&e.status!=='finished'?'<button type="button" class="btn btn-soft btn-small" data-action="finish-santa">Завершить игру '+ico('check')+'</button>':''}<span class="chip ${e.status!=='open'?'chip-green':'chip-lilac'}">${ico(e.status!=='open'?'check':'users')} ${e.status==='finished'?'Игра завершена':e.status==='drawn'?'Игра началась':'Приём открыт'}</span></div></div><div class="santa-detail-layout"><div>
+ <div class="panel"><div class="panel-heading-actions"><h2>Участники <span class="chip" data-santa-roster-count>${people.length}</span></h2>${!memberView&&e.status==='open'?'<div class="santa-player-actions"><button class="btn btn-soft btn-small" data-action="add-player">'+ico('plus')+' Добавить участника</button>'+(isPreview?'':'<button class="btn btn-soft btn-small santa-invite-action" data-social-action="invite-friends">Пригласить друзей</button>')+'</div>':''}</div><div class="person-list" data-santa-roster>${people.map(p=>santaRosterPerson(p,activeGameContext)).join('')}</div>${e.status==='open'?`<div class="divider-line"></div><p class="note">Пригласи друзей по общей ссылке. Каждый сможет присоединиться без регистрации и получит собственную личную ссылку</p><div class="share-field"><input class="input" aria-label="Ссылка-приглашение" readonly value="${attr(getLink(`/join/${e.invite_key}`))}"><button class="btn btn-dark btn-small" data-action="copy" data-url="${attr(getLink(`/join/${e.invite_key}`))}">${ico('copy')} Копировать</button></div>`:''}</div>
  <div class="panel"><div class="panel-heading-actions"><h2>Мои пожелания</h2>${!memberView||currentUser?`<button class="btn btn-soft btn-small" data-action="import-own-wishes" ${memberView?`data-key="${attr(participantToken||'')}"`:`data-id="${id}"`}>${ico('plus')} Из вишлиста</button>`:''}</div><p class="note">Твои пожелания увидит только твой тайный Санта</p>
-  <form class="form participant-preferences" id="santa-preferences-form">
-    ${textArea('Что хотелось бы','wanted','Любимые цвета, увлечения, идеи',myPrefs?.wanted||'')}
-    ${textArea('Чего не хотелось бы','unwanted','Что точно не подходит',myPrefs?.unwanted||'')}
-    <button type="submit" class="btn btn-soft btn-small">Сохранить пожелания</button>
-  </form><div class="my-wishes-list">${wishesMarkup(gameWishes)}</div>
+  <div class="santa-preferences-display" id="santa-preferences-display">
+    <div data-preferences-summary>${preferenceSummary(myPrefs)}</div>
+    <button type="button" class="btn btn-soft btn-small" data-action="edit-santa-preferences">${ico('edit')} ${myPrefs?.wanted||myPrefs?.unwanted?'Изменить пожелания':'Добавить пожелания'}</button>
+   </div>
+   <form class="form participant-preferences" id="santa-preferences-form" hidden>
+     ${textArea('Что хотелось бы','wanted','Любимые цвета, увлечения, идеи',myPrefs?.wanted||'')}
+     ${textArea('Чего не хотелось бы','unwanted','Что точно не подходит',myPrefs?.unwanted||'')}
+     <div class="btn-row"><button type="button" class="btn btn-soft btn-small" data-action="cancel-santa-preferences">Отмена</button><button type="submit" class="btn btn-dark btn-small">Сохранить пожелания</button></div>
+   </form><div class="my-wishes-list">${wishesMarkup(gameWishes)}</div>
  ${d.rich_enabled!==false?`<button class="btn btn-dark btn-small" type="button" data-action="add-game-gift">${ico('plus')} Добавить подарок</button>`:
  `<form class="form" id="legacy-santa-wish-form"><div class="share-field"><input class="input" name="title" required maxlength="130" placeholder="Название подарка"><button class="btn btn-dark btn-small" type="submit">Добавить ${ico('plus')}</button></div></form><p class="note">Подробные карточки появятся после обновления игры</p>`}</div>
  ${!memberView&&e.status==='open'?`<div class="panel"><h2>Исключения</h2><p class="note">Укажи пары, которые не должны выпадать друг другу. Ограничения работают направленно: «А → Б» означает, что А не может дарить Б</p><div class="rules-list" style="margin:17px 0">${d.exclusions.length?d.exclusions.map(r=>`<span class="rule-chip">${esc(people.find(p=>p.id===r.giver_id)?.name||'?')} → ${esc(people.find(p=>p.id===r.receiver_id)?.name||'?')} <button title="Убрать ограничение" data-action="remove-rule" data-from="${r.giver_id}" data-to="${r.receiver_id}">×</button></span>`).join(''):'<span class="muted">Пока нет исключений</span>'}</div><form class="form" id="rule-form"><div class="form-grid">${selects('giver_id','Кто дарит')}${selects('receiver_id','Кому нельзя дарить')}</div><button class="btn btn-soft btn-small" type="submit">${ico('plus')} Добавить ограничение</button></form></div>`:''}
- </div><div><div class="panel"><div class="panel-heading-actions"><h2>О событии</h2>${!memberView?`<button class="btn btn-soft btn-small" data-action="edit-santa">${ico('edit')} Изменить</button>`:''}</div><div class="details-box santa-event-details"><p>${ico('calendar')} <strong>Дата:</strong> ${dateRu(e.exchange_date)}</p><p>${ico('gift')} <strong>Бюджет:</strong> ${money(e.budget_cents,e.currency)}</p><p>${ico('users')} <strong>Участников:</strong> <span data-santa-event-count>${people.length}</span></p>${e.rules?`<div class="divider-line"></div><strong>Правила:</strong><p>${esc(e.rules)}</p>`:''}</div></div>
- ${!memberView&&e.status==='open'?`<div class="panel"><h2>Время раскрыть карты?</h2><p class="note">После жеребьёвки приглашения, состав и исключения будут заморожены. Каждый увидит только своего получателя</p><div class="alert">${ico('info')} Понадобится минимум 3 участника. Желательно, чтобы все успели присоединиться</div><button class="btn btn-dark" style="width:100%" data-action="draw" ${people.length<3?'disabled':''}>Провести жеребьёвку ${ico('spark')}</button></div>`:`<div class="panel"><h2>Кому ты даришь</h2>${e.status==='drawn'?secretCard(memberView?d.assignment:d.my_assignment,!memberView,memberView?participantToken:id):`<div class="secret-card">${envelopeArt()}<h2>Пока храним интригу</h2><p>Организатор ещё собирает всех участников. После жеребьёвки здесь появится конверт с твоим получателем</p></div>`}</div>`}
- ${memberView?`<div class="panel"><h2>Твоя личная ссылка</h2><p class="note">Не пересылай никому: по ней открывается твой секрет. Сохрани в закладки</p><div class="share-field"><input class="input" readonly value="${attr(getLink(`/p/${participantToken}`))}" aria-label="Личная ссылка"><button class="btn btn-dark btn-small" data-action="copy" data-url="${attr(getLink(`/p/${participantToken}`))}">${ico('copy')} Копировать</button></div></div>`:''}
+ </div><div><div class="panel"><div class="panel-heading-actions"><h2>О событии</h2>${!memberView?`<button class="btn btn-soft btn-small" data-action="edit-santa">${ico('edit')} Изменить</button>`:''}</div><div class="details-box santa-event-details"><p>${ico('calendar')} <strong>Дата:</strong> ${dateRu(e.exchange_date)}</p><p>${ico('gift')} <strong>Бюджет:</strong> ${money(e.budget_cents,e.currency)}</p><p>${ico('users')} <strong>Участники:</strong> <span data-santa-event-count>${people.length}</span></p>${e.rules?`<div class="divider-line"></div><strong>Правила:</strong><p>${esc(e.rules)}</p>`:''}</div></div>
+ ${!memberView&&e.status==='open'?`<div class="panel"><h2>Время раскрыть карты?</h2><p class="note">После жеребьёвки приглашения, состав и исключения будут заморожены. Каждый увидит только своего получателя</p><div class="alert santa-draw-hint"><span class="santa-draw-hint-icon">${ico('info')}</span><span>Понадобится минимум 3 участника. Желательно, чтобы все успели присоединиться</span></div><button class="btn btn-dark" style="width:100%" data-action="draw" ${people.length<3?'disabled':''}>Провести жеребьёвку ${ico('spark')}</button></div>`:`<div class="panel"><h2>Кому ты даришь</h2>${drawPerformed?secretCard(memberView?d.assignment:d.my_assignment,!memberView,memberView?participantToken:id):`<div class="secret-card">${envelopeArt()}<h2>${e.status==='finished'?'Игра завершена без жеребьёвки':'Пока храним интригу'}</h2><p>${e.status==='finished'?'Получатели не назначались':'Организатор ещё собирает всех участников. После жеребьёвки здесь появится конверт с твоим получателем'}</p></div>`}</div>`}
+ ${memberView?`<div class="panel"><h2>Твоя личная ссылка</h2><p class="note">Не пересылай никому: по ней открывается твой секрет. Сохрани в закладки</p>${!d.participant.user_id&&!isPreview?`<div class="game-save-account"><p>Сохрани игру в аккаунте, чтобы открывать её из раздела «Тайный Санта» без этой ссылки</p><button class="btn btn-dark btn-small" type="button" data-action="claim-game" data-token="${attr(participantToken)}">${ico("check")} Сохранить игру в аккаунте</button></div>`:""}<div class="share-field"><input class="input" readonly value="${attr(getLink(`/p/${participantToken}`))}" aria-label="Личная ссылка"><button class="btn btn-dark btn-small" data-action="copy" data-url="${attr(getLink(`/p/${participantToken}`))}">${ico('copy')} Копировать</button></div></div>`:''}
  </div></div>
  ${d.rich_enabled!==false?`<section class="panel game-chat-panel" id="game-chat" aria-label="Чаты игры">
  <div class="panel-heading-actions"><h2>Чаты игры</h2></div>
  <p class="note">Общий чат открыт всем участникам. После жеребьёвки появятся личные переписки. Личность тайного дарителя не раскрывается</p>
  <div class="game-chat-tabs" role="group" aria-label="Выбрать чат">
  <button class="btn btn-soft btn-small active" type="button" data-chat-room="general" aria-pressed="true">Общий чат</button>
- ${e.status==='drawn'?'<button class="btn btn-soft btn-small" type="button" data-chat-room="to-recipient" aria-pressed="false">Моему получателю</button><button class="btn btn-soft btn-small" type="button" data-chat-room="from-santa" aria-pressed="false">Моему дарителю</button>':''}
+ ${drawPerformed?'<button class="btn btn-soft btn-small" type="button" data-chat-room="to-recipient" aria-pressed="false">Моему получателю</button><button class="btn btn-soft btn-small" type="button" data-chat-room="from-santa" aria-pressed="false">Моему дарителю</button>':''}
  </div>
  <div class="game-chat-messages" role="log" aria-live="polite"><p class="note">Загружаем сообщения…</p></div>
- <form id="game-chat-form" class="game-chat-form"><label for="game-chat-input" class="sr-only">Текст сообщения</label><input id="game-chat-input" class="input" name="message" placeholder="Напиши сообщение" maxlength="500" autocomplete="off" required><button class="btn btn-dark btn-small" type="submit">Отправить ${ico('arrow')}</button></form>
- <button class="text-link game-chat-refresh" type="button" data-chat-refresh>Обновить сообщения</button>
- </section>`:`<section class="panel"><h2>Чаты игры</h2><p class="note">Чаты появятся после обновления игры. Остальные возможности доступны</p></section>`}</main>`);
+ <form id="game-chat-form" class="game-chat-form"><label for="game-chat-input" class="sr-only">Текст сообщения</label><input id="game-chat-input" class="input" name="message" placeholder="Сообщение…" maxlength="500" autocomplete="off" required><button class="btn btn-dark btn-small game-chat-send" type="submit" aria-label="Отправить сообщение" title="Отправить">${ico('arrow',22)}</button></form>
+ 
+ </section>`:`<section class="panel"><h2>Чаты игры</h2><p class="note">Чаты появятся после обновления игры. Остальные возможности доступны</p></section>`}${santaMemorySection(e,memberView)}</main>`);
  document.getElementById('santa-preferences-form')?.addEventListener('submit',async ev=>{
    ev.preventDefault();const form=ev.currentTarget,button=form.querySelector('button');
    button.disabled=true;
    try{await api(activeGameContext.base+'/preferences',{method:'PATCH',body:readForm(form)});
+    if(form.isConnected){const summary=document.querySelector('#santa-preferences-display');if(summary){summary.querySelector('[data-preferences-summary]').innerHTML=preferenceSummary(readForm(form));summary.hidden=false;}form.hidden=true;}
     notice('Пожелания сохранены');
    }catch(err){notice(err.message,true)}finally{button.disabled=false;}
   });
   document.getElementById('rule-form')?.addEventListener('submit',async ev=>{ev.preventDefault();try{await api(`/api/santas/${id}/exclusions`,{method:'POST',body:readForm(ev.currentTarget)});notice('Исключение добавлено');await render();}catch(err){notice(err.message,true)}});
  setupGameChat(activeGameContext);
  setupSantaRoster(activeGameContext);
+ if(e.status==='finished'){
+  const state=activeGameContext;
+  void loadSantaMemory(state);
+  document.getElementById('santa-memory-input')?.addEventListener('change',async event=>{
+   const file=event.target.files?.[0];if(!file)return;
+   const input=event.target;
+   input.disabled=true;
+   try{
+    const image_data=await compressSantaMemory(file);
+    await api('/api/santas/'+e.id+'/memory',{method:'PUT',body:{image_data}});
+    notice('Общая фотография сохранена');
+    await loadSantaMemory(state);
+   }catch(err){notice(err.message,true);}
+   finally{if(input.isConnected){input.value='';input.disabled=false;}}
+  });
+ }
  document.getElementById('legacy-santa-wish-form')?.addEventListener('submit',async ev=>{
   ev.preventDefault();
   const form=ev.currentTarget,button=form.querySelector('button');
@@ -559,15 +1069,17 @@ function secretCard(assignment,organizer,identifier){if(!assignment||!assignment
   ${preferenceSummary(assignment.preferences)}
   <strong>Подарки получателя</strong>${assignment.wish_cards?.length?wishesMarkup(assignment.wish_cards,'recipient'):'<p class="recipient-empty">Пока без пожеланий - можно придумать сюрприз самому</p>'}</div></div>`;}
 function preferenceSummary(preferences){
- const text=(label,value)=>value?'<div class="game-gift-note"><strong>'+label+'</strong><p>'+esc(value)+'</p></div>':'';
+ const row=(title,value)=>'<div class="game-gift-note"><strong>'+title+'</strong><p>'+(value?esc(value):'<span class="muted">Не указано</span>')+'</p></div>';
  return '<div class="participant-preferences-summary">'+
-  (text('Что хотелось бы',preferences?.wanted)+text('Чего не хотелось бы',preferences?.unwanted)||
-   '<p class="note">Получатель пока не оставил общих пожеланий</p>')+'</div>';
+ row('Что хотелось бы',preferences?.wanted)+row('Чего не хотелось бы',preferences?.unwanted)+'</div>';
 }
 async function invitePage(key,marker=lastRenderToken){const {event:e,already_joined}=await api(`/api/invites/${key}`);if(marker!==lastRenderToken)return;shell(`<main class="container page"><div class="invite-card"><div class="invite-icon">${envelopeArt()}</div><div class="section-label" style="text-align:center">Тебя зовут в игру!</div><h1>${esc(e.title)}</h1><p>${esc(e.description||'Кто-то хочет устроить вам небольшой праздник')}</p><div class="invite-info"><div class="info-tile"><small>Когда обмениваемся</small><strong>${dateRu(e.exchange_date)}</strong></div><div class="info-tile"><small>Бюджет</small><strong>${money(e.budget_cents,e.currency)}</strong></div></div>${e.rules?`<div class="details-box"><strong>Правила от организатора</strong><p>${esc(e.rules)}</p></div>`:''}${already_joined?'<div class="alert">Ты уже участвуешь в этой игре. Повторное вступление не требуется</div>':e.status==='open'?`<form class="invite-form" id="join-form"><h3>Как тебя зовут?</h3><div class="field"><label for="join-name">Твоё имя</label><input id="join-name" name="name" maxlength="50" required placeholder="Например, Маша"></div><button class="btn btn-dark" type="submit">Присоединиться ${ico('arrow')}</button><p class="note" style="margin-top:15px">После вступления получишь личную ссылку - сохрани её, чтобы вернуться в игру</p></form>`:`<div class="alert">Жеребьёвка уже состоялась. Новые участники присоединиться не могут</div>`}</div></main>`);
  document.getElementById('join-form')?.addEventListener('submit',async ev=>{ev.preventDefault();const btn=ev.currentTarget.querySelector('button');btn.disabled=true;try{const r=await api(`/api/invites/${key}/join`,{method:'POST',body:readForm(ev.currentTarget)});nav(`/p/${r.participant_token}`);notice('Ты в игре! Сохрани личную ссылку');}catch(err){notice(err.message,true);btn.disabled=false;}});
 }
-async function participantPage(key,marker=lastRenderToken){return santaGamePage(null,marker,key);}
+async function participantPage(key,marker=lastRenderToken){
+ // Simply viewing a personal link must not silently claim a membership.
+ return santaGamePage(null,marker,key);
+}
 
 function passwordField(register){
  const generator=register?'<button type="button" class="password-generate" data-password-generate>'+ico('spark')+' Сгенерировать пароль</button>':'';
@@ -606,16 +1118,30 @@ function resendConfirmationModal(email=''){
 }
 function loginModal(mode='login'){
  const register=mode==='register';
+ // Registering or logging in directly from a private participant page
+ // is an explicit membership recovery action, even via the header.
+ const pageToken=!currentUser&&currentPath().match(/^\/p\/([A-Za-z0-9_-]{43})$/)?.[1];
+ if(pageToken&&!pendingGameClaim)savePendingGameClaim(pageToken);
  modal({title:register?'Давай знакомиться!':'С возвращением!',
-  subtitle:register?'Создай аккаунт, чтобы хранить свои списки и организовывать игры':'Твои желания уже соскучились',
+  subtitle:pendingGameClaim?'После входа сохраним эту игру в твоём аккаунте':register?'Создай аккаунт, чтобы хранить свои списки и организовывать игры':'Твои желания уже соскучились',
   content:(register?field('Как тебя зовут?','name','Например, Саша','text','',true,'maxlength="40"'):'')+
    field('Почта','email','you@example.com','email','',true,'autocomplete="email"')+passwordField(register),
   submitLabel:register?'Создать аккаунт':'Войти',
   onSubmit:async form=>{
    const payload=readForm(form);
    const result=await api(register?'/api/register':'/api/login',{method:'POST',body:payload});
-   if(result.pending_confirmation){confirmationModal(payload.email);return;}
-   currentUser=result.user;broadcastSessionChange();notice(register?'Аккаунт создан!':'С возвращением!');nav('/',{force:true});
+   if(result.pending_confirmation){if(register)persistSignupClaim();confirmationModal(payload.email);return;}
+   currentUser=result.user;broadcastSessionChange();
+    if(pendingGameClaim){
+     const claim=pendingGameClaim;
+     try{await claimPersonalGame(claim);}
+     catch(error){
+      notice('Ты вошёл, но игру пока не удалось привязать: '+error.message,true);
+      nav('/p/'+claim,{force:true});
+     }
+     return;
+    }
+    notice(register?'Аккаунт создан!':'С возвращением!');const landing=currentPath();nav(/^\/w\/[A-Za-z0-9_-]+$/.test(landing)?landing:'/',{force:true});
   },
   footer:(register?'Уже есть аккаунт?':'Нет аккаунта?')+
    ' <button type="button" data-open="'+(register?'login':'register')+'">'+(register?'Войти':'Зарегистрироваться')+'</button>'+
@@ -624,7 +1150,7 @@ function loginModal(mode='login'){
  });
 }
 function listModal(edit=null){if(!currentUser){loginModal('register');return;}
- const selected=edit||{};modal({title:edit?'Настройки вишлиста':'Новый вишлист',subtitle:edit?'Меняй оформление и доступ, когда захочешь':'Как назовём твою маленькую коллекцию желаний?',content:`${field('Название','title','Например, День рождения, ура!','text',selected.title||'',true,'maxlength="90"')}${textArea('Пара слов о списке','description','Что важно знать дарителям?',selected.description||'')}<div class="form-grid">${selectField('Повод','occasion',['Просто так','День рождения','Годовщина','Новоселье','Свадьба','Новый год','Другое'].map(v=>[v,v]),selected.occasion||'День рождения')}${selectField('Оформление','theme',[['peach','Персиковое'],['lilac','Лавандовое'],['mint','Мятное'],['yellow','Солнечное']],selected.theme||'peach')}</div>${selectField('Доступ к списку','visibility',[['link','По ссылке'],['private','Только мне']],selected.visibility||'link')}`,submitLabel:edit?'Сохранить':'Создать список',onSubmit:async form=>{const payload=readForm(form);if(edit){await api(`/api/lists/${edit.id}`,{method:'PATCH',body:payload});notice('Настройки сохранены');await render();}else{const r=await api('/api/lists',{method:'POST',body:payload});notice('Список создан!');nav(`/list/${r.id}`);}}});}
+ const selected=edit||{};modal({title:edit?'Настройки вишлиста':'Новый вишлист',subtitle:edit?'Меняй оформление и доступ, когда захочешь':'Как назовём твою маленькую коллекцию желаний?',content:`${field('Название','title','Например, День рождения, ура!','text',selected.title||'',true,'maxlength="90"')}${textArea('Пара слов о списке','description','Что важно знать дарителям?',selected.description||'')}<div class="form-grid">${selectField('Повод','occasion',['Просто так','День рождения','Годовщина','Новоселье','Свадьба','Новый год','Другое'].map(v=>[v,v]),selected.occasion||'День рождения')}${selectField('Оформление','theme',[['peach','🟠 Персиковое'],['lilac','🟣 Лавандовое'],['mint','🟢 Мятное'],['yellow','🟡 Солнечное']],selected.theme||'peach')}</div>${selectField('Доступ к списку','visibility',[['link','По ссылке'],['private','Только мне']],selected.visibility||'link')}`,submitLabel:edit?'Сохранить':'Создать список',onSubmit:async form=>{const payload=readForm(form);if(edit){await api(`/api/lists/${edit.id}`,{method:'PATCH',body:payload});notice('Настройки сохранены');await render();}else{const r=await api('/api/lists',{method:'POST',body:payload});notice('Список создан!');nav(`/list/${r.id}`);}}});}
 function fixWishModalLayout(){
  const dialog=modalRoot.querySelector('.modal');
  dialog?.classList.add('wish-edit-modal');
@@ -655,25 +1181,20 @@ function wishModal(edit=null){
    '<p class="field-hint">Сохраним ссылку, а название, цену и фото ты добавишь самостоятельно</p>'+
    field('Что хочется?','title','Например, керамическая чашка','text',w.title||'',true,'maxlength="130"')+
    textArea('Комментарий','description','Цвет, размер, пожелания или настроение',w.description||'')+
-   '<div class="form-grid">'+
    field('Ориентировочная цена','price','Например, 2500','number',w.price_cents!=null?w.price_cents/100:'',false,'min="0" step="0.01"')+
-   selectField('Валюта','currency',[['RUB','₽ Рубли'],['EUR','€ Евро'],['USD','$ Доллары']],w.currency||'RUB')+
-   '</div><div class="form-grid">'+
+   '<div class="form-grid">'+
    selectField('Тип','kind',[['item','Конкретный подарок'],['experience','Идея / впечатление']],w.kind||'item')+
    selectField('Приоритет','priority',[['nice','Было бы здорово'],['love','Очень хочу!']],w.priority||'nice')+
    '</div>'+
    '<div class="field"><label for="wish-file">Фотография (необязательно)</label>'+
    '<div class="file-picker"><input id="wish-file" name="image" type="file" accept="image/png,image/jpeg,image/webp">'+
-   '<div class="field-hint">JPG, PNG или WEBP до 2 МБ. Без фото покажем иллюстрацию</div></div></div>',
+   '<div class="field-hint">JPG, PNG или WEBP до 12 МБ. Автоматически сожмём в WebP</div></div></div>',
   submitLabel:edit?'Сохранить':'Добавить в список',
   onSubmit:async form=>{
    const data=readForm(form);
    delete data.image;
    const file=form.elements.image.files[0];
-   if(file){
-    if(file.size>2_000_000)throw new Error('Изображение должно быть меньше 2 МБ');
-    data.image_data=await fileToData(file);
-   }
+   if(file)data.image_data=await compressToWebp(file,{maxDimension:1440,maxBytes:850000});
    if(edit){
     await api('/api/wishes/'+edit.id,{method:'PATCH',body:data});
     notice('Желание обновлено');
@@ -687,12 +1208,12 @@ function wishModal(edit=null){
  fixWishModalLayout();
 
 }
-function fileToData(file){return new Promise((resolve,reject)=>{const r=new FileReader();r.onload=()=>resolve(r.result);r.onerror=()=>reject(new Error('Не получилось прочитать файл'));r.readAsDataURL(file)});}
-function santaModal(){if(!currentUser){loginModal('register');return;}modal({title:'Создать Тайного Санту',subtitle:'Праздничный заговор начинается здесь. Ты автоматически станешь первым участником',content:`${field('Название игры','title','Например, Санта в нашем офисе','text','',true,'maxlength="100"')}${textArea('Описание','description','Кого зовём и что задумали?')}<div class="form-grid">${field('Дата обмена','exchange_date','','date')}${field('Бюджет','budget','Например, 2500','number','','','min="0" step="0.01"')}</div>${selectField('Валюта','currency',[['RUB','₽ Рубли'],['EUR','€ Евро'],['USD','$ Доллары']],'RUB')}${textArea('Дополнительные правила','rules','Что стоит учесть каждому?')}`,submitLabel:'Создать игру',onSubmit:async form=>{const r=await api('/api/santas',{method:'POST',body:readForm(form)});notice('Игра создана! Зови участников');nav(`/santa/${r.id}`);}});}
+function fileToData(file){return compressToWebp(file,{maxDimension:1440,maxBytes:850000});}
+function santaModal(){if(!currentUser){loginModal('register');return;}modal({title:'Создать Тайного Санту',subtitle:'Праздничный заговор начинается здесь. Ты автоматически станешь первым участником',content:`${field('Название игры','title','Например, Санта в нашем офисе','text','',true,'maxlength="100"')}${textArea('Описание','description','Кого зовём и что задумали?')}<div class="form-grid">${field('Дата обмена','exchange_date','','date')}${field('Бюджет','budget','Например, 2500','number','','','min="0" step="0.01"')}</div>${textArea('Дополнительные правила','rules','Что стоит учесть каждому?')}`,submitLabel:'Создать игру',onSubmit:async form=>{const r=await api('/api/santas',{method:'POST',body:readForm(form)});notice('Игра создана! Зови участников');nav(`/santa/${r.id}`);}});}
 
 function showParticipantLink(token,name){
  const url=getLink('/p/'+token);
- modal({title:'Личная ссылка участника',subtitle:'Передай ссылку только участнику '+name+'. Кто откроет её, получит доступ к его пожеланиям и секрету',
+ modal({title:'Личная ссылка участника',subtitle:'Передай ссылку только участнику '+name+'. Он должен открыть её и выбрать «Сохранить игру в аккаунте». Одного совпадения имени недостаточно',
    content:'<div class="share-field"><input class="input" readonly aria-label="Личная ссылка участника" value="'+attr(url)+'">'+
      '<button type="button" class="btn btn-dark btn-small" data-action="copy" data-url="'+attr(url)+'">'+ico('copy')+' Копировать</button></div>'+
      '<p class="note">Ссылка показывается сейчас. Позже организатор может выпустить новую, но старая перестанет работать</p>'});
@@ -741,7 +1262,7 @@ async function importOwnWishesModal(el){
      const wish_ids=[...form.querySelectorAll('[name="wish_ids"]:checked')].map(input=>Number(input.value));
      if(!wish_ids.length)throw new Error('Выбери хотя бы один подарок');
      const result=await api(endpoint,{method:'POST',body:{list_id,wish_ids}});
-     notice(result.added?'Добавлено подарков: '+result.added:'Эти подарки уже добавлены');
+     notice(result.added?'Добавлено '+ruCount(result.added,'подарок','подарка','подарков'):'Эти подарки уже добавлены');
      await render();
    }});
  const select=modalRoot.querySelector('#import-list');
@@ -757,11 +1278,73 @@ async function importOwnWishesModal(el){
  select.addEventListener('change',show);
  show();
 }
-function reserveModal(id,key){modal({title:'Забронировать подарок',subtitle:'Владелец списка не узнает, что ты выбрал. Сохрани приватную ссылку для отмены',content:`${field('Как тебя зовут?','guest_name','Например, Маша','text','',true,'maxlength="50"')}`,submitLabel:'Забронировать',onSubmit:async form=>{const r=await api(`/api/public/${key}/reserve/${id}`,{method:'POST',body:readForm(form)});nav(`/r/${r.manage_token}`);notice('Подарок за тобой!');}});}
+function personalGameTokenFromLink(value){
+ let url;
+ try{url=new URL(String(value||'').trim());}
+ catch{throw new Error('Вставь полную личную ссылку участника');}
+ const match=url.pathname.match(/^\/p\/([A-Za-z0-9_-]{43})$/);
+ if(url.origin!==location.origin||!match||url.search||url.hash)
+  throw new Error('Нужна личная ссылка участника с этого сайта, а не общее приглашение');
+ return match[1];
+}
+async function claimPersonalGame(token){
+ const result=await api('/api/participant/'+encodeURIComponent(token)+'/claim',{method:'POST',body:{}});
+ clearPendingGameClaim();
+ notice('Игра привязана к аккаунту!');
+ nav('/santas',{force:true});
+ return result;
+}
+function connectGameModal(){
+ modal({title:'Привязать игру',subtitle:'Если тебя добавили до регистрации, попроси организатора личную ссылку участника. Общая ссылка для приглашений не подойдёт',
+  content:field('Личная ссылка','personal_link',getLink('/p/…'),'url','',true,'autocomplete="off" spellcheck="false"'),
+  submitLabel:'Привязать',onSubmit:async form=>{
+   const token=personalGameTokenFromLink(form.elements.personal_link.value);
+   await claimPersonalGame(token);
+  }});
+}
+async function reserveModal(id,key){await toggleGiftReservation(id,key);}
 async function confirmAction(title,subtitle,handler,label='Удалить'){modal({title,subtitle,content:'<div class="alert alert-error">Это действие нельзя отменить</div>',submitLabel:label,onSubmit:handler});}
 async function dispatch(action,el){try{
+ if(action==='accept-santa-invite'){
+  if(!currentUser)return;
+  await api('/api/invites/'+encodeURIComponent(el.dataset.key)+'/join',{method:'POST',body:{name:currentUser.name}});
+  // Signed-in joins are already bound to the verified UID server-side.
+  notice('Ты в игре!');nav('/santas',{force:true});return;
+ }
+
+ if(action==='delete-santa'){
+  const game=loadedSanta?.event;if(!game)return;
+  confirmAction('Удалить игру «'+game.title+'»?','Все участники, пожелания, чаты и фотографии будут удалены без возможности восстановления',async()=>{
+   await api('/api/santas/'+game.id,{method:'DELETE'});loadedSanta=null;notice('Игра удалена');nav('/santas',{force:true});
+  },'Удалить игру');return;
+ }
+ if(action==='finish-santa'){
+  const event=loadedSanta?.event;
+  if(!event||event.status==='finished')return;
+  modal({title:'Завершить Тайного Санту?',subtitle:event.status==='open'?'Перенесём игру в завершённые без жеребьёвки и назначения получателей':'Сохраним жеребьёвку и историю, а игру перенесём в завершённые',
+   content:'<div class="field"><label for="finish-santa-photo">Общее фото с участниками и подарками (необязательно)</label>'+
+    '<div class="file-picker"><input id="finish-santa-photo" type="file" accept="image/jpeg,image/png,image/webp">'+
+    '<p class="field-hint">Можно добавить сейчас или позже. Фото автоматически сожмём в WebP</p></div></div>',
+   submitLabel:'Завершить игру',onSubmit:async form=>{
+    const file=form.querySelector('#finish-santa-photo')?.files?.[0];
+    const body=file?{image_data:await compressSantaMemory(file)}:{};
+    await api('/api/santas/'+event.id+'/finish',{method:'POST',body});
+    notice('Игра завершена');await render();
+   }});
+  return;
+ }
+ if(action==='edit-santa-preferences'){const f=document.getElementById('santa-preferences-form'),d=document.getElementById('santa-preferences-display');if(f&&d){f.hidden=false;d.hidden=true;}return;}
+ if(action==='cancel-santa-preferences'){const f=document.getElementById('santa-preferences-form'),d=document.getElementById('santa-preferences-display');if(f&&d){f.reset();f.hidden=true;d.hidden=false;}return;}
+ if(action==='claim-game'){
+  const token=el.dataset.token;
+  if(!/^[A-Za-z0-9_-]{43}$/.test(token||''))return;
+  if(!currentUser){savePendingGameClaim(token);loginModal('login');return;}
+  await claimPersonalGame(token);
+  return;
+ }
+ if(action==='connect-game'){connectGameModal();return;}
  if(action==='reset-preview'){window.SHURSH_PREVIEW_RESET?.();return;}
- if(action==='logout'){await api('/api/logout',{method:'POST',body:{}});currentUser=null;broadcastSessionChange();notice('Ты вышел из аккаунта');nav('/',{force:true});}
+ if(action==='logout'){await api('/api/logout',{method:'POST',body:{}});clearPendingGameClaim();currentUser=null;broadcastSessionChange();notice('Ты вышел из аккаунта');nav('/',{force:true});}
  if(action==='demo-login'){const r=await api('/api/demo-login',{method:'POST',body:{}});currentUser=r.user;closeModal();notice('Демо-аккаунт открыт');nav('/lists');}
  if(action==='sample-list'){if(!isDemo){listModal();return;}if(!currentUser){const r=await api('/api/demo-login',{method:'POST',body:{}});currentUser=r.user;}const {lists}=await api('/api/lists');if(lists.length)nav(`/w/${lists[lists.length-1].share_key}`);else nav('/lists');}
  if(action==='copy')await clipboard(el.dataset.url);
@@ -798,7 +1381,7 @@ async function dispatch(action,el){try{
  if(action==='edit-wish')wishModal(loadedList.wishes.find(w=>w.id===Number(el.dataset.id)));
  if(action==='delete-wish')confirmAction('Удалить это желание?','Подарок пропадёт из списка. Активная бронь тоже будет удалена',async()=>{await api(`/api/wishes/${el.dataset.id}`,{method:'DELETE'});notice('Желание удалено');await render();});
  if(action==='delete-list')confirmAction('Удалить весь вишлист?','Все желания, ссылки и связанные брони будут удалены',async()=>{await api(`/api/lists/${loadedList.list.id}`,{method:'DELETE'});notice('Список удалён');nav('/lists');});
- if(action==='reserve')reserveModal(el.dataset.id,el.dataset.key);
+ if(action==='reserve'){await reserveModal(el.dataset.id,el.dataset.key);return;}
  if(action==='cancel-reservation')confirmAction('Отменить бронирование?','Подарок снова станет доступен другим дарителям',async()=>{await api(`/api/reservations/${el.dataset.token}`,{method:'DELETE'});notice('Бронь отменена');await render();},'Отменить бронь');
  if(action==='remove-player')confirmAction('Убрать участника?','Его приватная ссылка перестанет работать, и он не будет участвовать в жеребьёвке',async()=>{await api(`/api/santas/${loadedSanta.event.id}/participants/${el.dataset.id}`,{method:'DELETE'});notice('Участник удалён');await render();});
  if(action==='remove-rule'){await api(`/api/santas/${loadedSanta.event.id}/exclusions/${el.dataset.from}/${el.dataset.to}`,{method:'DELETE'});notice('Ограничение снято');await render();}
@@ -814,6 +1397,33 @@ sessionChannel?.addEventListener('message',event=>{
  clearOwnerDataCache();currentUser=null;renderStarted=false;render();
 });
 let renderStarted=false;
+let pendingGameClaim=null;
+const claimStorageKey='shursh-pending-game-claim';
+const validPendingClaim=entry=>entry&&Number.isFinite(entry.created)
+ &&Date.now()-entry.created>=0&&Date.now()-entry.created<86400000
+ &&typeof entry.token==='string'&&/^[A-Za-z0-9_-]{43}$/.test(entry.token);
+try{
+ const session=JSON.parse(sessionStorage.getItem(claimStorageKey)||'null');
+ const emailReturn=JSON.parse(localStorage.getItem(claimStorageKey)||'null');
+ const entry=validPendingClaim(session)?session:validPendingClaim(emailReturn)?emailReturn:null;
+ if(entry)pendingGameClaim=entry.token;
+ else {sessionStorage.removeItem(claimStorageKey);localStorage.removeItem(claimStorageKey);}
+}catch{}
+function savePendingGameClaim(token){
+ if(!/^[A-Za-z0-9_-]{43}$/.test(token))return;
+ pendingGameClaim=token;
+ try{sessionStorage.setItem(claimStorageKey,JSON.stringify({token,created:Date.now()}));}catch{}
+}
+function persistSignupClaim(){
+ if(!pendingGameClaim)return;
+ // Email confirmation often opens a NEW browser tab, without sessionStorage.
+ // Keep the private claim for at most one day in this browser and clear on success.
+ try{localStorage.setItem(claimStorageKey,JSON.stringify({token:pendingGameClaim,created:Date.now()}));}catch{}
+}
+function clearPendingGameClaim(){
+ pendingGameClaim=null;
+ try{sessionStorage.removeItem(claimStorageKey);localStorage.removeItem(claimStorageKey);}catch{}
+}
 let authReturnNotice = null;
 let authReturnError = false;
 let confirmationToken = null;
@@ -823,7 +1433,7 @@ if(!isPreview && ['access_token','refresh_token','error','error_code','error_des
  confirmationToken=authFragment.get('access_token');
  const callbackType=authFragment.get('type');
  authReturnError=authFragment.has('error')||authFragment.has('error_code')||authFragment.has('error_description')||!confirmationToken||
-  (callbackType!==null&&callbackType!=='signup'&&callbackType!=='email');
+  (callbackType!==null&&callbackType!=='signup'&&callbackType!=='email'&&callbackType!=='email_change');
  if(authReturnError){
   confirmationToken=null;
   authReturnNotice='Ссылка подтверждения недействительна или истекла';
@@ -850,7 +1460,10 @@ async function render(){const marker=++lastRenderToken;try{
   if(currentUser){if(!cachedOwnerValue('/api/dashboard'))dashboardLoading();await dashboardPage(marker);}else home();
   return;
  }
- if(!((path==='/lists'&&cachedOwnerValue('/api/lists')) || (path==='/santas'&&cachedOwnerValue('/api/santas'))))loading();
+ const routeApi=ownerApiForTab(path)||
+  (/^\/santa\/\d+$/.test(path)?'/api/santas/'+path.split('/')[2]:
+   /^\/list\/\d+$/.test(path)?'/api/lists/'+path.split('/')[2]:null);
+ if(!routeApi||!cachedOwnerValue(routeApi))loading();
  if(path==='/friends')await socialFriendsPage(marker);else if(path==='/profile')await socialOwnProfilePage(marker);else if(/^\/users\/[0-9a-fA-F-]{36}$/.test(path))await socialProfilePage(path.split('/')[2],marker);else if(path==='/notifications')await socialNotificationsPage(marker);else if(path==='/admin')await socialAdminPage(marker);else if(path==='/lists')await listsPage();else if(/^\/list\/\d+$/.test(path))await ownerListPage(path.split('/')[2]);else if(/^\/w\/[A-Za-z0-9_-]+$/.test(path))await publicListPage(path.split('/')[2]);else if(/^\/r\/[A-Za-z0-9_-]+$/.test(path))await reservationPage(path.split('/')[2]);else if(path==='/santas')await santasPage();else if(path==='/admin/feedback')await adminFeedbackPage();else if(/^\/santa\/\d+$/.test(path))await santaAdminPage(path.split('/')[2]);else if(/^\/join\/[A-Za-z0-9_-]+$/.test(path))await invitePage(path.split('/')[2]);else if(/^\/p\/[A-Za-z0-9_-]+$/.test(path))await participantPage(path.split('/')[2]);else errorView(new Error('Похоже, такой страницы ещё нет'),'Страница потерялась');
  }catch(err){if(marker===lastRenderToken)errorView(err,err.message?.includes('404')?'Не найдена':'Страница не загрузилась');}}
 document.addEventListener('click',async ev=>{
@@ -890,6 +1503,13 @@ if(!isPreview)(async()=>{
    const result=await api('/api/auth/complete',{method:'POST',body:{access_token:token}});
    currentUser=result.user;broadcastSessionChange();
    authReturnNotice='Почта подтверждена! Ты вошёл в аккаунт';
+   if(pendingGameClaim){
+    const claim=pendingGameClaim;
+    try{
+     await api('/api/participant/'+encodeURIComponent(claim)+'/claim',{method:'POST',body:{}});
+     clearPendingGameClaim();authReturnNotice='Почта подтверждена! Игра сохранена в аккаунте';
+    }catch(_error){authReturnNotice='Почта подтверждена. Открой личную ссылку игры, чтобы сохранить её в аккаунте';}
+   }
   }catch(_error){
    // Never include token, provider response or URL in UI or logs.
    authReturnError=true;

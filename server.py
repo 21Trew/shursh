@@ -90,14 +90,15 @@ CREATE TABLE IF NOT EXISTS wishes (
 CREATE TABLE IF NOT EXISTS reservations (
  id INTEGER PRIMARY KEY, wish_id INTEGER NOT NULL REFERENCES wishes(id) ON DELETE CASCADE,
  guest_name TEXT NOT NULL, manage_hash TEXT NOT NULL UNIQUE, created_at TEXT NOT NULL,
- cancelled_at TEXT
+ cancelled_at TEXT, reserved_by INTEGER REFERENCES users(id) ON DELETE SET NULL
 );
 CREATE UNIQUE INDEX IF NOT EXISTS one_active_reservation ON reservations(wish_id) WHERE cancelled_at IS NULL;
+CREATE TABLE IF NOT EXISTS santa_memories (event_id INTEGER PRIMARY KEY REFERENCES santa_events(id) ON DELETE CASCADE,image_data TEXT NOT NULL,updated_at TEXT NOT NULL);
 CREATE TABLE IF NOT EXISTS santa_events (
  id INTEGER PRIMARY KEY, owner_id INTEGER NOT NULL REFERENCES users(id) ON DELETE CASCADE,
  title TEXT NOT NULL, description TEXT NOT NULL DEFAULT '', exchange_date TEXT,
  budget_cents INTEGER, currency TEXT NOT NULL DEFAULT 'RUB', rules TEXT NOT NULL DEFAULT '',
- invite_key TEXT NOT NULL UNIQUE, status TEXT NOT NULL DEFAULT 'open' CHECK (status IN ('open','drawn')),
+ invite_key TEXT NOT NULL UNIQUE, status TEXT NOT NULL DEFAULT 'open' CHECK (status IN ('open','drawn','finished')),
  created_at TEXT NOT NULL
 );
 CREATE TABLE IF NOT EXISTS participants (
@@ -455,7 +456,7 @@ class Handler(BaseHTTPRequestHandler):
     @staticmethod
     def santa_roster(con, eid):
         """Member-visible projection. Never include contact info or draw pairs."""
-        return [dict(r) for r in con.execute('''SELECT p.id,p.name,
+        return [dict(r) for r in con.execute('''SELECT p.id,p.name,p.user_id,
             count(pw.id) AS wish_count,
             CASE WHEN p.user_id=e.owner_id THEN 1 ELSE 0 END AS is_organizer
             FROM participants p JOIN santa_events e ON e.id=p.event_id
@@ -667,6 +668,36 @@ class Handler(BaseHTTPRequestHandler):
             return 200,{'messages':items,'room':room},None
         raise ApiError(405,'Метод не поддерживается')
 
+    def santa_memory(self,con,event_id,method,personal_link=False,member=False):
+        event=con.execute('SELECT owner_id,status FROM santa_events WHERE id=?',(event_id,)).fetchone()
+        if not event: raise ApiError(404,'Игра не найдена')
+        user=None if personal_link else (self.auth(con) if method=='PUT' else self.user(con))
+        owner=bool(user and user['id']==event['owner_id'])
+        belongs=bool(user and con.execute(
+            'SELECT 1 FROM participants WHERE event_id=? AND user_id=?',
+            (event_id,user['id'])).fetchone())
+        if not (owner or belongs or personal_link):
+            raise ApiError(404,'Игра недоступна')
+        if event['status']!='finished':
+            raise ApiError(409,'Общее фото доступно после завершения игры')
+        if method=='GET':
+            item=con.execute('SELECT image_data,updated_at FROM santa_memories WHERE event_id=?',(event_id,)).fetchone()
+            return 200,{'memory':dict(item) if item else None,'can_edit':owner},None
+        if method!='PUT' or not owner:
+            raise ApiError(403,'Загрузить общее фото может только организатор')
+        data=self.body()
+        image=data.get('image_data')
+        if not isinstance(image,str) or not image:
+            raise ApiError(400,'Выбери фотографию')
+        decoded=decode_image(image)
+        if not decoded or len(decoded[0])>900_000:
+            raise ApiError(413,'Общее фото должно быть не больше 900 КБ')
+        con.execute('''INSERT INTO santa_memories(event_id,image_data,updated_at) VALUES(?,?,?)
+                       ON CONFLICT(event_id) DO UPDATE SET
+                       image_data=excluded.image_data,updated_at=excluded.updated_at''',
+                    (event_id,image,now()))
+        return 200,{'ok':True},None
+
     def is_site_admin(self,con):
         user=self.auth(con)
         allowed={email.strip().casefold() for email in
@@ -826,30 +857,41 @@ class Handler(BaseHTTPRequestHandler):
             for rec in con.execute('SELECT * FROM wishes WHERE list_id=? ORDER BY id DESC',(item['id'],)):
                 wish=dict(rec)
                 if not owner_view:
-                    reserved=con.execute('SELECT 1 FROM reservations WHERE wish_id=? AND cancelled_at IS NULL',(rec['id'],)).fetchone()
+                    reserved=con.execute('SELECT reserved_by FROM reservations WHERE wish_id=? AND cancelled_at IS NULL',(rec['id'],)).fetchone()
                     wish['reserved']=bool(reserved)
+                    # This marker never includes a name, user ID, or capability.
+                    wish['reserved_by_me']=bool(user and reserved and reserved['reserved_by']==user['id'])
                 wishes.append(wish)
             return 200, {'list':output,'wishes':wishes,'owner_view':owner_view},None
         match=re.fullmatch(r'/api/public/([A-Za-z0-9_\-]+)/reserve/(\d+)',path)
-        if match and method=='POST':
-            self.throttled('reserve',20)
-            key,wid=match.group(1),int(match.group(2));data=self.body()
-            guest=req(data.get('guest_name'),'Имя дарителя',50)
-            con.execute('BEGIN IMMEDIATE')
+        if match and method in ('POST','DELETE'):
+            # Enforce identity on the server, not only through a disabled button.
+            user=self.auth(con)
+            key,wid=match.group(1),int(match.group(2))
             item=con.execute('''SELECT wishes.id,wishlists.owner_id FROM wishes JOIN wishlists
                          ON wishes.list_id=wishlists.id WHERE wishes.id=? AND wishlists.share_key=? AND wishlists.visibility='link' ''',
                          (wid,key)).fetchone()
             if not item: raise ApiError(404,'Подарок не найден')
-            if user and user['id']==item['owner_id']:
-                raise ApiError(403,'Нельзя резервировать подарок из собственного списка')
-            value=token()
+            if user['id']==item['owner_id']:
+                raise ApiError(403,'Нельзя бронировать собственный подарок')
+            if method=='DELETE':
+                removed=con.execute('''UPDATE reservations SET cancelled_at=? WHERE
+                      wish_id=? AND reserved_by=? AND cancelled_at IS NULL RETURNING id''',
+                      (now(),wid,user['id'])).fetchone()
+                if not removed: raise ApiError(409,'Нет активной брони этого подарка в твоём аккаунте')
+                return 200,{'ok':True},None
+            self.throttled('reserve',20)
+            self.body()
+            con.execute('BEGIN IMMEDIATE')
             try:
-                con.execute('INSERT INTO reservations(wish_id,guest_name,manage_hash,created_at) VALUES(?,?,?,?)',
-                            (wid,guest,token_hash(value),now()))
+                # Keep the legacy hash opaque for old management-link compatibility;
+                # authenticated bookings never receive a management token.
+                con.execute('''INSERT INTO reservations(wish_id,guest_name,manage_hash,created_at,reserved_by)
+                               VALUES(?,?,?,?,?)''',(wid,'Анонимный даритель',token_hash(token()),now(),user['id']))
             except sqlite3.IntegrityError:
-                raise ApiError(409,'Этот подарок уже забронировали. Выберите другой')
+                raise ApiError(409,'Этот подарок уже забронировали. Выбери другой')
             con.execute('COMMIT')
-            return 201,{'manage_token':value},None
+            return 201,{'ok':True},None
         match=re.fullmatch(r'/api/reservations/([A-Za-z0-9_\-]+)',path)
         if match:
             rec=con.execute('''SELECT r.id,r.guest_name,r.cancelled_at,w.title AS wish_title,
@@ -906,6 +948,15 @@ class Handler(BaseHTTPRequestHandler):
             con.execute('INSERT INTO participants(event_id,user_id,name,created_at) VALUES(?,?,?,?)',
                         (eid,user['id'],user['name'],now()))
             return 201,{'id':eid},None
+        match=re.fullmatch(r'/api/santas/(\d+)/memory',path)
+        if match and method in ('GET','PUT'):
+            return self.santa_memory(con,int(match.group(1)),method)
+        match=re.fullmatch(r'/api/participant/([A-Za-z0-9_-]+)/memory',path)
+        if match and method=='GET':
+            part=con.execute('SELECT event_id FROM participants WHERE access_hash=?',
+                             (token_hash(match.group(1)),)).fetchone()
+            if not part: raise ApiError(404,'Личная ссылка недействительна')
+            return self.santa_memory(con,part['event_id'],method,personal_link=True)
         match=re.fullmatch(r'/api/santas/(\d+)/roster',path)
         if match and method=='GET':
             user=self.auth(con);eid=int(match.group(1))
@@ -915,6 +966,14 @@ class Handler(BaseHTTPRequestHandler):
             return 200,{'participants':self.santa_roster(con,eid),
                         'status':game['status']},None
         match=re.fullmatch(r'/api/santas/(\d+)',path)
+        if match and method=='DELETE':
+            user=self.auth(con);eid=int(match.group(1))
+            event=con.execute('SELECT id FROM santa_events WHERE id=? AND owner_id=?',
+                              (eid,user['id'])).fetchone()
+            if not event: raise ApiError(404,'Игра не найдена')
+            # All game-related FK rows cascade; never delete another organizer's game.
+            con.execute('DELETE FROM santa_events WHERE id=? AND owner_id=?',(eid,user['id']))
+            return 200,{'ok':True},None
         if match and method=='PATCH':
             user=self.auth(con);eid=int(match.group(1));data=self.body()
             event=con.execute('SELECT * FROM santa_events WHERE id=? AND owner_id=?',
@@ -1002,7 +1061,7 @@ class Handler(BaseHTTPRequestHandler):
             excluded=[dict(r) for r in con.execute('SELECT giver_id,receiver_id FROM exclusions WHERE event_id=?',(eid,))]
             my_part=con.execute('SELECT id FROM participants WHERE event_id=? AND user_id=?',(eid,user['id'])).fetchone()
             mine=None
-            if my_part and event['status']=='drawn':
+            if my_part and event['status'] in ('drawn','finished'):
                 mine=self.assignment_view(con,eid,my_part['id'])
             my_wishes=self.game_wishes(con,my_part['id']) if my_part else []
             return 200,{'event':dict(event),'participants':participants,'exclusions':excluded,
@@ -1082,6 +1141,7 @@ class Handler(BaseHTTPRequestHandler):
             if not event: raise ApiError(404,'Игра не найдена')
             if event['status']=='drawn':
                 return 200, {'ok':True,'already_drawn':True},None
+            if event['status']=='finished': raise ApiError(409,'Завершённую игру нельзя разыграть снова')
             ids=[r['id'] for r in con.execute('SELECT id FROM participants WHERE event_id=? ORDER BY id',(eid,))]
             blocked=[(r['giver_id'],r['receiver_id']) for r in con.execute('SELECT giver_id,receiver_id FROM exclusions WHERE event_id=?',(eid,))]
             pairs=matching(ids,blocked)
@@ -1090,6 +1150,30 @@ class Handler(BaseHTTPRequestHandler):
             con.execute("UPDATE santa_events SET status='drawn' WHERE id=?",(eid,))
             con.execute('COMMIT')
             return 200,{'ok':True,'already_drawn':False},None
+        match=re.fullmatch(r'/api/santas/(\d+)/finish',path)
+        if match and method=='POST':
+            user=self.auth(con);eid=int(match.group(1))
+            event=con.execute('SELECT status FROM santa_events WHERE id=? AND owner_id=?',
+                              (eid,user['id'])).fetchone()
+            if not event: raise ApiError(404,'Игра не найдена')
+            data=self.body()
+            photo=data.get('image_data')
+            if photo is not None:
+                if not isinstance(photo,str) or not photo.startswith('data:image/webp;base64,'):
+                    raise ApiError(400,'Фотография должна быть в формате WebP')
+                decoded=decode_image(photo)
+                if not decoded or decoded[1]!='webp' or len(decoded[0])>900_000:
+                    raise ApiError(413,'Фото должно быть не больше 900 КБ')
+            if event['status']=='finished':
+                if photo: raise ApiError(409,'Игра уже завершена. Измени фото на странице игры')
+                return 200,{'ok':True,'already_finished':True},None
+            # An unplayed event may be archived without creating assignments.
+            if event['status'] not in ('open','drawn'):
+                raise ApiError(409,'Нельзя завершить игру')
+            con.execute("UPDATE santa_events SET status='finished' WHERE id=? AND status IN ('open','drawn')",(eid,))
+            if photo:
+                con.execute('INSERT INTO santa_memories(event_id,image_data,updated_at) VALUES(?,?,?)',(eid,photo,now()))
+            return 200,{'ok':True,'already_finished':False},None
         match=re.fullmatch(r'/api/santas/(\d+)/reveal',path)
         if match and method=='POST':
             user=self.auth(con);eid=int(match.group(1))
@@ -1160,7 +1244,7 @@ class Handler(BaseHTTPRequestHandler):
             if public_event['status']!='open':
                 public_event.pop('invite_key')
             wishes=self.game_wishes(con,part['id'])
-            receiver=self.assignment_view(con,part['event_id'],part['id']) if part['status']=='drawn' else None
+            receiver=self.assignment_view(con,part['event_id'],part['id']) if part['status'] in ('drawn','finished') else None
             return 200,{'participant':dict(part),'event':public_event,
                         'participants':participants,'wishes':wishes,'assignment':receiver,
                         'preferences':self.participant_preferences(con,part['id']),
@@ -1209,7 +1293,9 @@ class Handler(BaseHTTPRequestHandler):
         item=con.execute('''SELECT a.revealed_at, p.id AS receiver_id,p.name AS receiver_name,p.user_id AS receiver_user_id
                  FROM assignments a JOIN participants p ON p.id=a.receiver_id
                  WHERE a.event_id=? AND a.giver_id=?''',(eid,pid)).fetchone()
-        if not item or not item['revealed_at']:
+        if not item:
+            return None
+        if not item['revealed_at']:
             return {'revealed':False}
         cards=self.game_wishes(con,item['receiver_id'])
         return {'revealed':True,'receiver_name':item['receiver_name'],'receiver_user_id':item['receiver_user_id'],

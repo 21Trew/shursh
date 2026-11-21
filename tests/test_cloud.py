@@ -194,15 +194,23 @@ def test_booking_isolation_and_private_images(application):
     call(guest,'GET',path)
     reserve=f'/api/public/{key}/reserve/{wid}'
     call(c,'POST',reserve,{'guest_name':'Owner'},403)
+    call(guest,'POST',reserve,{},401)
+    call(guest,'DELETE',reserve,status=401)
+    # Concurrent authenticated requests preserve the one-active-reservation invariant.
+    clients=[login(application,'other@example.test') for _ in range(6)]
     with ThreadPoolExecutor(max_workers=6) as pool:
-        responses=list(pool.map(lambda _: application.test_client().post(reserve,base_url=BASE,json={'guest_name':'Guest'}), range(6)))
+        responses=list(pool.map(lambda client: client.post(reserve,base_url=BASE,json={}),clients))
     assert sorted(r.status_code for r in responses)==[201]+[409]*5
-    token=next(r.json['manage_token'] for r in responses if r.status_code==201)
-    assert call(guest,'GET',f'/api/public/{key}').json['wishes'][0]['reserved'] is True
+    assert all('manage_token' not in r.json for r in responses)
+    public=call(guest,'GET',f'/api/public/{key}').json['wishes'][0]
+    assert public['reserved'] is True and public['reserved_by_me'] is False
+    assert call(other,'GET',f'/api/public/{key}').json['wishes'][0]['reserved_by_me'] is True
     assert 'reserved' not in call(c,'GET',f'/api/public/{key}').json['wishes'][0]
+    assert 'reserved_by_me' not in call(c,'GET',f'/api/public/{key}').json['wishes'][0]
     assert 'reserved' not in call(c,'GET',f'/api/lists/{lid}').json['wishes'][0]
-    call(guest,'DELETE',f'/api/reservations/{token}')
-    call(guest,'DELETE',f'/api/reservations/{token}',status=409)
+    call(c,'DELETE',reserve,status=403)
+    call(other,'DELETE',reserve)
+    call(other,'DELETE',reserve,status=409)
     call(c,'PATCH',f'/api/lists/{lid}',{'visibility':'private'})
     call(guest,'GET',f'/api/public/{key}',status=404)
     call(guest,'GET',path,status=404)
@@ -340,7 +348,14 @@ def test_direct_browser_links_and_api_errors(application):
     eid=call(owner,'POST','/api/santas',{'title':'Deep links'},201).json['id']
     invite=call(owner,'GET',f'/api/santas/{eid}').json['event']['invite_key']
     participant=call(guest,'POST',f'/api/invites/{invite}/join',{'name':'Guest'},201).json['participant_token']
-    reservation=call(guest,'POST',f'/api/public/{key}/reserve/{wid}',{'guest_name':'Guest'},201).json['manage_token']
+    # Legacy bearer routes stay addressable for pre-existing bookings,
+    # but anonymous users can no longer create new reservations.
+    call(guest,'POST',f'/api/public/{key}/reserve/{wid}',{},401)
+    from server import token, token_hash
+    reservation=token()
+    with psycopg.connect(os.environ['SHURSH_DATABASE_URL']) as con:
+        con.execute("""INSERT INTO public.reservations(wish_id,guest_name,manage_hash)
+                       VALUES (%s,%s,%s)""",(wid,'Guest',token_hash(reservation)))
     for path in ['/', '/lists', '/santas', f'/list/{lid}', f'/santa/{eid}',
                  f'/w/{key}', f'/join/{invite}', f'/p/{participant}', f'/r/{reservation}']:
         page=call(guest,'GET',path)
@@ -443,8 +458,9 @@ def browser_login(page, email='owner@example.test'):
     assert response.status==200, (
         f'Login HTTP {response.status}; '
         f'Server-Timing: {response.headers.get("server-timing", "missing")}')
-    expect(page.locator('header .user-name')).to_contain_text(
+    expect(page.locator('.dashboard-page h1')).to_contain_text(
         'Owner' if email.startswith('owner') else 'Other', timeout=15000)
+    expect(page.locator('header .header-avatar')).to_be_visible()
     expect(page.get_by_role('dialog')).to_have_count(0)
 
 
@@ -564,7 +580,7 @@ def test_browser_manual_product_link_and_uncluttered_header(browser_http):
             assert page.locator('.modal-scroll-area').count()==1
             # A manually uploaded image must still work without a scraper.
             from base64 import b64decode
-            photo = b64decode('iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mP8/x8AAusB9aer6aQAAAAASUVORK5CYII=')
+            photo = b64decode('iVBORw0KGgoAAAANSUhEUgAAABgAAAAYCAIAAABvFaqvAAAAIklEQVR4nGN8fWILAzUAE1VMGTVo1KBRg0YNGjVo1CCKAAAYaAKXC2f7qAAAAABJRU5ErkJggg==')
             page.locator('#wish-file').set_input_files({
                 'name': 'gift.png', 'mimeType': 'image/png', 'buffer': photo,
             })
@@ -572,6 +588,7 @@ def test_browser_manual_product_link_and_uncluttered_header(browser_http):
             card = page.locator('.wish-card').filter(has_text='Кот и настольная игра')
             expect(card).to_be_visible()
             expect(card.locator('img')).to_be_visible()
+            assert '.webp' in (card.locator('img').get_attribute('src') or '')
             expect(card.locator('a[href]')).to_have_attribute('href', url)
             assert intercepted == [], 'Pasting product links must not trigger parsing'
 
@@ -701,10 +718,20 @@ def test_browser_register_wishlist_reservation_and_isolation(browser_http):
             expect(guest.locator('.wishlist-grid')).to_contain_text(wish)
             assert guest.evaluate('document.documentElement.scrollWidth <= window.innerWidth + 2'), 'Mobile horizontal overflow'
             guest.locator('button[data-action="reserve"]').click()
-            guest.locator('#fld-guest_name').fill('Друг с телефона')
-            guest.locator('#modal-form button[type="submit"], .modal-fixed-footer button[type="submit"]').click()
-            expect(guest).to_have_url(re.compile(r'/r/[A-Za-z0-9_-]+$'))
-            expect(guest.locator('main h1')).to_contain_text('Подарок ждёт')
+            expect(guest.get_by_role('dialog')).to_contain_text('Давай знакомиться!')
+            assert guest.evaluate("async k => (await fetch('/api/public/'+k)).status",key)==200
+            guest.locator('[data-close]').first.click()
+            # Login on the same shared list preserves its URL.
+            guest.goto(browser_http+'/')
+            browser_login(guest,'other@example.test')
+            guest.goto(share)
+            guest.locator('button[data-action="reserve"]').click()
+            expect(guest).to_have_url(share)
+            expect(guest.locator('button[data-action="reserve"]')).to_contain_text('Отменить бронь')
+            assert guest.locator('#fld-guest_name').count()==0
+            assert guest.locator('.modal').count()==0
+            assert not guest.evaluate("Object.keys(localStorage).some(k=>k.startsWith('shursh-reservation-v2:'))")
+            assert '/r/' not in guest.url
 
             watcher_ctx = browser.new_context()
             watcher = watcher_ctx.new_page()
@@ -729,9 +756,13 @@ def test_browser_register_wishlist_reservation_and_isolation(browser_http):
             other_summary=other.evaluate('''async () => (await (await fetch('/api/dashboard')).json())''')
             assert not any(l['id']==int(lid) for l in other_summary['lists'])
 
-            guest.locator('button[data-action="cancel-reservation"]').click()
-            guest.locator('#modal-form button[type="submit"], .modal-fixed-footer button[type="submit"]').click()
-            expect(guest.locator('main h1')).to_contain_text('Бронь отменена')
+            # A second device with the same account can cancel the reservation.
+            other.goto(share)
+            expect(other.locator('button[data-action="reserve"]')).to_contain_text('Отменить бронь')
+            other.locator('button[data-action="reserve"]').click()
+            expect(other.locator('button[data-action="reserve"]')).to_contain_text('Забронировать')
+            guest.reload()
+            expect(guest.locator('button[data-action="reserve"]')).to_contain_text('Забронировать')
             watcher.reload()
             expect(watcher.locator('button[data-action="reserve"]')).to_be_enabled()
 
@@ -779,6 +810,8 @@ def test_browser_santa_invites_draw_and_private_reveals(browser_http):
                 expect(guest).to_have_url(re.compile(r'/p/[A-Za-z0-9_-]+$'))
                 token = guest.url.rsplit('/', 1)[-1]
                 expect(guest.locator('#game-chat [data-chat-room="general"]')).to_be_visible()
+                guest.locator('[data-action="edit-santa-preferences"]').click()
+                expect(guest.locator('#santa-preferences-form')).to_be_visible()
                 guest.locator('#santa-preferences-form #fld-wanted').fill('Красный цвет, точная модель')
                 guest.locator('#santa-preferences-form #fld-unwanted').fill('Не нужен пластик')
                 guest.locator('#santa-preferences-form button[type="submit"]').click()
@@ -876,12 +909,12 @@ def test_browser_card_clicks_and_santa_settings(browser_http):
             expect(owner.locator('#fld-title')).to_have_value('Настольная игра')
             owner.locator('.modal-close').click()
 
-            owner.locator('header .nav [data-nav="/"]').click()
+            owner.locator('header .logo[data-nav="/"]').click()
             target=owner.locator('.dashboard-page .list-card .card-hitarea').first
             target.focus()
             owner.keyboard.press('Enter')
             expect(owner).to_have_url(re.compile(r'/list/\d+'))
-            owner.locator('header .nav [data-nav="/"]').click()
+            owner.locator('header .logo[data-nav="/"]').click()
             owner.locator('main button[data-open="santa"]').first.click()
             owner.locator('#fld-title').fill('Санта без дублей')
             owner.locator('#modal-form button[type="submit"], .modal-fixed-footer button[type="submit"]').click()
@@ -911,7 +944,7 @@ def test_browser_card_clicks_and_santa_settings(browser_http):
             owner.locator('#modal-form button[type="submit"], .modal-fixed-footer button[type="submit"]').click()
             expect(owner.locator('.my-wishes-list')).to_contain_text('Настольная игра')
 
-            owner.locator('header .nav [data-nav="/"]').click()
+            owner.locator('header .logo[data-nav="/"]').click()
             owner.locator('.dashboard-santa-card .card-hitarea').first.click(position={'x':35,'y':35})
             expect(owner).to_have_url(re.compile(r'/santa/\d+'))
             owner.locator('header .nav [data-nav="/santas"]').click()
@@ -1010,7 +1043,8 @@ def test_browser_navigation_cache_invalidation_and_persistent_header(browser_htt
             page.set_default_timeout(15000)
             page.goto(browser_http+'/')
             browser_login(page)
-            expect(page.locator('.dashboard-metrics')).to_be_visible()
+            expect(page.locator('.dashboard-metrics')).to_have_count(0)
+            expect(page.locator('header .header-bell')).to_be_visible()
             page.evaluate('window.__stableHeader = document.querySelector(".site-header")')
             page.evaluate('window.__stableFooter = document.querySelector("footer")')
             visited=[]
@@ -1080,6 +1114,10 @@ def test_owner_tab_navigation_reuses_data_and_dom(browser_http):
             page.goto(browser_http+'/')
             browser_login(page)
             expect(page.locator('.dashboard-page')).to_be_visible()
+            # Wait for the first cold dashboard API response. The optimistic
+            # skeleton already contains the owner's heading but has not seeded
+            # /api/lists and /api/santas yet. The test measures WARM navigation.
+            expect(page.locator('.dashboard-skeleton')).to_have_count(0,timeout=15000)
             requests=[]
             page.on('request', lambda r: requests.append(r.url) if '/api/' in r.url else None)
             page.locator('header .nav [data-nav="/lists"]').click()
@@ -1431,7 +1469,7 @@ def test_browser_confirmation_callback_and_recovery(browser_http,monkeypatch):
         try:
             page=browser.new_page()
             page.goto(browser_http+'/#access_token=header.payload.signature&refresh_token=not-used')
-            expect(page.locator('header .user-name')).to_contain_text('Owner')
+            expect(page.locator('.dashboard-page h1')).to_contain_text('Owner')
             assert page.evaluate('location.hash')==''
             assert page.evaluate('document.cookie')==''
             # Expired confirmations must show a persistent recovery dialog.
@@ -1502,10 +1540,18 @@ def test_social_friends_profiles_and_notifications(application):
     assert any(x['id']==public_id for x in profile['lists'])
     assert all(x['id']!=private_id for x in profile['lists'])
     assert 'email' not in str(profile)
+    shared=call(friend,'GET','/api/friends/wishlists').json['lists']
+    assert any(x['id']==public_id for x in shared)
+    assert all(x['id']!=private_id for x in shared)
+    assert all('email' not in str(x) for x in shared)
     call(owner,'POST','/api/lists',{'title':'Gift list added with friends'},201)
     feed=call(friend,'GET','/api/notifications').json['items']
     assert any(n['kind']=='wishlist_new' for n in feed)
     call(friend,'POST',f'/api/notifications/{first}/read',{})
+    call(owner,'POST','/api/notifications/read-all',{})
+    assert all(x['read_at'] is not None for x in
+               call(owner,'GET','/api/notifications').json['items'])
+    call(application.test_client(),'POST','/api/notifications/read-all',{},401)
     assert any(n['id']==first and n['read_at'] is not None
                for n in call(friend,'GET','/api/notifications').json['items'])
     search=call(friend,'GET','/api/users/search?q=Own').json['users']
@@ -1517,6 +1563,9 @@ def test_social_friends_profiles_and_notifications(application):
     call(owner,'PATCH','/api/profile/me',{'discoverable':True})
     call(friend,'DELETE',f'/api/friends/{owner_id}',{})
     assert call(friend,'GET',f'/api/users/{owner_id}').json['lists']==[]
+    assert not any(x['id']==public_id for x in
+                   call(friend,'GET','/api/friends/wishlists').json['lists'])
+    call(application.test_client(),'GET','/api/friends/wishlists',status=401)
 
 
 def test_social_gift_request_and_anonymous_booking(application):
@@ -1532,11 +1581,14 @@ def test_social_gift_request_and_anonymous_booking(application):
     assert any(x['kind']=='wish_request' for x in items)
     call(owner,'POST',f'/api/wishes/{wid}/request-friend/{friend_id}',{},409)
     guest=application.test_client()
-    call(guest,'POST',f'/api/public/{key}/reserve/{wid}',{'guest_name':'Secret Donor'},201)
+    call(guest,'POST',f'/api/public/{key}/reserve/{wid}',{},401)
+    response=call(friend,'POST',f'/api/public/{key}/reserve/{wid}',{},201).json
+    assert response=={'ok':True}
+    assert call(friend,'GET',f'/api/public/{key}').json['wishes'][0]['reserved_by_me'] is True
     feed=[x for x in call(owner,'GET','/api/notifications').json['items']
           if x['kind']=='reservation_anonymous']
     assert feed
-    assert all('Secret Donor' not in x['message'] and 'Gift' not in x['message']
+    assert all('Анонимный даритель' not in x['message'] and 'Gift' not in x['message']
                and str(wid) not in x['target_path'] for x in feed)
 
 
@@ -1558,9 +1610,12 @@ def test_social_game_invitation_member_permissions_and_admin(application,monkeyp
     invitation=[x for x in call(friend,'GET','/api/notifications').json['items']
                 if x['kind']=='santa_invitation']
     assert invitation
+    assert any(x['id']==event_id for x in call(friend,'GET','/api/santas').json['invitations'])
+    assert not any(x['id']==event_id for x in call(owner,'GET','/api/santas').json['invitations'])
     key=call(owner,'GET',f'/api/santas/{event_id}').json['event']['invite_key']
     joined=call(friend,'POST',f'/api/invites/{key}/join',{'name':'Friend'},201)
     assert joined.json['participant_token']
+    assert not any(x['id']==event_id for x in call(friend,'GET','/api/santas').json['invitations'])
     game=call(friend,'GET',f'/api/member/{event_id}').json
     assert game['event']['id']==event_id and game['participant']['name']=='Friend'
     assert 'assignments' not in str(game)
@@ -1575,3 +1630,468 @@ def test_social_game_invitation_member_permissions_and_admin(application,monkeyp
     new_login=login(application)
     assert new_login.get('/api/me',base_url=BASE).json['user']['is_admin'] is True
     assert new_login.post('/api/logout',base_url=BASE,json={}).status_code==200
+
+
+def test_profile_identity_emoji_handles_friend_cancel_and_privacy(application):
+    """All personal edits are owner-scoped; email must never leak to others."""
+    from cloud import db
+    owner=login(application)
+    friend=login(application,'other@example.test')
+    owner_id=str(IDS['owner@example.test'])
+    friend_id=str(IDS['other@example.test'])
+    with psycopg.connect(os.environ['SHURSH_DATABASE_URL']) as con:
+        con.execute('DELETE FROM public.friendships WHERE user_low=%s AND user_high=%s',
+                    (IDS['owner@example.test'], IDS['other@example.test']))
+    mine=call(owner,'GET','/api/profile/me').json
+    assert mine['profile']['email']=='owner@example.test'
+    assert mine['profile']['avatar_emoji']=='🎁'
+    assert isinstance(mine['lists'],list)
+    updated=call(owner,'PATCH','/api/profile/me',{
+        'name':'Owner Profile','handle':'Owner_2026','avatar_emoji':'🐱',
+        'city':'Санкт-Петербург','bio':'Люблю настольные игры',
+        'discoverable':True}).json['profile']
+    assert updated['handle']=='owner_2026'
+    assert updated['avatar_emoji']=='🐱'
+    assert updated['city']=='Санкт-Петербург'
+    assert updated['name']=='Owner Profile'
+    assert 'email' in updated
+    public=call(friend,'GET',f'/api/users/{owner_id}').json['profile']
+    assert public['avatar_emoji']=='🐱' and public['handle']=='owner_2026'
+    assert 'email' not in public and 'owner@example.test' not in str(public)
+    q=call(friend,'GET','/api/users/search?q=%40owner_2026').json
+    assert any(str(x['id'])==owner_id and x['avatar_emoji']=='🐱' for x in q['users'])
+    call(friend,'PATCH','/api/profile/me',{'handle':'owner_2026'},409)
+    call(friend,'PATCH','/api/profile/me',{'avatar_emoji':'<img src=x onerror=alert(1)>'},400)
+    call(friend,'PATCH','/api/profile/me',{'handle':' bad handle '},400)
+    call(friend,'PATCH','/api/profile/me',{'city':'x'*61},400)
+    call(friend,'POST',f'/api/friends/{owner_id}',{},200)
+    # Recipient may not cancel another person's pending outgoing request.
+    call(owner,'DELETE',f'/api/friends/{friend_id}',{},404)
+    assert call(friend,'GET','/api/friends').json['outgoing']
+    call(friend,'DELETE',f'/api/friends/{owner_id}',{},200)
+    assert not any(n['kind']=='friend_request' and n['read_at'] is None
+                   for n in call(owner,'GET','/api/notifications').json['items'])
+    assert not call(friend,'GET','/api/friends').json['outgoing']
+    assert not call(owner,'GET','/api/friends').json['incoming']
+    call(owner,'PATCH','/api/profile/me',{'name':'Owner','handle':'',
+        'avatar_emoji':'🎁','city':'','bio':'','discoverable':True})
+    call(friend,'PATCH','/api/profile/me',{'handle':''})
+
+
+def test_santa_private_link_claim_to_logged_in_account(application):
+    """Private capability is proof for a single binding, not transferable."""
+    organizer=login(application,'other@example.test')
+    target=login(application)
+    event_id=call(organizer,'POST','/api/santas',{'title':'Account link claim'},201).json['id']
+    key=call(organizer,'GET',f'/api/santas/{event_id}').json['event']['invite_key']
+    guest=application.test_client()
+    join=call(guest,'POST',f'/api/invites/{key}/join',{'name':'Guest for account'},201)
+    personal_token=join.json['participant_token']
+    assert len(personal_token)==43
+    before=call(target,'GET','/api/santas').json['events']
+    assert not any(x['id']==event_id for x in before)
+    # A matching name is not an identity proof: only a private capability can claim.
+    assert call(target,'GET','/api/santas').json['invitations']==[] or all(
+        x['id']!=event_id for x in call(target,'GET','/api/santas').json['invitations'])
+    call(guest,'POST',f'/api/participant/{personal_token}/claim',{},401)
+    call(target,'POST','/api/participant/invalid/claim',{},404)
+    bound=call(target,'POST',f'/api/participant/{personal_token}/claim',{},200).json
+    assert bound['event_id']==event_id
+    assert any(x['id']==event_id for x in call(target,'GET','/api/santas').json['events'])
+    assert any(x['id']==event_id for x in call(target,'GET','/api/dashboard').json['events'])
+    call(target,'POST',f'/api/participant/{personal_token}/claim',{},200)
+    call(organizer,'POST',f'/api/participant/{personal_token}/claim',{},409)
+    # Authenticated membership no longer depends on retaining the bearer link.
+    member=call(target,'GET',f'/api/member/{event_id}').json
+    assert member['participant']['name']=='Guest for account'
+    assert member['assignment'] is None
+
+
+def test_account_changes_require_password_and_exact_authenticated_identity(application,monkeypatch):
+    """Never permit credentials changes with just a persistent app cookie."""
+    from cloud import auth
+    client=login(application)
+    seen=[]
+    def provider(user_id,email,current_password,change):
+        assert str(user_id)==str(IDS['owner@example.test'])
+        assert email=='owner@example.test'
+        assert current_password=='valid-password'
+        seen.append(change)
+        return True
+    monkeypatch.setattr(auth,'update_verified_account',provider)
+    call(client,'POST','/api/account/email',{'current_password':'bad',
+        'email':'new@example.test'},400)
+    call(client,'POST','/api/account/password',{'current_password':'valid-password',
+        'new_password':'valid-password'},400)
+    call(client,'POST','/api/account/email',{'current_password':'valid-password',
+        'email':'not-an-address'},400)
+    good=call(client,'POST','/api/account/email',{'current_password':'valid-password',
+        'email':'new@example.test'},200).json
+    assert good['pending_confirmation'] is True
+    other=call(client,'POST','/api/account/password',{
+        'current_password':'valid-password','new_password':'another-strong-password'},200).json
+    assert other['pending_confirmation'] is False
+    assert seen==[{'email':'new@example.test'},{'password':'another-strong-password'}]
+    call(application.test_client(),'POST','/api/account/password',
+         {'current_password':'valid-password','new_password':'another-strong-password'},401)
+
+
+@pytest.mark.browser
+def test_browser_social_tabs_cache_notification_bell_and_mobile_heading(browser_http):
+    """Same social DOM node and zero redundant API calls on tab return."""
+    from playwright.sync_api import sync_playwright, expect
+    with sync_playwright() as play:
+        browser=play.chromium.launch(headless=True,args=['--no-sandbox'])
+        try:
+            page=browser.new_page(viewport={'width':390,'height':844})
+            page.goto(browser_http+'/')
+            browser_login(page)
+            expect(page.locator('.dashboard-metrics')).to_have_count(0)
+            expect(page.locator('header .header-bell')).to_be_visible()
+            expect(page.locator('header .nav [data-nav="/notifications"]')).to_have_count(0)
+            assert page.evaluate('document.documentElement.scrollWidth<=innerWidth+2')
+            page.wait_for_function("() => typeof ownerWarmupReady !== 'undefined' && ownerWarmupReady && !socialUnreadBusy",timeout=15000)
+            requests=[]
+            page.on('request',lambda r: requests.append(r.url.split('?')[0])
+                    if '/api/friends' in r.url or '/api/profile/me' in r.url else None)
+            page.locator('header [data-nav="/friends"]').click()
+            expect(page.locator('main h1')).to_have_text('Друзья')
+            expect(page.locator('.social-search h2')).to_have_text('Найти друга')
+            page.locator('main').evaluate("(el)=>el.dataset.sameNode='friends'")
+            page.locator('header .nav [data-nav="/profile"]').click()
+            expect(page.locator('main h1').first).to_have_text('Мой профиль')
+            expect(page.locator('.emoji-avatar').first).to_be_visible()
+            page.locator('header .header-bell').click()
+            expect(page.get_by_role('dialog',name='Уведомления')).to_be_visible()
+            expect(page.locator('[data-notification-tab]')).to_have_count(4)
+            expect(page.locator('main h1').first).to_have_text('Мой профиль')
+            page.keyboard.press('Escape')
+            page.locator('header [data-nav="/friends"]').click()
+            expect(page.locator('main')).to_have_attribute('data-same-node','friends')
+            assert sum('/api/friends' in u for u in requests)==0,requests
+            assert page.evaluate('document.documentElement.scrollWidth<=innerWidth+2')
+        finally:
+            browser.close()
+
+
+@pytest.mark.browser
+def test_browser_santa_preferences_readonly_until_edit_and_mobile_density(browser_http):
+    """Editor remains closed until requested and saves inline without whole-page render."""
+    from playwright.sync_api import sync_playwright, expect
+    from uuid import uuid4
+    with sync_playwright() as play:
+        browser=play.chromium.launch(headless=True,args=['--no-sandbox'])
+        try:
+            page=browser.new_page(viewport={'width':375,'height':760})
+            page.goto(browser_http+'/')
+            browser_login(page)
+            page.locator('button[data-open="santa"]').first.click()
+            page.locator('#fld-title').fill('Mobile preferences '+uuid4().hex[:6])
+            page.locator('#modal-form button[type="submit"], .modal-fixed-footer button[type="submit"]').click()
+            expect(page).to_have_url(__import__('re').compile(r'/santa/\d+$'))
+            expect(page.locator('#santa-preferences-display')).to_be_visible()
+            expect(page.locator('#santa-preferences-form')).to_be_hidden()
+            expect(page.locator('#santa-preferences-display')).to_contain_text('Что хотелось бы')
+            expect(page.locator('#santa-preferences-display')).to_contain_text('Чего не хотелось бы')
+            page.locator('[data-action="edit-santa-preferences"]').click()
+            expect(page.locator('#santa-preferences-form')).to_be_visible()
+            expect(page.locator('#santa-preferences-display')).to_be_hidden()
+            page.locator('#santa-preferences-form [name="wanted"]').fill('Настольные игры')
+            page.locator('#santa-preferences-form [name="unwanted"]').fill('Настойки')
+            page.locator('#santa-preferences-form button[type="submit"]').click()
+            expect(page.locator('#santa-preferences-form')).to_be_hidden()
+            expect(page.locator('#santa-preferences-display')).to_contain_text('Настольные игры')
+            expect(page.locator('#santa-preferences-display')).to_contain_text('Настойки')
+            assert page.evaluate('document.documentElement.scrollWidth<=innerWidth+2')
+            assert page.evaluate('document.querySelector("#game-chat").getBoundingClientRect().width <= innerWidth')
+        finally:
+            browser.close()
+
+
+@pytest.mark.browser
+def test_browser_guest_member_claim_after_email_confirmation_and_manual_link(browser_http,monkeypatch):
+    """A personal link, not a name, binds the guest after verified signup."""
+    from cloud import auth
+    from playwright.sync_api import sync_playwright,expect
+    from uuid import uuid4
+    def verified(token):
+        assert token=='header.payload.signature'
+        return {'id':str(IDS['owner@example.test']),
+                'email':'owner@example.test','email_confirmed_at':'2026-11-20T00:00:00Z',
+                'user_metadata':{'name':'Owner'}}
+    monkeypatch.setattr(auth,'verified_user',verified)
+    with sync_playwright() as play:
+        browser=play.chromium.launch(headless=True,args=['--no-sandbox'])
+        try:
+            organizer=browser.new_page()
+            organizer.goto(browser_http+'/')
+            browser_login(organizer,'other@example.test')
+            def new_guest():
+                title='Guest membership '+uuid4().hex[:8]
+                event=organizer.evaluate("""async title => {
+                  const r=await fetch('/api/santas',{method:'POST',
+                    headers:{'Content-Type':'application/json'},
+                    body:JSON.stringify({title})});
+                  if(!r.ok)throw Error('Could not create fixture');
+                  return await r.json();
+                }""",title)
+                participant=organizer.evaluate("""async id => {
+                  const r=await fetch('/api/santas/'+id+'/participants',{method:'POST',
+                    headers:{'Content-Type':'application/json'},
+                    body:JSON.stringify({name:'Приглашённый гость'})});
+                  if(!r.ok)throw Error('Could not create guest fixture');
+                  return await r.json();
+                }""",event['id'])
+                return event['id'],participant['participant_token']
+            first_id,personal=new_guest()
+            guest_ctx=browser.new_context()
+            guest=guest_ctx.new_page()
+            guest.goto(browser_http+'/p/'+personal)
+            expect(guest.locator('[data-action="claim-game"]')).to_be_visible()
+            assert guest.evaluate("sessionStorage.getItem('shursh-pending-game-claim')") is None
+            guest.locator('[data-action="claim-game"]').click()
+            expect(guest.get_by_role('dialog')).to_contain_text('С возвращением!')
+            guest.locator('[data-open="register"]').click()
+            expect(guest.get_by_role('dialog')).to_contain_text('Давай знакомиться!')
+            # Pending token stays within the tab until registration actually succeeds.
+            assert guest.evaluate("localStorage.getItem('shursh-pending-game-claim')") is None
+            guest.locator('#fld-name').fill('Гость')
+            guest.locator('#fld-email').fill('owner@example.test')
+            guest.locator('#fld-password').fill('valid-password')
+            guest.locator('.modal-fixed-footer button[type="submit"]').click()
+            expect(guest.get_by_role('dialog')).to_contain_text('Проверь почту')
+            assert guest.evaluate("!!localStorage.getItem('shursh-pending-game-claim')")
+            # Opening confirmation in a new tab must recover the pending membership.
+            confirmed=guest_ctx.new_page()
+            confirmed.goto(browser_http+'/#access_token=header.payload.signature&type=signup')
+            expect(confirmed.locator('.dashboard-page h1')).to_contain_text('Owner')
+            confirmed.wait_for_function("""async id => {
+               const r=await fetch('/api/santas');
+               return r.ok&&(await r.json()).events.some(x=>x.id===id);
+            }""",arg=first_id,timeout=15000)
+            assert confirmed.evaluate("localStorage.getItem('shursh-pending-game-claim')") is None
+            assert confirmed.evaluate("sessionStorage.getItem('shursh-pending-game-claim')") is None
+            # Separately linked games can also be restored after registration.
+            second_id,second_token=new_guest()
+            confirmed.goto(browser_http+'/santas')
+            expect(confirmed.get_by_role('button',name='Привязать игру по ссылке')).to_be_visible()
+            confirmed.get_by_role('button',name='Привязать игру по ссылке').click()
+            field=confirmed.locator('#fld-personal_link')
+            field.fill('https://other.example/p/'+second_token)
+            confirmed.locator('.modal-fixed-footer button[type="submit"]').click()
+            expect(confirmed.locator('.toast')).to_contain_text('с этого сайта')
+            assert not confirmed.evaluate("""async id =>
+               (await(await fetch('/api/santas')).json()).events.some(x=>x.id===id)
+            """,second_id)
+            field.fill(browser_http+'/p/'+second_token)
+            confirmed.locator('.modal-fixed-footer button[type="submit"]').click()
+            confirmed.wait_for_function("""async id => {
+                const r=await fetch('/api/santas');
+                return r.ok&&(await r.json()).events.some(x=>x.id===id);
+            }""",arg=second_id,timeout=15000)
+            expect(confirmed.locator('.santa-grid')).to_contain_text('Guest membership')
+            # Direct sign-in from a private game page must also work when
+            # the guest uses the ordinary header instead of the explicit CTA.
+            third_id,third_token=new_guest()
+            another_ctx=browser.new_context()
+            another=another_ctx.new_page()
+            another.goto(browser_http+'/p/'+third_token)
+            assert another.evaluate("sessionStorage.getItem('shursh-pending-game-claim')") is None
+            another.locator('header button[data-open="login"]').click()
+            expect(another.get_by_role('dialog')).to_contain_text('После входа сохраним эту игру')
+            another.locator('#fld-email').fill('owner@example.test')
+            another.locator('#fld-password').fill('valid-password')
+            another.locator('.modal-fixed-footer button[type="submit"]').click()
+            another.wait_for_function("""async id => {
+                const response=await fetch('/api/santas');
+                return response.ok&&(await response.json()).events.some(e=>e.id===id);
+            }""",arg=third_id,timeout=15000)
+            another.wait_for_function("() => sessionStorage.getItem('shursh-pending-game-claim')===null",timeout=15000)
+            another_ctx.close()
+            # No bearer link is left behind after a successful claim.
+            assert confirmed.evaluate("localStorage.getItem('shursh-pending-game-claim')") is None
+            assert '/p/' not in confirmed.url
+            guest_ctx.close()
+        finally:
+            browser.close()
+
+
+
+def test_finished_santa_state_and_mutual_friend_games(application):
+    """Finishing freezes the lifecycle but preserves assignments and mutual visibility."""
+    from uuid import uuid4
+    owner=login(application)
+    member=login(application,'other@example.test')
+    owner_id=str(IDS['owner@example.test'])
+    member_id=str(IDS['other@example.test'])
+    friendship=call(owner,'GET','/api/friends').json
+    if not any(str(x['id'])==member_id for x in friendship['friends']):
+        if any(str(x['id'])==member_id for x in friendship['incoming']):
+            call(owner,'PATCH',f'/api/friends/{member_id}',{'action':'accept'})
+        else:
+            if not any(str(x['id'])==member_id for x in friendship['outgoing']):
+                call(owner,'POST',f'/api/friends/{member_id}',{},200)
+            call(member,'PATCH',f'/api/friends/{owner_id}',{'action':'accept'})
+    eid=call(owner,'POST','/api/santas',{'title':'Close game '+uuid4().hex[:8]},201).json['id']
+    other=call(owner,'POST','/api/santas',{'title':'Not shared '+uuid4().hex[:8]},201).json['id']
+    assert not any(g['id']==eid for g in call(owner,'GET',f'/api/users/{member_id}').json['shared_games'])
+    assert not any(g['id']==other for g in call(member,'GET',f'/api/users/{owner_id}').json['shared_games'])
+    # An unplayed game can now be archived without generating assignments.
+    unplayed=call(owner,'POST','/api/santas',
+                  {'title':'Unplayed '+uuid4().hex[:8]},201).json['id']
+    call(member,'POST',f'/api/santas/{unplayed}/finish',{},404)
+    call(owner,'POST',f'/api/santas/{unplayed}/finish',{},200)
+    unplayed_result=call(owner,'GET',f'/api/santas/{unplayed}').json
+    assert unplayed_result['event']['status']=='finished'
+    assert unplayed_result['my_assignment'] is None
+    call(owner,'POST',f'/api/santas/{unplayed}/draw',{},409)
+    call(member,'DELETE',f'/api/santas/{unplayed}',status=404)
+    call(owner,'DELETE',f'/api/santas/{unplayed}')
+    call(owner,'GET',f'/api/santas/{unplayed}',status=404)
+    call(member,'POST',f'/api/santas/{eid}/finish',{},404)
+    key=call(owner,'GET',f'/api/santas/{eid}').json['event']['invite_key']
+    call(member,'POST',f'/api/invites/{key}/join',{'name':'Other'},201)
+    call(owner,'POST',f'/api/santas/{eid}/participants',{'name':'Extra guest'},201)
+    games=call(member,'GET',f'/api/users/{owner_id}').json['shared_games']
+    assert any(g['id']==eid for g in games)
+    assert all(g['id']!=other for g in games)
+    call(owner,'POST',f'/api/santas/{eid}/draw',{},200)
+    assigned=call(owner,'GET',f'/api/santas/{eid}').json['my_assignment']
+    assert assigned is not None
+    call(owner,'POST',f'/api/santas/{eid}/finish',{},200)
+    assert call(owner,'POST',f'/api/santas/{eid}/finish',{},200).json['already_finished']
+    finished=call(owner,'GET',f'/api/santas/{eid}').json
+    assert finished['event']['status']=='finished'
+    assert finished['my_assignment']==assigned
+    assert call(member,'GET',f'/api/member/{eid}').json['event']['status']=='finished'
+    assert any(g['id']==eid and g['status']=='finished'
+               for g in call(member,'GET',f'/api/users/{owner_id}').json['shared_games'])
+    call(owner,'POST',f'/api/santas/{eid}/draw',{},409)
+    call(owner,'POST',f'/api/santas/{eid}/participants',{'name':'Too late'},409)
+
+
+def test_private_finished_santa_memory_upload_and_no_public_leak(application):
+    from server import token
+    owner=login(application)
+    member=login(application,'other@example.test')
+    anonymous=application.test_client()
+    title='Photo memory '+token()[:8]
+    eid=call(owner,'POST','/api/santas',{'title':title},201).json['id']
+    base=f'/api/santas/{eid}/memory'
+    invite=call(owner,'GET',f'/api/santas/{eid}').json['event']['invite_key']
+    guest_link=call(anonymous,'POST',f'/api/invites/{invite}/join',{'name':'Guest'},201).json['participant_token']
+    call(owner,'POST',base,{'image_data':PNG},404)
+    call(owner,'PUT',base,{'image_data':PNG},409)
+    call(owner,'GET',base,status=409)
+    call(member,'GET',base,status=404)
+    member_link=call(member,'POST',f'/api/invites/{invite}/join',{'name':'Member'},201).json['participant_token']
+    call(owner,'POST',f'/api/santas/{eid}/draw',{},200)
+    call(owner,'POST',f'/api/santas/{eid}/finish',{},200)
+    assert call(owner,'GET',base).json['memory'] is None
+    assert call(anonymous,'GET',f'/api/participant/{guest_link}/memory').json['memory'] is None
+    call(anonymous,'PUT',base,{'image_data':PNG},401)
+    call(member,'PUT',base,{'image_data':PNG},403)
+    call(anonymous,'GET',f'/api/participant/{token()}/memory',status=404)
+    photo='data:image/png;base64,'+base64.b64encode(
+        base64.b64decode(PNG.split(',',1)[1])+b'photo-fixture'*8).decode()
+    assert call(owner,'PUT',base,{'image_data':photo}).json=={'ok':True}
+    assert call(owner,'PUT',base,{'image_data':photo}).json=={'ok':True}
+    assert call(member,'GET',f'/api/member/{eid}/memory').json['memory']['image_data']==photo
+    assert call(anonymous,'GET',f'/api/participant/{guest_link}/memory').json['memory']['image_data']==photo
+    assert call(owner,'GET',base).json['can_edit'] is True
+    assert call(member,'GET',base).json['can_edit'] is False
+    assert photo not in str(call(owner,'GET',f'/api/santas/{eid}').json)
+    assert photo not in str(call(owner,'GET','/api/dashboard').json)
+    call(member,'DELETE',base,status=404)
+
+
+def test_db_persisted_admin_permission_is_identity_scoped(application,monkeypatch):
+    monkeypatch.delenv('SHURSH_ADMIN_EMAILS',raising=False)
+    owner=login(application)
+    other=login(application,'other@example.test')
+    assert call(other,'GET','/api/admin/overview',status=403).status_code==403
+    with psycopg.connect(os.environ['SHURSH_DATABASE_URL']) as con:
+        con.execute('INSERT INTO public.site_admins(user_id) VALUES(%s) ON CONFLICT DO NOTHING',
+                    (IDS['owner@example.test'],))
+    try:
+        role=login(application)
+        assert call(role,'GET','/api/me').json['user']['is_admin'] is True
+        assert call(role,'GET','/api/admin/overview').json['stats']['users']>=2
+        call(other,'GET','/api/admin/feedback',status=403)
+    finally:
+        with psycopg.connect(os.environ['SHURSH_DATABASE_URL']) as con:
+            con.execute('DELETE FROM public.site_admins WHERE user_id=%s',(IDS['owner@example.test'],))
+    assert call(login(application),'GET','/api/me').json['user']['is_admin'] is False
+
+
+def test_santa_finish_can_store_optional_webp_atomically(application):
+    """A photo failure must not silently complete a game; no public photo leaks."""
+    from uuid import uuid4
+    owner=login(application)
+    stranger=login(application,'other@example.test')
+    eid=call(owner,'POST','/api/santas',{'title':'Atomic photo '+uuid4().hex[:8]},201).json['id']
+    for label in ('Guest A','Guest B'):
+        call(owner,'POST',f'/api/santas/{eid}/participants',{'name':label},201)
+    call(owner,'POST',f'/api/santas/{eid}/draw',{},200)
+    endpoint=f'/api/santas/{eid}/finish'
+    wrong=call(owner,'POST',endpoint,{'image_data':PNG},400)
+    assert 'WebP' in wrong.json['error']
+    assert call(owner,'GET',f'/api/santas/{eid}').json['event']['status']=='drawn'
+    webp='data:image/webp;base64,UklGRm4AAABXRUJQVlA4IGIAAABwAgCdASoQABAAAoBCJbACdH8D2HQYpXUXjD8AAP77IWDmzt26izyt8eYKFcTtb3XnAkGE+9epPGxyqy+v1gLcFDH4nfz/zkEhMSQ/HhVx/d+JHYr9yBD/Rbv3+sws+CAAAA=='
+    finished=call(owner,'POST',endpoint,{'image_data':webp},200).json
+    assert finished['already_finished'] is False
+    assert call(owner,'GET',f'/api/santas/{eid}/memory').json['memory']['image_data']==webp
+    assert call(stranger,'GET',f'/api/santas/{eid}/memory',status=404).status_code==404
+    assert webp not in str(call(owner,'GET','/api/dashboard').json)
+    call(owner,'POST',endpoint,{'image_data':webp},409)
+    assert call(owner,'POST',endpoint,{},200).json['already_finished'] is True
+
+
+@pytest.mark.browser
+def test_mobile_auth_header_marquee_footer_and_warm_focus(browser_http):
+    """Regression coverage for condensed guest header and all three auth modals."""
+    from playwright.sync_api import sync_playwright, expect
+    with sync_playwright() as play:
+        browser=play.chromium.launch(headless=True,args=['--no-sandbox'])
+        try:
+            for width in (375,390):
+                page=browser.new_page(viewport={'width':width,'height':760})
+                page.goto(browser_http+'/')
+                page.evaluate('window.scrollTo(0,260)')
+                expect(page.locator('.site-header')).to_have_class(re.compile(r'is-condensed'))
+                login=page.locator('header button[data-open="login"]')
+                expect(login).to_be_visible()
+                expect(login).to_have_text('Войти')
+                metrics=login.evaluate("""el => {
+                  const css=getComputedStyle(el),rect=el.getBoundingClientRect();
+                  return {font:parseFloat(css.fontSize),height:rect.height,
+                          inside:rect.left>=0&&rect.right<=innerWidth+1}
+                }""")
+                assert metrics['font']>=13 and metrics['height']>=44 and metrics['inside'],metrics
+                duration=page.locator('.marquee-line .marquee-inner').evaluate(
+                    "el => getComputedStyle(el).animationDuration")
+                assert duration=='19s',duration
+                login.click()
+
+                def check_auth_footer():
+                    expect(page.locator('.modal-fixed-footer .form-actions')).to_be_visible()
+                    foot=page.locator('.modal-fixed-footer .form-actions + .modal-foot')
+                    expect(foot).to_be_visible()
+                    margin=foot.evaluate("el=>parseFloat(getComputedStyle(el).marginTop)")
+                    assert margin>=18,margin
+                    assert page.evaluate('document.documentElement.scrollWidth<=innerWidth+2')
+
+                check_auth_footer()
+                mail=page.locator('#fld-email')
+                mail.click()
+                assert mail.evaluate(
+                    "el=>getComputedStyle(el).backgroundColor")=='rgb(255, 249, 233)'
+                page.locator('.modal-foot [data-open="register"]').click()
+                check_auth_footer()
+                page.locator('.modal-foot [data-open="login"]').click()
+                check_auth_footer()
+                page.locator('.modal-foot [data-open="resend"]').click()
+                check_auth_footer()
+                page.close()
+        finally:
+            browser.close()

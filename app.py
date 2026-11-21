@@ -10,7 +10,7 @@ from pathlib import Path
 from flask import Flask, Response, request, send_from_directory
 from werkzeug.exceptions import RequestEntityTooLarge
 
-from cloud import db
+from cloud import db, auth
 from cloud.backend import CloudRequest, serialize
 from server import ApiError, LIMIT_BYTES
 
@@ -84,7 +84,7 @@ def body_error(_):
     return response({'error':'Слишком большой запрос'},413)
 
 
-@app.route('/api/<path:route>', methods=['GET','POST','PATCH','DELETE'])
+@app.route('/api/<path:route>', methods=['GET','POST','PATCH','PUT','DELETE'])
 def api(route):
     path = '/api/'+route
     if request.method not in ('GET','HEAD'):
@@ -107,6 +107,32 @@ def api(route):
         if path == '/api/auth/resend' and request.method == 'POST':
             result=handler.resend_confirmation()
             return response(result[1],result[0],result[2])
+        if path in ('/api/account/email','/api/account/password') and request.method=='POST':
+            handler.throttled('account-update',8,600)
+            data=handler.body()
+            with db.transaction() as con:
+                owner=handler.auth(con)
+                owner_id=owner['id']
+                owner_email=owner['email']
+            db.close_request_connection()
+            current_password=data.get('current_password')
+            if not isinstance(current_password,str) or not (8<=len(current_password)<=200):
+                raise ApiError(400,'Введи текущий пароль')
+            if path.endswith('/email'):
+                value=data.get('email')
+                import re as regex
+                if not isinstance(value,str) or len(value)>254 or not regex.fullmatch(r'[^@\s]{1,64}@[A-Za-z0-9-]+(?:\.[A-Za-z0-9-]+)+',value.strip()):
+                    raise ApiError(400,'Проверь адрес электронной почты')
+                if value.strip().casefold()==owner_email.casefold():
+                    raise ApiError(400,'Это уже твой адрес')
+                change={'email':value.strip()}
+            else:
+                value=data.get('new_password')
+                if not isinstance(value,str) or not (8<=len(value)<=200) or value==current_password:
+                    raise ApiError(400,'Новый пароль должен отличаться и содержать от 8 до 200 символов')
+                change={'password':value}
+            auth.update_verified_account(owner_id,owner_email,current_password,change)
+            return response({'ok':True,'pending_confirmation':'email' in change},200)
         if path == '/api/auth/complete' and request.method == 'POST':
             prepared=handler.prepare_confirmation()
             with db.transaction(write=True,rate_limit=True) as con:
@@ -171,7 +197,7 @@ def image(filename):
 @app.get('/')
 @app.get('/<path:route>')
 def frontend(route=''):
-    if route in ('app.js','santa-ui.js','social-ui.js','styles.css','favicon.svg'):
+    if route in ('app.js','santa-ui.js','social-ui.js','styles.css','polish.css','favicon.svg'):
         return send_from_directory(ROOT/'public',route)
     # Serve only known app routes; never include the simulator or repository files.
     if route in ('','index.html','lists','santas','friends','profile','notifications','admin','admin/feedback') or re.fullmatch(r'(?:list|santa)/[0-9]{1,16}|(?:w|r|join|p)/[A-Za-z0-9_-]{1,128}|users/[0-9a-fA-F-]{36}',route):
