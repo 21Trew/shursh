@@ -334,7 +334,13 @@ function openUiSelect(select,button){
   });
   button.setAttribute('aria-activedescendant',list.id+'-opt-'+highlighted);
   const target=list.querySelector('[data-ui-index="'+highlighted+'"]');
-  target?.scrollIntoView({block:'nearest'});
+  // Scroll only the portal menu, never the modal behind it: outer
+  // scrolling would trigger the document scroll listener and close the menu.
+  if(target){
+   const top=target.offsetTop,bottom=top+target.offsetHeight;
+   if(top<list.scrollTop)list.scrollTop=top;
+   else if(bottom>list.scrollTop+list.clientHeight)list.scrollTop=bottom-list.clientHeight;
+  }
  };
  const choose=(i)=>{
   if(!opts[i]||opts[i].disabled)return;
