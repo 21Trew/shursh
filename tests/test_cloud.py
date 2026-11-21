@@ -1881,3 +1881,46 @@ def test_browser_guest_member_claim_after_email_confirmation_and_manual_link(bro
             guest_ctx.close()
         finally:
             browser.close()
+
+
+
+def test_finished_santa_state_and_mutual_friend_games(application):
+    """Finishing freezes the lifecycle but preserves assignments and mutual visibility."""
+    from uuid import uuid4
+    owner=login(application)
+    member=login(application,'other@example.test')
+    owner_id=str(IDS['owner@example.test'])
+    member_id=str(IDS['other@example.test'])
+    friendship=call(owner,'GET','/api/friends').json
+    if not any(str(x['id'])==member_id for x in friendship['friends']):
+        if any(str(x['id'])==member_id for x in friendship['incoming']):
+            call(owner,'PATCH',f'/api/friends/{member_id}',{'action':'accept'})
+        else:
+            if not any(str(x['id'])==member_id for x in friendship['outgoing']):
+                call(owner,'POST',f'/api/friends/{member_id}',{},200)
+            call(member,'PATCH',f'/api/friends/{owner_id}',{'action':'accept'})
+    eid=call(owner,'POST','/api/santas',{'title':'Close game '+uuid4().hex[:8]},201).json['id']
+    other=call(owner,'POST','/api/santas',{'title':'Not shared '+uuid4().hex[:8]},201).json['id']
+    assert not any(g['id']==eid for g in call(owner,'GET',f'/api/users/{member_id}').json['shared_games'])
+    assert not any(g['id']==other for g in call(member,'GET',f'/api/users/{owner_id}').json['shared_games'])
+    call(owner,'POST',f'/api/santas/{eid}/finish',{},409)
+    call(member,'POST',f'/api/santas/{eid}/finish',{},404)
+    key=call(owner,'GET',f'/api/santas/{eid}').json['event']['invite_key']
+    call(member,'POST',f'/api/invites/{key}/join',{'name':'Other'},201)
+    call(owner,'POST',f'/api/santas/{eid}/participants',{'name':'Extra guest'},201)
+    games=call(member,'GET',f'/api/users/{owner_id}').json['shared_games']
+    assert any(g['id']==eid for g in games)
+    assert all(g['id']!=other for g in games)
+    call(owner,'POST',f'/api/santas/{eid}/draw',{},200)
+    assigned=call(owner,'GET',f'/api/santas/{eid}').json['my_assignment']
+    assert assigned is not None
+    call(owner,'POST',f'/api/santas/{eid}/finish',{},200)
+    assert call(owner,'POST',f'/api/santas/{eid}/finish',{},200).json['already_finished']
+    finished=call(owner,'GET',f'/api/santas/{eid}').json
+    assert finished['event']['status']=='finished'
+    assert finished['my_assignment']==assigned
+    assert call(member,'GET',f'/api/member/{eid}').json['event']['status']=='finished'
+    assert any(g['id']==eid and g['status']=='finished'
+               for g in call(member,'GET',f'/api/users/{owner_id}').json['shared_games'])
+    call(owner,'POST',f'/api/santas/{eid}/draw',{},409)
+    call(owner,'POST',f'/api/santas/{eid}/participants',{'name':'Too late'},409)
