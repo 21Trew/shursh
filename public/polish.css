@@ -492,3 +492,47 @@
 .game-gift-primary .wish-content{flex:1;display:flex;flex-direction:column}
 .game-gift-card .game-gift-overlay-actions{position:absolute;top:7px;right:7px;z-index:5}
 .game-gift-card .game-gift-overlay-actions .btn{position:relative;z-index:6}
+
+
+/* Auth UX: keep the guest login CTA readable in the condensed mobile header. */
+@media(max-width:760px){
+ .site-header.is-condensed .header-actions button[data-open="login"]{
+  display:inline-flex!important;
+  font-size:14px!important;
+  line-height:1.15;
+  min-height:44px;
+  min-width:80px;
+  width:auto;
+  padding:10px 14px!important;
+  gap:6px;
+  white-space:nowrap;
+ }
+ /* Existing mobile marquee takes 25 seconds. Slightly faster, no extra layers. */
+ .marquee-line .marquee-inner{animation-duration:19s}
+}
+/* Same spacing for login, registration and confirmation-resend footer actions. */
+.modal>.modal-fixed-footer .form-actions + .modal-foot{
+ margin-top:18px;
+ padding-top:0;
+ border-top:0;
+ line-height:1.6;
+}
+/* Browser autofill paints the blue fill shown in Chromium/WebKit.
+   Keep autofilled email/password and focused fields within the warm UI-kit. */
+.modal .field input:not([type="checkbox"]):focus,
+.modal .field textarea:focus{
+ background-color:#fff9e9;
+}
+.modal .field input:-webkit-autofill,
+.modal .field input:-webkit-autofill:hover,
+.modal .field input:-webkit-autofill:focus,
+.modal .field input:autofill{
+ background-color:#fff5dc!important;
+ -webkit-text-fill-color:var(--ink)!important;
+ caret-color:var(--ink);
+ box-shadow:inset 0 0 0 1000px #fff5dc!important;
+}
+.modal .field input:-webkit-autofill:focus-visible,
+.modal .field input:autofill:focus-visible{
+ box-shadow:inset 0 0 0 1000px #fff5dc,0 0 0 3px rgba(205,146,98,.19)!important;
+}

@@ -2045,3 +2045,53 @@ def test_santa_finish_can_store_optional_webp_atomically(application):
     assert webp not in str(call(owner,'GET','/api/dashboard').json)
     call(owner,'POST',endpoint,{'image_data':webp},409)
     assert call(owner,'POST',endpoint,{},200).json['already_finished'] is True
+
+
+@pytest.mark.browser
+def test_mobile_auth_header_marquee_footer_and_warm_focus(browser_http):
+    """Regression coverage for condensed guest header and all three auth modals."""
+    from playwright.sync_api import sync_playwright, expect
+    with sync_playwright() as play:
+        browser=play.chromium.launch(headless=True,args=['--no-sandbox'])
+        try:
+            for width in (375,390):
+                page=browser.new_page(viewport={'width':width,'height':760})
+                page.goto(browser_http+'/')
+                page.evaluate('window.scrollTo(0,260)')
+                page.wait_for_function("document.querySelector('.site-header').classList.contains('is-condensed')")
+                login=page.locator('header button[data-open="login"]')
+                expect(login).to_be_visible()
+                expect(login).to_have_text('Войти')
+                metrics=login.evaluate("""el => {
+                  const css=getComputedStyle(el),rect=el.getBoundingClientRect();
+                  return {font:parseFloat(css.fontSize),height:rect.height,
+                          inside:rect.left>=0&&rect.right<=innerWidth+1}
+                }""")
+                assert metrics['font']>=13 and metrics['height']>=44 and metrics['inside'],metrics
+                duration=page.locator('.marquee-line .marquee-inner').evaluate(
+                    "el => getComputedStyle(el).animationDuration")
+                assert duration=='19s',duration
+                login.click()
+
+                def check_auth_footer():
+                    expect(page.locator('.modal-fixed-footer .form-actions')).to_be_visible()
+                    foot=page.locator('.modal-fixed-footer .form-actions + .modal-foot')
+                    expect(foot).to_be_visible()
+                    margin=foot.evaluate("el=>parseFloat(getComputedStyle(el).marginTop)")
+                    assert margin>=18,margin
+                    assert page.evaluate('document.documentElement.scrollWidth<=innerWidth+2')
+
+                check_auth_footer()
+                mail=page.locator('#fld-email')
+                mail.click()
+                assert mail.evaluate(
+                    "el=>getComputedStyle(el).backgroundColor")=='rgb(255, 249, 233)'
+                page.locator('.modal-foot [data-open="register"]').click()
+                check_auth_footer()
+                page.locator('.modal-foot [data-open="login"]').click()
+                check_auth_footer()
+                page.locator('.modal-foot [data-open="resend"]').click()
+                check_auth_footer()
+                page.close()
+        finally:
+            browser.close()
