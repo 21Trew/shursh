@@ -535,7 +535,7 @@ function dashboardContent(data){
  const recentLists=lists.slice(0,3).map(listCard).join('');
  const recentEvents=events.slice(0,3).map(e=>
   '<article class="dashboard-santa-card"><a class="card-hitarea" href="/santa/'+e.id+'" data-nav="/santa/'+e.id+'" aria-label="Открыть игру '+attr(e.title)+'"></a><div class="dashboard-santa-symbol">'+ico('gift',30)+'</div>'+
-  '<div class="section-label">'+(e.status==='drawn'?'Жеребьёвка проведена':'Собираем участников')+'</div>'+
+  '<div class="section-label">'+(e.status==='finished'?'Игра завершена':e.status==='drawn'?'Жеребьёвка проведена':'Собираем участников')+'</div>'+
   '<h3>'+esc(e.title)+'</h3><p>'+esc(e.description||'Праздник уже на горизонте!')+'</p>'+
   '<div class="dashboard-card-footer"><span>'+ruCount(e.participant_count||0,'участник','участника','участников')+'</span>'+
   '<button class="text-link" data-nav="/santa/'+e.id+'">Открыть '+ico('arrow')+'</button></div></article>'
@@ -689,10 +689,56 @@ function ruCount(n,one,few,many){
  const value=Math.max(0,Math.trunc(Number(n)||0));
  return value+' '+plural(value,one,few,many);
 }
+// Anonymous reservations are browser-local bearer capabilities, never public URLs.
+// Memory fallback lets private windows work when persistent storage is disabled.
+const browserReservations=new Map();
+function reservationKey(listKey,wishId){return 'shursh-reservation-v2:'+listKey+':'+wishId;}
+function ownReservation(listKey,wishId){
+ const key=reservationKey(listKey,wishId);
+ if(browserReservations.has(key))return browserReservations.get(key);
+ try{const saved=localStorage.getItem(key);if(saved&&/^[A-Za-z0-9_-]{43}$/.test(saved)){browserReservations.set(key,saved);return saved;}}catch{}
+ return null;
+}
+function rememberReservation(listKey,wishId,token){
+ const key=reservationKey(listKey,wishId);
+ browserReservations.set(key,token);
+ try{localStorage.setItem(key,token);}catch{}
+}
+function forgetReservation(listKey,wishId){
+ const key=reservationKey(listKey,wishId);
+ browserReservations.delete(key);
+ try{localStorage.removeItem(key);}catch{}
+}
+async function toggleGiftReservation(wishId,listKey){
+ const wish=loadedPublicWishes.find(x=>Number(x.id)===Number(wishId));
+ if(!wish)throw new Error('Подарок не найден');
+ const token=ownReservation(listKey,wishId);
+ if(wish.reserved){
+  if(!token)throw new Error('Этот подарок уже забронирован другим человеком');
+  try{
+   await api('/api/reservations/'+encodeURIComponent(token),{method:'DELETE'});
+   forgetReservation(listKey,wishId);
+   notice('Бронь отменена');
+  }catch(err){
+   if(err.status===404||err.status===409){forgetReservation(listKey,wishId);notice('Бронь больше не активна. Обновили список');}
+   else throw err;
+  }
+ }else{
+  // A stale token must never grant cancellation rights to a new reservation.
+  if(token)forgetReservation(listKey,wishId);
+  const res=await api('/api/public/'+encodeURIComponent(listKey)+'/reserve/'+wishId,{method:'POST',body:{}});
+  rememberReservation(listKey,wishId,res.manage_token);
+  notice('Подарок забронирован!');
+ }
+ closeModal();
+ // Refresh only the public list after a mutation; owner warm tabs remain untouched.
+ await publicListPage(listKey,lastRenderToken);
+}
 function wishCard(w,mode='owner',shareKey=''){
  const reserved=w.reserved===true;
  const cardActions=mode==='owner'?`<div class="wish-controls"><button class="btn btn-soft" data-action="edit-wish" data-id="${w.id}" title="Редактировать">${ico('edit')}</button><button class="btn btn-soft" data-action="delete-wish" data-id="${w.id}" title="Удалить">${ico('trash')}</button></div>`:'';
- const footer=mode==='guest'?`<button class="btn ${reserved?'btn-soft':'btn-dark'} wish-action" ${reserved?'disabled':''} data-action="reserve" data-id="${w.id}" data-key="${attr(shareKey)}">${reserved?`${ico('check')} Уже забронировано`:`${ico('gift')} Забронировать подарок`}</button>`:'';
+ const own=reserved&&!!ownReservation(shareKey,w.id);
+ const footer=mode==='guest'?`<button type="button" class="btn ${own?'btn-soft':reserved?'btn-soft':'btn-dark'} wish-action" ${reserved&&!own?'disabled':''} data-action="reserve" data-id="${w.id}" data-key="${attr(shareKey)}">${own?`${ico('check')} Отменить бронь`:reserved?`${ico('lock')} Уже забронировано`:`${ico('gift')} Забронировать`}</button>`:'';
  return `<article class="wish-card"><button type="button" class="card-hitarea" data-action="show-wish" data-id="${w.id}" data-mode="${attr(mode)}" data-key="${attr(shareKey)}" aria-label="Подробнее о желании ${attr(w.title)}"></button><div class="wish-image">${w.image_path?`<img src="${attr(w.image_path)}" alt="${attr(w.title)}" loading="lazy">`:artFor(w)}${w.priority==='love'?`<span class="wish-priority chip chip-peach">${ico('heart')} Очень хочу</span>`:`<span class="wish-priority chip priority-nice">Было бы здорово</span>`}</div><div class="wish-content"><h3>${esc(w.title)}</h3><p class="wish-desc">${esc(w.description|| (w.kind==='experience'?'Впечатление или хорошая идея':'Подарок без комментария'))}</p><div class="wish-card-footer"><div class="wish-price">${money(w.price_cents,w.currency)}</div>${cardActions}</div>${w.shop_url?`<a href="${attr(w.shop_url)}" target="_blank" rel="noopener noreferrer" class="text-link" style="margin-top:12px;font-size:12px">В магазин ${ico('external')}</a>`:''}${footer}</div></article>`;
 }
 function showWishDetails(el){
@@ -702,7 +748,7 @@ function showWishDetails(el){
  const image=wish.image_path?'<img class="wish-detail-image" src="'+attr(wish.image_path)+'" alt="'+attr(wish.title)+'">':
    '<div class="wish-detail-art">'+artFor(wish)+'</div>';
  const actions=mode==='owner'?'<button class="btn btn-soft" data-action="edit-wish" data-id="'+id+'">'+ico('edit')+' Редактировать</button>'+(isPreview?'':'<button class="btn btn-soft" data-social-action="ask-gift" data-wish-id="'+id+'">'+ico('heart')+' Попросить друга</button>'):
-   mode==='guest'&&!wish.reserved?'<button class="btn btn-dark" data-action="reserve" data-id="'+id+'" data-key="'+attr(key)+'">'+ico('gift')+' Забронировать</button>':'';
+   mode==='guest'&&(!wish.reserved||ownReservation(key,id))?'<button class="btn btn-dark" data-action="reserve" data-id="'+id+'" data-key="'+attr(key)+'">'+ico(wish.reserved?'check':'gift')+' '+(wish.reserved?'Отменить бронь':'Забронировать')+'</button>':'';
  const store=wish.shop_url?'<a class="btn btn-soft" href="'+attr(wish.shop_url)+'" target="_blank" rel="noopener noreferrer">В магазин '+ico('external')+'</a>':'';
  modal({title:wish.title,subtitle:money(wish.price_cents,wish.currency),
    content:'<div class="wish-detail">'+image+
@@ -717,7 +763,7 @@ let loadedList = null;
 async function ownerListPage(id,marker=lastRenderToken){if(!currentUser)throw new Error('Войди, чтобы открыть список');const d=await api(`/api/lists/${id}`);if(marker!==lastRenderToken)return;loadedList=d;
  const l=d.list;const url=getLink(`/w/${l.share_key}`);shell(`<main class="container page"><div class="guest-topline"><button class="text-link" data-nav="/lists">${ico('back')} Мои вишлисты</button> <span>/</span> <span>${esc(l.title)}</span></div><div class="detail-top cover-${attr(l.theme)}"><div><span class="chip">${ico('gift')} ${esc(l.occasion)}</span><h1>${esc(l.title)}</h1><p>${esc(l.description||'Список маленьких и больших мечтаний')}</p></div><div class="detail-art">${fallbackArt('gift')}</div></div><div class="detail-actions"><div><h2>Желания <span class="chip">${d.wishes.length}</span></h2><p class="note">Брони друзей здесь никогда не отображаются</p></div><div class="btn-row"><button class="btn btn-soft btn-small" data-action="edit-list">${ico('edit')} Настройки</button><button class="btn btn-soft btn-small" data-action="copy" data-url="${attr(url)}" ${l.visibility==='private'?'disabled title="Сначала открой доступ по ссылке"':''}>${ico('copy')} Ссылка</button><button class="btn btn-dark btn-small" data-open="wish">Добавить желание ${ico('plus')}</button></div></div>${l.visibility==='private'?`<div class="alert">${ico('lock')} Список приватный. Доступ по ссылке выключен в настройках</div>`:''}${d.wishes.length?`<div class="wishlist-grid">${d.wishes.map(w=>wishCard(w)).join('')}</div>`:emptyState('Пока ни одного желания','Вдохновение начинается с первой идеи','Добавить желание','wish')}<div class="divider-line"></div><button class="btn btn-ghost btn-small" data-action="delete-list">${ico('trash')} Удалить весь список</button></main>`);}
 let loadedPublicWishes=[];
-async function publicListPage(key,marker=lastRenderToken){const {list:l,wishes,owner_view}=await api(`/api/public/${key}`);if(marker!==lastRenderToken)return;loadedPublicWishes=wishes;shell(`<main class="container page"><div class="guest-topline">${ico('gift')} <span>Вишлист по ссылке</span><span>/</span><strong>от ${esc(l.owner_name)}</strong></div><div class="detail-top cover-${attr(l.theme)}"><div><span class="chip">${ico('heart')} ${esc(l.occasion)}</span><h1>${esc(l.title)}</h1><p>${esc(l.description)}</p></div><div class="detail-art">${fallbackArt('gift')}</div></div><div class="guest-banner">${ico('lock')} ${owner_view?'Это твой список - статус бронирования для владельца скрыт':'Можешь забронировать понравившийся подарок. Владелец списка не увидит, что выбрано. После брони сохрани приватную ссылку для управления'}</div><div class="detail-actions"><h2>Желания <span class="chip">${wishes.length}</span></h2></div>${wishes.length?`<div class="wishlist-grid">${wishes.map(w=>wishCard(w,owner_view?'view':'guest',key)).join('')}</div>`:emptyState('В этом списке пока пусто','Загляни позже - здесь скоро появятся желания','На главную','login')}</main>`);}
+async function publicListPage(key,marker=lastRenderToken){const {list:l,wishes,owner_view}=await api(`/api/public/${key}`);if(marker!==lastRenderToken)return;loadedPublicWishes=wishes;shell(`<main class="container page"><div class="guest-topline">${ico('gift')} <span>Вишлист по ссылке</span><span>/</span><strong>от ${esc(l.owner_name)}</strong></div><div class="detail-top cover-${attr(l.theme)}"><div><span class="chip">${ico('heart')} ${esc(l.occasion)}</span><h1>${esc(l.title)}</h1><p>${esc(l.description)}</p></div><div class="detail-art">${fallbackArt('gift')}</div></div><div class="guest-banner">${ico('lock')} ${owner_view?'Это твой список - статус бронирования для владельца скрыт':'Можешь забронировать понравившийся подарок. Владелец списка не увидит, что выбрано. Нажми «Забронировать», чтобы занять подарок. Для отмены нажми на эту же кнопку в том же браузере'}</div><div class="detail-actions"><h2>Желания <span class="chip">${wishes.length}</span></h2></div>${wishes.length?`<div class="wishlist-grid">${wishes.map(w=>wishCard(w,owner_view?'view':'guest',key)).join('')}</div>`:emptyState('В этом списке пока пусто','Загляни позже - здесь скоро появятся желания','На главную','login')}</main>`);}
 async function reservationPage(key,marker=lastRenderToken){const {reservation:r}=await api(`/api/reservations/${key}`);if(marker!==lastRenderToken)return;shell(`<main class="container page"><div class="invite-card"><div class="invite-icon">${envelopeArt()}</div><h1>${r.cancelled_at?'Бронь отменена':'Подарок ждёт своего часа!'}</h1><p>${r.cancelled_at?'Этот подарок снова доступен другим дарителям':'Твоя бронь сохранена. Эта ссылка - личный ключ для отмены, береги её'}</p><div class="details-box"><p><strong>Подарок:</strong> ${esc(r.wish_title)}</p><p><strong>Вишлист:</strong> ${esc(r.list_title)}</p></div>${!r.cancelled_at?`<div class="share-field"><input class="input" readonly value="${attr(getLink(`/r/${key}`))}" aria-label="Ссылка управления бронью"><button class="btn btn-dark btn-small" data-action="copy" data-url="${attr(getLink(`/r/${key}`))}">${ico('copy')} Копировать</button></div><button class="btn btn-danger btn-small" data-action="cancel-reservation" data-token="${attr(key)}">Отменить мою бронь</button>`:''}</div></main>`);}
 async function adminFeedbackPage(marker=lastRenderToken){
  const {items}=await api('/api/admin/feedback');
@@ -738,7 +784,7 @@ async function santasPage(marker=lastRenderToken){if(!currentUser){shell(`<main 
  const {events,invitations=[]}=await api('/api/santas');if(marker!==lastRenderToken)return;
  const pending=invitations.length?'<section class="panel santa-pending"><h2>Приглашения <span class="chip">'+invitations.length+'</span></h2>'+
   invitations.map(i=>'<article class="santa-pending-row"><div><strong>'+esc(i.title)+'</strong><p class="note">'+dateRu(i.exchange_date)+' · '+money(i.budget_cents,i.currency)+'</p></div><button type="button" class="btn btn-peach btn-small" data-action="accept-santa-invite" data-key="'+attr(i.invite_key)+'">Присоединиться</button></article>').join('')+'</section>':'';
- shell(`<main class="container page"><div class="page-hero"><div><div class="section-label">Секретная служба подарков</div><h1>Тайный Санта</h1><p>Здесь живут все твои секретные обмены подарками</p></div><div class="btn-row"><button class="btn btn-soft btn-small" data-action="connect-game">Привязать игру по ссылке</button><button class="btn btn-dark" data-open="santa">Новая игра ${ico('plus')}</button></div></div>${pending}${events.length?`<div class="santa-grid">${events.map(e=>`<div class="santa-list-card"><a class="card-hitarea" href="/santa/${e.id}" data-nav="/santa/${e.id}" aria-label="Открыть игру ${attr(e.title)}"></a><span class="sparkle-deco" aria-hidden="true">${ico("spark",72)}</span><div class="section-label">${e.status==='drawn'?'Жеребьёвка проведена':'Собираем компанию'}</div><h3>${esc(e.title)}</h3><p>${esc(e.description||'Собираем друзей для хороших сюрпризов')}</p><div class="list-bottom"><span>${ico('users')} ${ruCount(e.participant_count,'участник','участника','участников')} · ${dateRu(e.exchange_date)}</span><button class="text-link" data-nav="/santa/${e.id}">Открыть ${ico('arrow')}</button></div></div>`).join('')}</div>`:emptyState('Пока без секретов','Первую игру создать проще, чем выбрать подарочную бумагу','Создать игру','santa')}</main>`);}
+ shell(`<main class="container page"><div class="page-hero"><div><div class="section-label">Секретная служба подарков</div><h1>Тайный Санта</h1><p>Здесь живут все твои секретные обмены подарками</p></div><div class="btn-row"><button class="btn btn-soft btn-small" data-action="connect-game">Привязать игру по ссылке</button><button class="btn btn-dark" data-open="santa">Новая игра ${ico('plus')}</button></div></div>${pending}${events.length?`<div class="santa-grid">${events.map(e=>`<div class="santa-list-card"><a class="card-hitarea" href="/santa/${e.id}" data-nav="/santa/${e.id}" aria-label="Открыть игру ${attr(e.title)}"></a><span class="sparkle-deco" aria-hidden="true">${ico("spark",72)}</span><div class="section-label">${e.status==='finished'?'Игра завершена':e.status==='drawn'?'Жеребьёвка проведена':'Собираем компанию'}</div><h3>${esc(e.title)}</h3><p>${esc(e.description||'Собираем друзей для хороших сюрпризов')}</p><div class="list-bottom"><span>${ico('users')} ${ruCount(e.participant_count,'участник','участника','участников')} · ${dateRu(e.exchange_date)}</span><button class="text-link" data-nav="/santa/${e.id}">Открыть ${ico('arrow')}</button></div></div>`).join('')}</div>`:emptyState('Пока без секретов','Первую игру создать проще, чем выбрать подарочную бумагу','Создать игру','santa')}</main>`);}
 let loadedSanta=null;
 let activeGameContext=null;
 let gameChatTimer=null;
@@ -763,10 +809,10 @@ async function santaGamePage(id,marker=lastRenderToken,participantToken=null){
  const gameWishes=memberView?d.wishes:(d.my_wishes||[]);
   const myPrefs=memberView?d.preferences:d.my_preferences;
  activeGameContext={base:memberView?(memberBase||'/api/participant/'+participantToken):'/api/santas/'+id,
-  event:e,richEnabled:d.rich_enabled!==false,own:gameWishes,memberView,memberId:memberView?d.participant.id:null,currentUserId:currentUser?.id,recipient:e.status==='drawn'?(memberView?d.assignment?.wish_cards:d.my_assignment?.wish_cards)||[]:[],participants:d.participants};
+  event:e,richEnabled:d.rich_enabled!==false,own:gameWishes,memberView,memberId:memberView?d.participant.id:null,currentUserId:currentUser?.id,recipient:e.status!=='open'?(memberView?d.assignment?.wish_cards:d.my_assignment?.wish_cards)||[]:[],participants:d.participants};
  const people=d.participants;
  const selects=(id,label)=>selectField(label,id,people.map(p=>[p.id,p.name]),null);
- shell(`<main class="container page"><div class="guest-topline">${memberView? `${ico('lock')} Личный кабинет участника <span>/</span> <strong>${esc(d.participant.name)}</strong>`:`<button class="text-link" data-nav="/santas">${ico('back')} Все игры</button> <span>/</span> <span>${esc(e.title)}</span>`}</div><div class="page-hero"><div><div class="section-label">${e.status==='drawn'?'Жеребьёвка проведена':'Приглашаем участников'}</div><h1>${esc(e.title)}</h1><p>${esc(e.description||'Праздник начинается с маленькой тайны')}</p></div><span class="chip ${e.status==='drawn'?'chip-green':'chip-lilac'}">${ico(e.status==='drawn'?'check':'users')} ${e.status==='drawn'?'Игра началась':'Приём открыт'}</span></div><div class="santa-detail-layout"><div>
+ shell(`<main class="container page"><div class="guest-topline">${memberView? `${ico('lock')} Личный кабинет участника <span>/</span> <strong>${esc(d.participant.name)}</strong>`:`<button class="text-link" data-nav="/santas">${ico('back')} Все игры</button> <span>/</span> <span>${esc(e.title)}</span>`}</div><div class="page-hero"><div><div class="section-label">${e.status==='finished'?'Игра завершена':e.status==='drawn'?'Жеребьёвка проведена':'Приглашаем участников'}</div><h1>${esc(e.title)}</h1><p>${esc(e.description||'Праздник начинается с маленькой тайны')}</p></div><div class="santa-game-status">${!memberView&&e.status==='drawn'?'<button type="button" class="btn btn-soft btn-small" data-action="finish-santa">Завершить игру '+ico('check')+'</button>':''}<span class="chip ${e.status!=='open'?'chip-green':'chip-lilac'}">${ico(e.status!=='open'?'check':'users')} ${e.status==='finished'?'Игра завершена':e.status==='drawn'?'Игра началась':'Приём открыт'}</span></div></div><div class="santa-detail-layout"><div>
  <div class="panel"><div class="panel-heading-actions"><h2>Участники <span class="chip" data-santa-roster-count>${people.length}</span></h2>${!memberView&&e.status==='open'?'<div class="santa-player-actions"><button class="btn btn-soft btn-small" data-action="add-player">'+ico('plus')+' Добавить участника</button>'+(isPreview?'':'<button class="btn btn-soft btn-small santa-invite-action" data-social-action="invite-friends">Пригласить друзей</button>')+'</div>':''}</div><div class="person-list" data-santa-roster>${people.map(p=>santaRosterPerson(p,activeGameContext)).join('')}</div>${e.status==='open'?`<div class="divider-line"></div><p class="note">Пригласи друзей по общей ссылке. Каждый сможет присоединиться без регистрации и получит собственную личную ссылку</p><div class="share-field"><input class="input" aria-label="Ссылка-приглашение" readonly value="${attr(getLink(`/join/${e.invite_key}`))}"><button class="btn btn-dark btn-small" data-action="copy" data-url="${attr(getLink(`/join/${e.invite_key}`))}">${ico('copy')} Копировать</button></div>`:''}</div>
  <div class="panel"><div class="panel-heading-actions"><h2>Мои пожелания</h2>${!memberView||currentUser?`<button class="btn btn-soft btn-small" data-action="import-own-wishes" ${memberView?`data-key="${attr(participantToken||'')}"`:`data-id="${id}"`}>${ico('plus')} Из вишлиста</button>`:''}</div><p class="note">Твои пожелания увидит только твой тайный Санта</p>
   <div class="santa-preferences-display" id="santa-preferences-display">
@@ -790,7 +836,7 @@ async function santaGamePage(id,marker=lastRenderToken,participantToken=null){
  <p class="note">Общий чат открыт всем участникам. После жеребьёвки появятся личные переписки. Личность тайного дарителя не раскрывается</p>
  <div class="game-chat-tabs" role="group" aria-label="Выбрать чат">
  <button class="btn btn-soft btn-small active" type="button" data-chat-room="general" aria-pressed="true">Общий чат</button>
- ${e.status==='drawn'?'<button class="btn btn-soft btn-small" type="button" data-chat-room="to-recipient" aria-pressed="false">Моему получателю</button><button class="btn btn-soft btn-small" type="button" data-chat-room="from-santa" aria-pressed="false">Моему дарителю</button>':''}
+ ${e.status!=='open'?'<button class="btn btn-soft btn-small" type="button" data-chat-room="to-recipient" aria-pressed="false">Моему получателю</button><button class="btn btn-soft btn-small" type="button" data-chat-room="from-santa" aria-pressed="false">Моему дарителю</button>':''}
  </div>
  <div class="game-chat-messages" role="log" aria-live="polite"><p class="note">Загружаем сообщения…</p></div>
  <form id="game-chat-form" class="game-chat-form"><label for="game-chat-input" class="sr-only">Текст сообщения</label><input id="game-chat-input" class="input" name="message" placeholder="Напиши сообщение" maxlength="500" autocomplete="off" required><button class="btn btn-dark btn-small" type="submit">Отправить ${ico('arrow')}</button></form>
@@ -1059,7 +1105,7 @@ function connectGameModal(){
    await claimPersonalGame(token);
   }});
 }
-function reserveModal(id,key){modal({title:'Забронировать подарок',subtitle:'Владелец не узнает, кто выбрал подарок',content:'<p class="note">Бронь анонимна. Сохрани приватную ссылку для отмены</p>',submitLabel:'Забронировать',onSubmit:async()=>{const r=await api(`/api/public/${key}/reserve/${id}`,{method:'POST',body:{}});nav(`/r/${r.manage_token}`);notice('Подарок за тобой!');}});}
+async function reserveModal(id,key){await toggleGiftReservation(id,key);}
 async function confirmAction(title,subtitle,handler,label='Удалить'){modal({title,subtitle,content:'<div class="alert alert-error">Это действие нельзя отменить</div>',submitLabel:label,onSubmit:handler});}
 async function dispatch(action,el){try{
  if(action==='accept-santa-invite'){
@@ -1069,6 +1115,15 @@ async function dispatch(action,el){try{
   notice('Ты в игре!');nav('/santas',{force:true});return;
  }
 
+ if(action==='finish-santa'){
+  const event=loadedSanta?.event;
+  if(!event||event.status!=='drawn')return;
+  confirmAction('Завершить Тайного Санту?','Жеребьёвка и история сохранятся, но игра перейдёт в завершённые',async()=>{
+   await api('/api/santas/'+event.id+'/finish',{method:'POST',body:{}});
+   notice('Игра завершена');await render();
+  },'Завершить игру');
+  return;
+ }
  if(action==='edit-santa-preferences'){const f=document.getElementById('santa-preferences-form'),d=document.getElementById('santa-preferences-display');if(f&&d){f.hidden=false;d.hidden=true;}return;}
  if(action==='cancel-santa-preferences'){const f=document.getElementById('santa-preferences-form'),d=document.getElementById('santa-preferences-display');if(f&&d){f.reset();f.hidden=true;d.hidden=false;}return;}
  if(action==='claim-game'){
@@ -1117,7 +1172,7 @@ async function dispatch(action,el){try{
  if(action==='edit-wish')wishModal(loadedList.wishes.find(w=>w.id===Number(el.dataset.id)));
  if(action==='delete-wish')confirmAction('Удалить это желание?','Подарок пропадёт из списка. Активная бронь тоже будет удалена',async()=>{await api(`/api/wishes/${el.dataset.id}`,{method:'DELETE'});notice('Желание удалено');await render();});
  if(action==='delete-list')confirmAction('Удалить весь вишлист?','Все желания, ссылки и связанные брони будут удалены',async()=>{await api(`/api/lists/${loadedList.list.id}`,{method:'DELETE'});notice('Список удалён');nav('/lists');});
- if(action==='reserve')reserveModal(el.dataset.id,el.dataset.key);
+ if(action==='reserve'){await reserveModal(el.dataset.id,el.dataset.key);return;}
  if(action==='cancel-reservation')confirmAction('Отменить бронирование?','Подарок снова станет доступен другим дарителям',async()=>{await api(`/api/reservations/${el.dataset.token}`,{method:'DELETE'});notice('Бронь отменена');await render();},'Отменить бронь');
  if(action==='remove-player')confirmAction('Убрать участника?','Его приватная ссылка перестанет работать, и он не будет участвовать в жеребьёвке',async()=>{await api(`/api/santas/${loadedSanta.event.id}/participants/${el.dataset.id}`,{method:'DELETE'});notice('Участник удалён');await render();});
  if(action==='remove-rule'){await api(`/api/santas/${loadedSanta.event.id}/exclusions/${el.dataset.from}/${el.dataset.to}`,{method:'DELETE'});notice('Ограничение снято');await render();}
