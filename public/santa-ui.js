@@ -15,7 +15,7 @@ function gameWishCard(w,source='own'){
 function wishesMarkup(wishes,source='own'){
  if(!wishes?.length)return '<span class="muted note">Пока нет подарков. Добавь конкретные идеи и пожелания</span>';
  return '<div class="game-gifts-carousel"><div class="game-gifts-toolbar"><span class="note">'+
-  wishes.length+' '+plural(wishes.length,'подарок','подарка','подарков')+'</span>'+
+  ruCount(wishes.length,'подарок','подарка','подарков')+'</span>'+
   (wishes.length>1?'<div class="game-gifts-arrows"><button class="btn btn-soft btn-small" type="button" data-action="scroll-game-gifts" data-direction="prev" aria-label="Предыдущие подарки">'+ico('back')+'</button><button class="btn btn-soft btn-small" type="button" data-action="scroll-game-gifts" data-direction="next" aria-label="Следующие подарки">'+ico('arrow')+'</button></div>':'')+
   '</div><div class="game-gifts-track" tabindex="0" role="region" aria-label="Подарки — горизонтальная лента">'+
   wishes.map(w=>gameWishCard(w,source)).join('')+'</div></div>';
@@ -184,7 +184,7 @@ function santaRosterPerson(p,state){
   '</div><div class="person-main"><div class="person-topline"><strong class="person-name">'+esc(p.name)+'</strong>'+
   (mine?'<span class="chip">Ты</span>':'')+
   (organizer?'<span class="chip chip-peach organizer-label">Организатор</span>':'')+'</div><small>'+
-  p.wish_count+' '+plural(p.wish_count,'желание','желания','желаний')+'</small></div>'+
+  ruCount(p.wish_count,'желание','желания','желаний')+'</small></div>'+
   (adminActions?'<div class="person-actions"><button class="btn btn-soft btn-small" title="Выдать новую личную ссылку" data-action="new-player-link" data-id="'+p.id+'">'+ico('link')+'</button>'+
   '<button class="btn btn-soft btn-small" title="Убрать участника" data-action="remove-player" data-id="'+p.id+'">'+ico('trash')+'</button></div>':'')+
   '</div>';
