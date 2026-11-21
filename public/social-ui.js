@@ -178,8 +178,14 @@ async function socialNotificationsModal(){
  const overlay=modalRoot.querySelector('.modal-backdrop');
  if(overlay&&anchor){
   overlay.classList.add('notification-popover');
-  overlay.style.setProperty('--notification-top',Math.round(anchor.bottom+10)+'px');
-  overlay.style.setProperty('--notification-right',Math.max(12,Math.round(innerWidth-anchor.right))+'px');
+  const top=Math.round(anchor.bottom+10);
+  const right=Math.max(12,Math.round(innerWidth-anchor.right));
+  overlay.style.setProperty('--notification-top',top+'px');
+  overlay.style.setProperty('--notification-right',right+'px');
+  // Also pin geometry on the panel itself: flex/padding changes must never
+  // move notifications away from the bell during header transitions.
+  const panel=overlay.querySelector('.modal');
+  if(panel){panel.style.top=top+'px';panel.style.right=right+'px';}
  }
  renderNotificationModalTab('new');
  socialRefreshBadge(true);
