@@ -1148,9 +1148,21 @@ class Handler(BaseHTTPRequestHandler):
             event=con.execute('SELECT status FROM santa_events WHERE id=? AND owner_id=?',
                               (eid,user['id'])).fetchone()
             if not event: raise ApiError(404,'Игра не найдена')
-            if event['status']=='finished': return 200,{'ok':True,'already_finished':True},None
+            data=self.body()
+            photo=data.get('image_data')
+            if photo is not None:
+                if not isinstance(photo,str) or not photo.startswith('data:image/webp;base64,'):
+                    raise ApiError(400,'Фотография должна быть в формате WebP')
+                decoded=decode_image(photo)
+                if not decoded or decoded[1]!='webp' or len(decoded[0])>900_000:
+                    raise ApiError(413,'Фото должно быть не больше 900 КБ')
+            if event['status']=='finished':
+                if photo: raise ApiError(409,'Игра уже завершена. Измени фото на странице игры')
+                return 200,{'ok':True,'already_finished':True},None
             if event['status']!='drawn': raise ApiError(409,'Сначала проведи жеребьёвку')
             con.execute("UPDATE santa_events SET status='finished' WHERE id=? AND status='drawn'",(eid,))
+            if photo:
+                con.execute('INSERT INTO santa_memories(event_id,image_data,updated_at) VALUES(?,?,?)',(eid,photo,now()))
             return 200,{'ok':True,'already_finished':False},None
         match=re.fullmatch(r'/api/santas/(\d+)/reveal',path)
         if match and method=='POST':

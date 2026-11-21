@@ -87,8 +87,7 @@ async function socialProfilePage(uid,marker=lastRenderToken){
    '<div class="list-bottom"><span>'+ruCount(list.wish_count,'желание','желания','желаний')+'</span><button class="text-link" data-nav="/w/'+attr(list.share_key)+'">Посмотреть '+ico('arrow')+'</button></div></div></article>').join('')+'</div>':
    '<div class="panel"><p class="note">'+(relation==='friends'||relation==='self'?'Пока нет доступных вишлистов':'Вишлисты доступны после добавления в друзья')+'</p></div>')+'</section>'+
    ((relation==='friends'||relation==='self')?'<section class="dashboard-section shared-santa-section"><div class="dashboard-section-head"><h2>Наш общий Тайный Санта <span class="chip">'+(data.shared_games||[]).length+'</span></h2></div>'+
-   ((data.shared_games||[]).length?'<div class="shared-santa-grid">'+data.shared_games.map(game=>
-    '<article class="shared-santa-card"><span class="shared-santa-gift">'+ico('gift')+'</span><div><h3>'+esc(game.title)+'</h3><p>'+dateRu(game.exchange_date)+' · '+(game.status==='finished'?'Завершена':game.status==='drawn'?'Игра началась':'Собираем участников')+'</p></div><button class="btn btn-soft btn-small" type="button" data-nav="/santa/'+game.id+'">Открыть '+ico('arrow')+'</button></article>').join('')+'</div>':
+   ((data.shared_games||[]).length?'<div class="shared-santa-grid">'+data.shared_games.map(game=>santaGameCard(game,{shared:true})).join('')+'</div>':
     '<div class="panel"><p class="note">Пока нет игр, в которых вы оба участвуете</p></div>')+'</section>':'')+'</main>');
 }
 async function socialOwnProfilePage(marker=lastRenderToken){
@@ -175,6 +174,13 @@ async function socialNotificationsModal(){
   tabs.map(([id,label])=>'<button type="button" role="tab" data-notification-tab="'+id+'" aria-selected="'+(id==='new'?'true':'false')+'" class="'+(id==='new'?'active':'')+'">'+label+'</button>').join('')+
   '</div><button type="button" class="btn btn-soft btn-small notification-read-all" data-social-action="read-all-notifications">Прочесть все</button></div>'+
   '<div id="notification-modal-list" role="tabpanel" aria-live="polite"></div></div>'});
+ const anchor=document.querySelector('header .header-bell')?.getBoundingClientRect();
+ const overlay=modalRoot.querySelector('.modal-backdrop');
+ if(overlay&&anchor){
+  overlay.classList.add('notification-popover');
+  overlay.style.setProperty('--notification-top',Math.round(anchor.bottom+10)+'px');
+  overlay.style.setProperty('--notification-right',Math.max(12,Math.round(innerWidth-anchor.right))+'px');
+ }
  renderNotificationModalTab('new');
  socialRefreshBadge(true);
 }

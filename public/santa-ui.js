@@ -41,22 +41,7 @@ function showGameWishDetails(el){
  modalRoot.querySelector('.modal')?.classList.add('gift-details-modal');
 }
 async function smallGamePhoto(file){
- if(!['image/png','image/jpeg','image/webp'].includes(file.type))throw new Error('Нужно фото JPG, PNG или WEBP');
- if(file.size>10_000_000)throw new Error('Исходное фото слишком большое (максимум 10 МБ)');
- const image=await createImageBitmap(file);
- const canvas=document.createElement('canvas');
- let ratio=Math.min(1,700/Math.max(image.width,image.height));
- for(let step=0;step<6;step++){
-  canvas.width=Math.max(1,Math.round(image.width*ratio));
-  canvas.height=Math.max(1,Math.round(image.height*ratio));
-  const ctx=canvas.getContext('2d');
-  ctx.fillStyle='#fff';ctx.fillRect(0,0,canvas.width,canvas.height);
-  ctx.drawImage(image,0,0,canvas.width,canvas.height);
-  const result=canvas.toDataURL('image/jpeg',.72);
-  if(result.length<335000){image.close?.();return result;}
-  ratio*=.7;
- }
- image.close?.();throw new Error('Фото не удалось уменьшить до 250 КБ');
+ return compressToWebp(file,{maxDimension:780,maxBytes:235000,maxSourceBytes:12000000});
 }
 function gameGiftModal(edit=null){
  const state=activeGameContext;if(!state)return;
@@ -71,7 +56,7 @@ function gameGiftModal(edit=null){
    field('Ориентировочная цена','price','Например, 1500','number',budget,false,'min="0" step="0.01"')+
    '<div class="field"><label for="game-gift-photo">Фотография (необязательно)</label>'+
    '<div class="file-picker"><input id="game-gift-photo" name="image" type="file" accept="image/png,image/jpeg,image/webp">'+
-   '<div class="field-hint">JPG, PNG или WEBP до 10 МБ. Фото сожмём до 250 КБ</div></div></div>'+
+   '<div class="field-hint">JPG, PNG или WEBP до 12 МБ. Сожмём в WebP до 235 КБ</div></div></div>'+
    (isEdit&&gift.image_data?'<label class="switch-label"><input type="checkbox" id="game-gift-remove-photo"> Удалить фотографию</label>':''),
    submitLabel:isEdit?'Сохранить':'Добавить желание',
    onSubmit:async form=>{
