@@ -84,7 +84,7 @@ async function socialProfilePage(uid,marker=lastRenderToken){
    '<article class="list-card"><a class="card-hitarea" href="/w/'+attr(list.share_key)+'" data-nav="/w/'+attr(list.share_key)+'" aria-label="Открыть список '+attr(list.title)+'"></a>'+
    '<div class="list-cover cover-'+attr(list.theme)+'">'+fallbackArt('gift')+'</div>'+
    '<div class="list-info"><h3>'+esc(list.title)+'</h3><p>'+esc(list.description||'Список подарков')+'</p>'+
-   '<div class="list-bottom"><span>'+list.wish_count+' желаний</span><button class="text-link" data-nav="/w/'+attr(list.share_key)+'">Посмотреть '+ico('arrow')+'</button></div></div></article>').join('')+'</div>':
+   '<div class="list-bottom"><span>'+list.wish_count+' '+plural(list.wish_count,'желание','желания','желаний')+'</span><button class="text-link" data-nav="/w/'+attr(list.share_key)+'">Посмотреть '+ico('arrow')+'</button></div></div></article>').join('')+'</div>':
    '<div class="panel"><p class="note">'+(relation==='friends'||relation==='self'?'Пока нет доступных вишлистов':'Вишлисты доступны после добавления в друзья')+'</p></div>')+'</section></main>');
 }
 async function socialOwnProfilePage(marker=lastRenderToken){
@@ -135,6 +135,49 @@ async function socialAccountModal(kind){
    notice(email&&result.pending_confirmation?'Проверь новую почту и подтверди изменение':'Пароль изменён');
   }});
 }
+let notificationModalItems=[];
+let notificationModalTab='new';
+function notificationCategory(item){
+ return ['friend_request','friend_accept','wishlist_new','wish_new','wish_request','santa_invitation','santa_joined'].includes(item.kind)?'friends':'system';
+}
+function renderNotificationModalTab(tab=notificationModalTab){
+ const panel=modalRoot.querySelector('#notification-modal-list');if(!panel)return;
+ notificationModalTab=tab;
+ for(const button of modalRoot.querySelectorAll('[data-notification-tab]')){
+  const chosen=button.dataset.notificationTab===tab;
+  button.classList.toggle('active',chosen);button.setAttribute('aria-selected',String(chosen));
+ }
+ const items=notificationModalItems.filter(item=>
+  tab==='new'?!item.read_at:
+  tab==='read'?!!item.read_at:
+  notificationCategory(item)===tab);
+ panel.innerHTML=items.length?items.map(item=>
+  '<div class="notification-item'+(item.read_at?'':' unread')+'">'+
+  '<button class="notification-open" type="button" data-social-action="open-notification" data-id="'+item.id+'" data-path="'+attr(item.target_path)+'">'+
+  '<strong>'+esc(item.message)+'</strong><small>'+esc(new Date(item.created_at).toLocaleString('ru-RU'))+'</small></button>'+
+  (!item.read_at?'<button class="btn btn-soft btn-small" type="button" data-social-action="read-notification" data-id="'+item.id+'">Прочитано</button>':'')+
+  '</div>').join(''):'<p class="note">Здесь пока пусто</p>';
+ const unread=notificationModalItems.filter(i=>!i.read_at).length;
+ const all=modalRoot.querySelector('[data-social-action="read-all-notifications"]');if(all)all.disabled=!unread;
+}
+async function socialNotificationsModal(){
+ if(!currentUser)return;
+ const response=await api('/api/notifications');
+ notificationModalItems=response.items||[];
+ notificationModalTab='new';
+ const tabs=[['new','Новое'],['friends','Друзья'],['system','Системные'],['read','Прочитано']];
+ modal({title:'Уведомления',subtitle:'Новости друзей, подарков и игр',
+  content:'<div class="notification-dialog"><div class="notification-dialog-toolbar"><div class="notification-tabs" role="tablist" aria-label="Фильтр уведомлений">'+
+  tabs.map(([id,label])=>'<button type="button" role="tab" data-notification-tab="'+id+'" aria-selected="'+(id==='new'?'true':'false')+'" class="'+(id==='new'?'active':'')+'">'+label+'</button>').join('')+
+  '</div><button type="button" class="btn btn-soft btn-small notification-read-all" data-social-action="read-all-notifications">Прочесть все</button></div>'+
+  '<div id="notification-modal-list" role="tabpanel" aria-live="polite"></div></div>'});
+ renderNotificationModalTab('new');
+ socialRefreshBadge(true);
+}
+document.addEventListener('click',event=>{
+ const tab=event.target.closest('[data-notification-tab]');
+ if(tab){event.preventDefault();renderNotificationModalTab(tab.dataset.notificationTab);}
+});
 async function socialNotificationsPage(marker=lastRenderToken){
  if(!currentUser){loginModal();return;}
  const res=await api('/api/notifications');if(marker!==lastRenderToken)return;
@@ -189,6 +232,12 @@ document.addEventListener('click',async e=>{
  const action=target.dataset.socialAction,uid=target.dataset.userId;
  target.disabled=true;
  try{
+  if(action==='open-notifications'){await socialNotificationsModal();return;}
+  if(action==='read-all-notifications'){
+   await api('/api/notifications/read-all',{method:'POST',body:{}});
+   const time=new Date().toISOString();notificationModalItems.forEach(x=>{if(!x.read_at)x.read_at=time;});
+   renderNotificationModalTab();socialUnreadLast=0;void socialRefreshBadge(true);return;
+  }
   if(action==='edit-profile'){await socialEditProfileModal();return;}
    if(action==='change-email'){await socialAccountModal('email');return;}
    if(action==='change-password'){await socialAccountModal('password');return;}
@@ -196,11 +245,17 @@ document.addEventListener('click',async e=>{
   if(action==='ask-gift'){await socialAskGiftModal(target.dataset.wishId);return;}
   if(action==='open-notification'){
    await api('/api/notifications/'+target.dataset.id+'/read',{method:'POST',body:{}});
-   socialUnreadLast=0;nav(target.dataset.path||'/');return;
+   socialUnreadLast=0;closeModal();nav(target.dataset.path||'/');return;
   }
   if(action==='read-notification'){
    await api('/api/notifications/'+target.dataset.id+'/read',{method:'POST',body:{}});
-   socialUnreadLast=0;await socialNotificationsPage();return;
+   socialUnreadLast=0;
+   if(modalRoot.querySelector('.notification-dialog')){
+    const item=notificationModalItems.find(x=>String(x.id)===String(target.dataset.id));
+    if(item)item.read_at=new Date().toISOString();
+    renderNotificationModalTab();void socialRefreshBadge(true);
+   }else await socialNotificationsPage();
+   return;
   }
   if(action==='add'||action==='accept'||action==='decline'||action==='unfriend'||action==='cancel'){
    const method=action==='add'?'POST':(action==='unfriend'||action==='cancel')?'DELETE':'PATCH';
