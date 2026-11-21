@@ -216,3 +216,15 @@
 
 /* Form errors remain readable above a focused modal without dismissing it. */
 .toast{z-index:1100}
+
+/* One private memory photo per completed game */
+.santa-memory-panel{margin-top:22px}
+.santa-memory-panel .panel-heading-actions{align-items:center;gap:16px}
+.santa-memory-panel .panel-heading-actions h2{margin:0 0 8px}
+.santa-memory-upload{position:relative;overflow:hidden;cursor:pointer;white-space:nowrap}
+.santa-memory-upload input[type="file"]{position:absolute;width:1px;height:1px;opacity:0;pointer-events:none}
+.santa-memory-upload:focus-within{outline:3px solid #a58bd8;outline-offset:3px}
+.santa-memory-photo{width:100%;max-height:580px;object-fit:contain;border-radius:21px;background:#f5ede3;display:block}
+.santa-memory-empty{display:grid;justify-items:center;gap:8px;padding:42px 16px;border:1px dashed #d6c6b4;border-radius:20px;background:#fbf6ee;color:#625b57;text-align:center}
+.santa-memory-empty p{max-width:350px;margin:0}
+@media(max-width:760px){.santa-memory-panel .panel-heading-actions{align-items:stretch;flex-direction:column}.santa-memory-upload{align-self:flex-start}.santa-memory-photo{max-height:390px}}

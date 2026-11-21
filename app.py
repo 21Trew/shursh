@@ -84,7 +84,7 @@ def body_error(_):
     return response({'error':'Слишком большой запрос'},413)
 
 
-@app.route('/api/<path:route>', methods=['GET','POST','PATCH','DELETE'])
+@app.route('/api/<path:route>', methods=['GET','POST','PATCH','PUT','DELETE'])
 def api(route):
     path = '/api/'+route
     if request.method not in ('GET','HEAD'):

@@ -689,56 +689,50 @@ function ruCount(n,one,few,many){
  const value=Math.max(0,Math.trunc(Number(n)||0));
  return value+' '+plural(value,one,few,many);
 }
-// Anonymous reservations are browser-local bearer capabilities, never public URLs.
-// Memory fallback lets private windows work when persistent storage is disabled.
-const browserReservations=new Map();
+// Account ownership is authoritative on the server. Legacy reservation links
+// created before login-only booking remain cancellable from their old browser.
+const legacyReservations=new Map();
 function reservationKey(listKey,wishId){return 'shursh-reservation-v2:'+listKey+':'+wishId;}
 function ownReservation(listKey,wishId){
  const key=reservationKey(listKey,wishId);
- if(browserReservations.has(key))return browserReservations.get(key);
- try{const saved=localStorage.getItem(key);if(saved&&/^[A-Za-z0-9_-]{43}$/.test(saved)){browserReservations.set(key,saved);return saved;}}catch{}
+ if(legacyReservations.has(key))return legacyReservations.get(key);
+ try{const saved=localStorage.getItem(key);if(saved&&/^[A-Za-z0-9_-]{43}$/.test(saved)){legacyReservations.set(key,saved);return saved;}}catch{}
  return null;
-}
-function rememberReservation(listKey,wishId,token){
- const key=reservationKey(listKey,wishId);
- browserReservations.set(key,token);
- try{localStorage.setItem(key,token);}catch{}
 }
 function forgetReservation(listKey,wishId){
  const key=reservationKey(listKey,wishId);
- browserReservations.delete(key);
+ legacyReservations.delete(key);
  try{localStorage.removeItem(key);}catch{}
 }
 async function toggleGiftReservation(wishId,listKey){
- const wish=loadedPublicWishes.find(x=>Number(x.id)===Number(wishId));
+ if(!currentUser){loginModal('register');return;}
+ const wish=loadedPublicWishes.find(w=>Number(w.id)===Number(wishId));
  if(!wish)throw new Error('Подарок не найден');
  const token=ownReservation(listKey,wishId);
  if(wish.reserved){
-  if(!token)throw new Error('Этот подарок уже забронирован другим человеком');
-  try{
-   await api('/api/reservations/'+encodeURIComponent(token),{method:'DELETE'});
+  if(wish.reserved_by_me){
+   await api('/api/public/'+encodeURIComponent(listKey)+'/reserve/'+wishId,{method:'DELETE'});
+   notice('Бронь отменена');
+  }else if(token){
+   // Preserve legacy bookings for their original browser only.
+   try{await api('/api/reservations/'+encodeURIComponent(token),{method:'DELETE'});}
+   catch(err){if(err.status!==404&&err.status!==409)throw err;}
    forgetReservation(listKey,wishId);
    notice('Бронь отменена');
-  }catch(err){
-   if(err.status===404||err.status===409){forgetReservation(listKey,wishId);notice('Бронь больше не активна. Обновили список');}
-   else throw err;
-  }
+  }else throw new Error('Этот подарок уже забронирован другим человеком');
  }else{
-  // A stale token must never grant cancellation rights to a new reservation.
   if(token)forgetReservation(listKey,wishId);
-  const res=await api('/api/public/'+encodeURIComponent(listKey)+'/reserve/'+wishId,{method:'POST',body:{}});
-  rememberReservation(listKey,wishId,res.manage_token);
+  await api('/api/public/'+encodeURIComponent(listKey)+'/reserve/'+wishId,{method:'POST',body:{}});
   notice('Подарок забронирован!');
  }
  closeModal();
- // Refresh only the public list after a mutation; owner warm tabs remain untouched.
  await publicListPage(listKey,lastRenderToken);
 }
 function wishCard(w,mode='owner',shareKey=''){
  const reserved=w.reserved===true;
  const cardActions=mode==='owner'?`<div class="wish-controls"><button class="btn btn-soft" data-action="edit-wish" data-id="${w.id}" title="Редактировать">${ico('edit')}</button><button class="btn btn-soft" data-action="delete-wish" data-id="${w.id}" title="Удалить">${ico('trash')}</button></div>`:'';
- const own=reserved&&!!ownReservation(shareKey,w.id);
- const footer=mode==='guest'?`<button type="button" class="btn ${own?'btn-soft':reserved?'btn-soft':'btn-dark'} wish-action" ${reserved&&!own?'disabled':''} data-action="reserve" data-id="${w.id}" data-key="${attr(shareKey)}">${own?`${ico('check')} Отменить бронь`:reserved?`${ico('lock')} Уже забронировано`:`${ico('gift')} Забронировать`}</button>`:'';
+ const own=reserved&&!!currentUser&&(w.reserved_by_me||!!ownReservation(shareKey,w.id));
+ const footer=mode==='guest'?`<button type="button" class="btn ${own?'btn-soft':reserved?'btn-soft':'btn-dark'} wish-action" ${reserved&&!own?'disabled':''} data-action="reserve" data-id="${w.id}" data-key="${attr(shareKey)}">${own?`${ico('check')} Отменить бронь`:reserved?`${ico('lock')} Уже забронировано`:currentUser?`${ico('gift')} Забронировать`:`${ico('lock')} Войти и забронировать`}</button>`:'';
  return `<article class="wish-card"><button type="button" class="card-hitarea" data-action="show-wish" data-id="${w.id}" data-mode="${attr(mode)}" data-key="${attr(shareKey)}" aria-label="Подробнее о желании ${attr(w.title)}"></button><div class="wish-image">${w.image_path?`<img src="${attr(w.image_path)}" alt="${attr(w.title)}" loading="lazy">`:artFor(w)}${w.priority==='love'?`<span class="wish-priority chip chip-peach">${ico('heart')} Очень хочу</span>`:`<span class="wish-priority chip priority-nice">Было бы здорово</span>`}</div><div class="wish-content"><h3>${esc(w.title)}</h3><p class="wish-desc">${esc(w.description|| (w.kind==='experience'?'Впечатление или хорошая идея':'Подарок без комментария'))}</p><div class="wish-card-footer"><div class="wish-price">${money(w.price_cents,w.currency)}</div>${cardActions}</div>${w.shop_url?`<a href="${attr(w.shop_url)}" target="_blank" rel="noopener noreferrer" class="text-link" style="margin-top:12px;font-size:12px">В магазин ${ico('external')}</a>`:''}${footer}</div></article>`;
 }
 function showWishDetails(el){
@@ -748,7 +742,7 @@ function showWishDetails(el){
  const image=wish.image_path?'<img class="wish-detail-image" src="'+attr(wish.image_path)+'" alt="'+attr(wish.title)+'">':
    '<div class="wish-detail-art">'+artFor(wish)+'</div>';
  const actions=mode==='owner'?'<button class="btn btn-soft" data-action="edit-wish" data-id="'+id+'">'+ico('edit')+' Редактировать</button>'+(isPreview?'':'<button class="btn btn-soft" data-social-action="ask-gift" data-wish-id="'+id+'">'+ico('heart')+' Попросить друга</button>'):
-   mode==='guest'&&(!wish.reserved||ownReservation(key,id))?'<button class="btn btn-dark" data-action="reserve" data-id="'+id+'" data-key="'+attr(key)+'">'+ico(wish.reserved?'check':'gift')+' '+(wish.reserved?'Отменить бронь':'Забронировать')+'</button>':'';
+   mode==='guest'&&(!wish.reserved||(currentUser&&(wish.reserved_by_me||ownReservation(key,id))))?'<button class="btn btn-dark" data-action="reserve" data-id="'+id+'" data-key="'+attr(key)+'">'+ico(wish.reserved?'check':'gift')+' '+(wish.reserved?'Отменить бронь':currentUser?'Забронировать':'Войти и забронировать')+'</button>':'';
  const store=wish.shop_url?'<a class="btn btn-soft" href="'+attr(wish.shop_url)+'" target="_blank" rel="noopener noreferrer">В магазин '+ico('external')+'</a>':'';
  modal({title:wish.title,subtitle:money(wish.price_cents,wish.currency),
    content:'<div class="wish-detail">'+image+
@@ -763,7 +757,7 @@ let loadedList = null;
 async function ownerListPage(id,marker=lastRenderToken){if(!currentUser)throw new Error('Войди, чтобы открыть список');const d=await api(`/api/lists/${id}`);if(marker!==lastRenderToken)return;loadedList=d;
  const l=d.list;const url=getLink(`/w/${l.share_key}`);shell(`<main class="container page"><div class="guest-topline"><button class="text-link" data-nav="/lists">${ico('back')} Мои вишлисты</button> <span>/</span> <span>${esc(l.title)}</span></div><div class="detail-top cover-${attr(l.theme)}"><div><span class="chip">${ico('gift')} ${esc(l.occasion)}</span><h1>${esc(l.title)}</h1><p>${esc(l.description||'Список маленьких и больших мечтаний')}</p></div><div class="detail-art">${fallbackArt('gift')}</div></div><div class="detail-actions"><div><h2>Желания <span class="chip">${d.wishes.length}</span></h2><p class="note">Брони друзей здесь никогда не отображаются</p></div><div class="btn-row"><button class="btn btn-soft btn-small" data-action="edit-list">${ico('edit')} Настройки</button><button class="btn btn-soft btn-small" data-action="copy" data-url="${attr(url)}" ${l.visibility==='private'?'disabled title="Сначала открой доступ по ссылке"':''}>${ico('copy')} Ссылка</button><button class="btn btn-dark btn-small" data-open="wish">Добавить желание ${ico('plus')}</button></div></div>${l.visibility==='private'?`<div class="alert">${ico('lock')} Список приватный. Доступ по ссылке выключен в настройках</div>`:''}${d.wishes.length?`<div class="wishlist-grid">${d.wishes.map(w=>wishCard(w)).join('')}</div>`:emptyState('Пока ни одного желания','Вдохновение начинается с первой идеи','Добавить желание','wish')}<div class="divider-line"></div><button class="btn btn-ghost btn-small" data-action="delete-list">${ico('trash')} Удалить весь список</button></main>`);}
 let loadedPublicWishes=[];
-async function publicListPage(key,marker=lastRenderToken){const {list:l,wishes,owner_view}=await api(`/api/public/${key}`);if(marker!==lastRenderToken)return;loadedPublicWishes=wishes;shell(`<main class="container page"><div class="guest-topline">${ico('gift')} <span>Вишлист по ссылке</span><span>/</span><strong>от ${esc(l.owner_name)}</strong></div><div class="detail-top cover-${attr(l.theme)}"><div><span class="chip">${ico('heart')} ${esc(l.occasion)}</span><h1>${esc(l.title)}</h1><p>${esc(l.description)}</p></div><div class="detail-art">${fallbackArt('gift')}</div></div><div class="guest-banner">${ico('lock')} ${owner_view?'Это твой список - статус бронирования для владельца скрыт':'Можешь забронировать понравившийся подарок. Владелец списка не увидит, что выбрано. Нажми «Забронировать», чтобы занять подарок. Для отмены нажми на эту же кнопку в том же браузере'}</div><div class="detail-actions"><h2>Желания <span class="chip">${wishes.length}</span></h2></div>${wishes.length?`<div class="wishlist-grid">${wishes.map(w=>wishCard(w,owner_view?'view':'guest',key)).join('')}</div>`:emptyState('В этом списке пока пусто','Загляни позже - здесь скоро появятся желания','На главную','login')}</main>`);}
+async function publicListPage(key,marker=lastRenderToken){const {list:l,wishes,owner_view}=await api(`/api/public/${key}`);if(marker!==lastRenderToken)return;loadedPublicWishes=wishes;shell(`<main class="container page"><div class="guest-topline">${ico('gift')} <span>Вишлист по ссылке</span><span>/</span><strong>от ${esc(l.owner_name)}</strong></div><div class="detail-top cover-${attr(l.theme)}"><div><span class="chip">${ico('heart')} ${esc(l.occasion)}</span><h1>${esc(l.title)}</h1><p>${esc(l.description)}</p></div><div class="detail-art">${fallbackArt('gift')}</div></div><div class="guest-banner">${ico('lock')} ${owner_view?'Это твой список - статус бронирования для владельца скрыт':'Можешь забронировать понравившийся подарок. Владелец списка не увидит, что выбрано. Для брони войди в аккаунт. Нажми «Забронировать», чтобы занять подарок, или ту же кнопку, чтобы снять свою бронь с любого устройства'}</div><div class="detail-actions"><h2>Желания <span class="chip">${wishes.length}</span></h2></div>${wishes.length?`<div class="wishlist-grid">${wishes.map(w=>wishCard(w,owner_view?'view':'guest',key)).join('')}</div>`:emptyState('В этом списке пока пусто','Загляни позже - здесь скоро появятся желания','На главную','login')}</main>`);}
 async function reservationPage(key,marker=lastRenderToken){const {reservation:r}=await api(`/api/reservations/${key}`);if(marker!==lastRenderToken)return;shell(`<main class="container page"><div class="invite-card"><div class="invite-icon">${envelopeArt()}</div><h1>${r.cancelled_at?'Бронь отменена':'Подарок ждёт своего часа!'}</h1><p>${r.cancelled_at?'Этот подарок снова доступен другим дарителям':'Твоя бронь сохранена. Эта ссылка - личный ключ для отмены, береги её'}</p><div class="details-box"><p><strong>Подарок:</strong> ${esc(r.wish_title)}</p><p><strong>Вишлист:</strong> ${esc(r.list_title)}</p></div>${!r.cancelled_at?`<div class="share-field"><input class="input" readonly value="${attr(getLink(`/r/${key}`))}" aria-label="Ссылка управления бронью"><button class="btn btn-dark btn-small" data-action="copy" data-url="${attr(getLink(`/r/${key}`))}">${ico('copy')} Копировать</button></div><button class="btn btn-danger btn-small" data-action="cancel-reservation" data-token="${attr(key)}">Отменить мою бронь</button>`:''}</div></main>`);}
 async function adminFeedbackPage(marker=lastRenderToken){
  const {items}=await api('/api/admin/feedback');
@@ -789,6 +783,48 @@ let loadedSanta=null;
 let activeGameContext=null;
 let gameChatTimer=null;
 let gameRosterTimer=null;
+async function compressSantaMemory(file){
+ if(!['image/jpeg','image/png','image/webp'].includes(file.type))throw new Error('Подойдёт JPG, PNG или WEBP');
+ if(file.size>12_000_000)throw new Error('Исходная фотография слишком большая (максимум 12 МБ)');
+ const bitmap=await createImageBitmap(file);
+ try{
+  const canvas=document.createElement('canvas');
+  let scale=Math.min(1,1600/Math.max(bitmap.width,bitmap.height));
+  for(let attempt=0;attempt<8;attempt++){
+   canvas.width=Math.max(1,Math.round(bitmap.width*scale));
+   canvas.height=Math.max(1,Math.round(bitmap.height*scale));
+   const ctx=canvas.getContext('2d',{alpha:false});
+   ctx.fillStyle='#fff';ctx.fillRect(0,0,canvas.width,canvas.height);
+   ctx.drawImage(bitmap,0,0,canvas.width,canvas.height);
+   const data=canvas.toDataURL('image/jpeg',Math.max(.65,.84-attempt*.025));
+   if(data.length<1_150_000)return data;
+   scale*=.82;
+  }
+  throw new Error('Не удалось уменьшить фотографию до 900 КБ');
+ }finally{bitmap.close?.();}
+}
+async function loadSantaMemory(state){
+ const panel=document.getElementById('santa-memory-content');
+ if(!panel)return;
+ try{
+  const response=await api(state.base+'/memory');
+  if(!panel.isConnected||activeGameContext!==state)return;
+  const memory=response.memory;
+  panel.innerHTML=memory?
+    '<img class="santa-memory-photo" src="'+attr(memory.image_data)+'" alt="Общая фотография участников и подарков">'+
+    '<p class="note">На память о вашей игре!</p>':
+    '<div class="santa-memory-empty">'+ico('gift',28)+'<p>Пока без фотографии. Организатор может добавить один общий снимок</p></div>';
+  const label=document.querySelector('[data-santa-memory-label]');
+  if(label)label.textContent=memory?'Заменить фотографию':'Добавить фотографию';
+ }catch(err){if(panel.isConnected&&activeGameContext===state)panel.innerHTML='<p class="note">'+esc(err.message)+'</p>';}
+}
+function santaMemorySection(event,memberView){
+ if(event.status!=='finished')return '';
+ return '<section class="panel santa-memory-panel" aria-label="Общее фото на память">'+
+  '<div class="panel-heading-actions"><div><h2>Фото на память</h2><p class="note">Один общий снимок участников с подарками, доступный только участникам этой игры</p></div>'+
+  (!memberView?'<label class="btn btn-soft btn-small santa-memory-upload"><span data-santa-memory-label>Добавить фотографию</span><input id="santa-memory-input" type="file" accept="image/jpeg,image/png,image/webp" aria-label="Загрузить общее фото"></label>':'')+
+  '</div><div id="santa-memory-content"><p class="note">Загружаем фотографию…</p></div></section>';
+}
 async function santaAdminPage(id,marker=lastRenderToken){return santaGamePage(id,marker);}
 async function santaGamePage(id,marker=lastRenderToken,participantToken=null){
  let memberView=participantToken!==null,memberBase=null,d;
@@ -841,7 +877,7 @@ async function santaGamePage(id,marker=lastRenderToken,participantToken=null){
  <div class="game-chat-messages" role="log" aria-live="polite"><p class="note">Загружаем сообщения…</p></div>
  <form id="game-chat-form" class="game-chat-form"><label for="game-chat-input" class="sr-only">Текст сообщения</label><input id="game-chat-input" class="input" name="message" placeholder="Напиши сообщение" maxlength="500" autocomplete="off" required><button class="btn btn-dark btn-small" type="submit">Отправить ${ico('arrow')}</button></form>
  <button class="text-link game-chat-refresh" type="button" data-chat-refresh>Обновить сообщения</button>
- </section>`:`<section class="panel"><h2>Чаты игры</h2><p class="note">Чаты появятся после обновления игры. Остальные возможности доступны</p></section>`}</main>`);
+ </section>`:`<section class="panel"><h2>Чаты игры</h2><p class="note">Чаты появятся после обновления игры. Остальные возможности доступны</p></section>`}${santaMemorySection(e,memberView)}</main>`);
  document.getElementById('santa-preferences-form')?.addEventListener('submit',async ev=>{
    ev.preventDefault();const form=ev.currentTarget,button=form.querySelector('button');
    button.disabled=true;
@@ -853,6 +889,22 @@ async function santaGamePage(id,marker=lastRenderToken,participantToken=null){
   document.getElementById('rule-form')?.addEventListener('submit',async ev=>{ev.preventDefault();try{await api(`/api/santas/${id}/exclusions`,{method:'POST',body:readForm(ev.currentTarget)});notice('Исключение добавлено');await render();}catch(err){notice(err.message,true)}});
  setupGameChat(activeGameContext);
  setupSantaRoster(activeGameContext);
+ if(e.status==='finished'){
+  const state=activeGameContext;
+  void loadSantaMemory(state);
+  document.getElementById('santa-memory-input')?.addEventListener('change',async event=>{
+   const file=event.target.files?.[0];if(!file)return;
+   const input=event.target;
+   input.disabled=true;
+   try{
+    const image_data=await compressSantaMemory(file);
+    await api('/api/santas/'+e.id+'/memory',{method:'PUT',body:{image_data}});
+    notice('Общая фотография сохранена');
+    await loadSantaMemory(state);
+   }catch(err){notice(err.message,true);}
+   finally{if(input.isConnected){input.value='';input.disabled=false;}}
+  });
+ }
  document.getElementById('legacy-santa-wish-form')?.addEventListener('submit',async ev=>{
   ev.preventDefault();
   const form=ev.currentTarget,button=form.querySelector('button');
@@ -941,7 +993,7 @@ function loginModal(mode='login'){
      }
      return;
     }
-    notice(register?'Аккаунт создан!':'С возвращением!');nav('/',{force:true});
+    notice(register?'Аккаунт создан!':'С возвращением!');const landing=currentPath();nav(/^\/w\/[A-Za-z0-9_-]+$/.test(landing)?landing:'/',{force:true});
   },
   footer:(register?'Уже есть аккаунт?':'Нет аккаунта?')+
    ' <button type="button" data-open="'+(register?'login':'register')+'">'+(register?'Войти':'Зарегистрироваться')+'</button>'+
