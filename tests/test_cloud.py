@@ -411,7 +411,7 @@ def browser_http(application):
         worker.join(timeout=5)
 
 
-def browser_login(page, email='owner@example.test'):
+def browser_login(page, email='owner@example.test', landing='dashboard'):
     from playwright.sync_api import expect
     page.locator('header button[data-open="login"]').click()
     page.locator('#fld-email').fill(email)
@@ -458,8 +458,11 @@ def browser_login(page, email='owner@example.test'):
     assert response.status==200, (
         f'Login HTTP {response.status}; '
         f'Server-Timing: {response.headers.get("server-timing", "missing")}')
-    expect(page.locator('.dashboard-page h1')).to_contain_text(
-        'Owner' if email.startswith('owner') else 'Other', timeout=15000)
+    if landing=='invite':
+        expect(page.locator('#join-form')).to_be_visible(timeout=15000)
+    else:
+        expect(page.locator('.dashboard-page h1')).to_contain_text(
+            'Owner' if email.startswith('owner') else 'Other', timeout=15000)
     expect(page.locator('header .header-avatar')).to_be_visible()
     expect(page.get_by_role('dialog')).to_have_count(0)
 
@@ -2164,7 +2167,7 @@ def test_browser_registered_santa_join_from_shared_and_personal_links(browser_ht
             guest.goto(invite_url)
             expect(guest.locator('.invite-auth-gate')).to_be_visible()
             expect(guest.locator('#join-form')).to_have_count(0)
-            browser_login(guest,'other@example.test')
+            browser_login(guest,'other@example.test',landing='invite')
             expect(guest.locator('#join-form')).to_be_visible()
             guest.locator('#join-name').fill('Новый игрок')
             guest.locator('#join-form button[type="submit"]').click()
@@ -2196,7 +2199,7 @@ def test_browser_registered_santa_join_from_shared_and_personal_links(browser_ht
             other_guest=browser.new_page(viewport={'width':390,'height':844})
             other_guest.goto(browser_http+'/join/'+share)
             expect(other_guest.locator('.invite-auth-gate')).to_be_visible()
-            browser_login(other_guest,'other@example.test')
+            browser_login(other_guest,'other@example.test',landing='invite')
             expect(other_guest.locator('#join-form')).to_be_visible()
             other_guest.locator('#join-name').fill('Участник общей ссылки')
             other_guest.locator('#join-form button[type="submit"]').click()
