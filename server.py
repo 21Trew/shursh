@@ -101,6 +101,11 @@ CREATE TABLE IF NOT EXISTS santa_events (
  invite_key TEXT NOT NULL UNIQUE, status TEXT NOT NULL DEFAULT 'open' CHECK (status IN ('open','drawn','finished')),
  created_at TEXT NOT NULL
 );
+CREATE TABLE IF NOT EXISTS santa_personal_invites (
+ token_hash TEXT PRIMARY KEY, event_id INTEGER NOT NULL REFERENCES santa_events(id) ON DELETE CASCADE,
+ created_at TEXT NOT NULL, claimed_by TEXT, claimed_at TEXT
+);
+CREATE INDEX IF NOT EXISTS santa_personal_invites_event_idx ON santa_personal_invites(event_id);
 CREATE TABLE IF NOT EXISTS participants (
  id INTEGER PRIMARY KEY, event_id INTEGER NOT NULL REFERENCES santa_events(id) ON DELETE CASCADE,
  user_id INTEGER REFERENCES users(id) ON DELETE SET NULL,
@@ -999,6 +1004,18 @@ class Handler(BaseHTTPRequestHandler):
             con.execute('UPDATE santa_events SET '+', '.join(k+'=?' for k in updates)+
                         ' WHERE id=?',(*updates.values(),eid))
             return 200,{'ok':True},None
+        match=re.fullmatch(r'/api/santas/(\d+)/personal-invites',path)
+        if match and method=='POST':
+            user=self.auth(con);eid=int(match.group(1))
+            event=con.execute('SELECT status FROM santa_events WHERE id=? AND owner_id=?',
+                              (eid,user['id'])).fetchone()
+            if not event: raise ApiError(404,'Игра не найдена')
+            if event['status']!='open':
+                raise ApiError(409,'После жеребьёвки новые приглашения недоступны')
+            value=token()
+            con.execute('INSERT INTO santa_personal_invites(token_hash,event_id,created_at) VALUES(?,?,?)',
+                        (token_hash(value),eid,now()))
+            return 201,{'invite_token':value},None
         match=re.fullmatch(r'/api/santas/(\d+)/participants',path)
         if match and method=='POST':
             user=self.auth(con);eid=int(match.group(1));data=self.body()
@@ -1181,6 +1198,49 @@ class Handler(BaseHTTPRequestHandler):
                          WHERE e.id=? AND e.owner_id=? AND p.user_id=?''',(eid,user['id'],user['id'])).fetchone()
             if not part: raise ApiError(404,'Место участника не найдено')
             return 200,{'assignment':self.reveal(con,eid,part['id'])},None
+        match=re.fullmatch(r'/api/personal-invites/([A-Za-z0-9_-]{43})',path)
+        if match and method=='GET':
+            row=con.execute('''SELECT e.id,e.title,e.description,e.exchange_date,e.budget_cents,
+                              e.currency,e.rules,e.status,i.claimed_at
+                              FROM santa_personal_invites i JOIN santa_events e ON e.id=i.event_id
+                              WHERE i.token_hash=?''',(token_hash(match.group(1)),)).fetchone()
+            if not row: raise ApiError(404,'Приглашение не найдено')
+            data=dict(row);used=bool(data.pop('claimed_at'))
+            user=self.user(con)
+            joined=bool(user and con.execute(
+                'SELECT 1 FROM participants WHERE event_id=? AND user_id=?',
+                (row['id'],user['id'])).fetchone())
+            eid=data.pop('id')
+            return 200,{'event':data,'event_id':eid,'used':used,'already_joined':joined},None
+        match=re.fullmatch(r'/api/personal-invites/([A-Za-z0-9_-]{43})/join',path)
+        if match and method=='POST':
+            self.throttled('join',20)
+            user=self.auth(con)
+            name=req(self.body().get('name'),'Имя участника',50)
+            con.execute('BEGIN IMMEDIATE')
+            row=con.execute('''SELECT i.event_id,i.claimed_at,e.status
+                     FROM santa_personal_invites i JOIN santa_events e ON e.id=i.event_id
+                     WHERE i.token_hash=?''',(token_hash(match.group(1)),)).fetchone()
+            if not row: raise ApiError(404,'Приглашение не найдено')
+            if row['claimed_at']: raise ApiError(409,'Эта личная ссылка уже использована')
+            if row['status']!='open':
+                raise ApiError(409,'Приём участников завершён')
+            eid=row['event_id']
+            if con.execute('SELECT 1 FROM participants WHERE event_id=? AND user_id=?',
+                           (eid,user['id'])).fetchone():
+                raise ApiError(409,'Ты уже участвуешь в этой игре')
+            people=con.execute('SELECT name FROM participants WHERE event_id=?',(eid,)).fetchall()
+            if len(people)>=12: raise ApiError(409,'В игре уже 12 участников - максимум')
+            if any(p['name'].strip().casefold()==name.casefold() for p in people):
+                raise ApiError(409,'Такое имя уже занято в игре')
+            con.execute('''INSERT INTO participants(event_id,user_id,name,created_at)
+                           VALUES(?,?,?,?)''',(eid,user['id'],name,now()))
+            updated=con.execute('''UPDATE santa_personal_invites SET claimed_by=?,claimed_at=?
+                        WHERE token_hash=? AND claimed_at IS NULL RETURNING token_hash''',
+                        (user['id'],now(),token_hash(match.group(1)))).fetchone()
+            if not updated: raise ApiError(409,'Эта личная ссылка уже использована')
+            con.execute('COMMIT')
+            return 201,{'event_id':eid},None
         match=re.fullmatch(r'/api/invites/([A-Za-z0-9_\-]+)',path)
         if match and method=='GET':
             event=con.execute('''SELECT title,description,exchange_date,budget_cents,currency,rules,status,
@@ -1195,12 +1255,13 @@ class Handler(BaseHTTPRequestHandler):
         match=re.fullmatch(r'/api/invites/([A-Za-z0-9_\-]+)/join',path)
         if match and method=='POST':
             self.throttled('join',20)
+            user=self.auth(con)
             data=self.body(); name=req(data.get('name'),'Имя участника',50)
             con.execute('BEGIN IMMEDIATE')
             event=con.execute('SELECT * FROM santa_events WHERE invite_key=?',(match.group(1),)).fetchone()
             if not event: raise ApiError(404,'Приглашение не найдено')
             if event['status']!='open': raise ApiError(409,'Жеребьёвка уже прошла. Присоединиться нельзя')
-            signed_in=self.user(con)
+            signed_in=user
             participants=[dict(r) for r in con.execute(
                 'SELECT name,user_id FROM participants WHERE event_id=?',(event['id'],))]
             if len(participants)>=12: raise ApiError(409,'В игре уже 12 участников - максимум для MVP')
@@ -1213,7 +1274,7 @@ class Handler(BaseHTTPRequestHandler):
                         (event['id'],signed_in['id'] if signed_in else None,
                          name,token_hash(value),now()))
             con.execute('COMMIT')
-            return 201,{'participant_token':value},None
+            return 201,{'participant_token':value,'event_id':event['id']},None
         match=re.fullmatch(r'/api/participant/([A-Za-z0-9_\-]+)/roster',path)
         if match and method=='GET':
             member=con.execute('''SELECT p.event_id,e.status FROM participants p

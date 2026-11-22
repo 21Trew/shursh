@@ -348,3 +348,42 @@ def test_santa_owner_can_finish_before_draw_and_delete_any_state(server, owner):
         assert owner.get(url).status_code == 404
         assert requests.get(server + f'/api/participant/{token}').status_code == 404
         assert owner.delete(url).status_code == 404
+
+
+def test_registered_only_invites_and_one_time_personal_link(server, owner):
+    """New Santa invitations do not create guest participants until authenticated acceptance."""
+    event = owner.post(server+'/api/santas',json={'title':'Registered Santa'})
+    assert event.status_code==201,event.text
+    eid=event.json()['id']
+    url=server+f'/api/santas/{eid}'
+    key=owner.get(url).json()['event']['invite_key']
+    assert len(owner.get(url).json()['participants'])==1
+
+    private=owner.post(url+'/personal-invites',json={})
+    assert private.status_code==201,private.text
+    secret=private.json()['invite_token']
+    assert len(secret)==43
+    assert len(owner.get(url).json()['participants'])==1, 'No placeholder participants'
+    info=requests.get(server+'/api/personal-invites/'+secret)
+    assert info.status_code==200,info.text
+    assert info.json()['event']['title']=='Registered Santa'
+    assert info.json()['used'] is False
+
+    assert requests.post(server+'/api/invites/'+key+'/join',json={'name':'Гость'}).status_code==401
+    assert requests.post(server+'/api/personal-invites/'+secret+'/join',
+                         json={'name':'Гость'}).status_code==401
+    buyer=registered_buyer(server)
+    joined=buyer.post(server+'/api/personal-invites/'+secret+'/join',json={'name':'Новый участник'})
+    assert joined.status_code==201,joined.text
+    assert joined.json()['event_id']==eid
+    assert requests.get(server+'/api/personal-invites/'+secret).json()['used'] is True
+    assert len(owner.get(url).json()['participants'])==2
+
+    second=registered_buyer(server)
+    again=second.post(server+'/api/personal-invites/'+secret+'/join',json={'name':'Второй'})
+    assert again.status_code==409,again.text
+    assert len(owner.get(url).json()['participants'])==2
+    public_join=second.post(server+'/api/invites/'+key+'/join',json={'name':'Второй'})
+    assert public_join.status_code==201,public_join.text
+    assert public_join.json()['event_id']==eid
+    assert len(owner.get(url).json()['participants'])==3

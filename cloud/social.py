@@ -423,8 +423,14 @@ def after_mutation(handler, method, path, con, result):
             _notify(con,member['user_id'],'santa_drawn','Жеребьёвка прошла! Тайный Санта начался',
                     '/santa/'+str(eid))
     match=re.fullmatch(r'/api/invites/([A-Za-z0-9_-]+)/join',path)
-    if match:
-        event=con.execute('SELECT id,owner_id FROM santa_events WHERE invite_key=?',(match.group(1),)).fetchone()
+    personal_match=re.fullmatch(r'/api/personal-invites/([A-Za-z0-9_-]{43})/join',path)
+    if match or personal_match:
+        if match:
+            event=con.execute('SELECT id,owner_id FROM santa_events WHERE invite_key=?',(match.group(1),)).fetchone()
+        else:
+            event=con.execute('''SELECT e.id,e.owner_id FROM santa_personal_invites i
+                 JOIN santa_events e ON e.id=i.event_id WHERE i.token_hash=?''',
+                 (token_hash(personal_match.group(1)),)).fetchone()
         if event:
             # Notify every registered member, not merely the organizer.
             # Guests without a registered user ID do not receive account alerts.

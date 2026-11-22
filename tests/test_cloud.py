@@ -2095,3 +2095,30 @@ def test_mobile_auth_header_marquee_footer_and_warm_focus(browser_http):
                 page.close()
         finally:
             browser.close()
+
+
+def test_personal_santa_invites_require_login_and_are_single_use(application):
+    """PostgreSQL/RLS: capability invitation creates no guest slot and cannot be replayed."""
+    owner=login(application)
+    other=login(application,'other@example.test')
+    anonymous=application.test_client()
+    eid=call(owner,'POST','/api/santas',{'title':'Private invitation enforcement'},201).json['id']
+    event=call(owner,'GET',f'/api/santas/{eid}').json['event']
+    assert len(call(owner,'GET',f'/api/santas/{eid}').json['participants'])==1
+    call(other,'POST',f'/api/santas/{eid}/personal-invites',{},404)
+    created=call(owner,'POST',f'/api/santas/{eid}/personal-invites',{},201).json
+    value=created['invite_token']
+    assert len(value)==43
+    assert len(call(owner,'GET',f'/api/santas/{eid}').json['participants'])==1
+    info=call(anonymous,'GET',f'/api/personal-invites/{value}').json
+    assert info['used'] is False and info['event']['title']=='Private invitation enforcement'
+    assert info['event_id']==eid
+    call(anonymous,'POST',f'/api/personal-invites/{value}/join',{'name':'Незарегистрированный'},401)
+    call(anonymous,'POST',f'/api/invites/{event["invite_key"]}/join',{'name':'Незарегистрированный'},401)
+    accepted=call(other,'POST',f'/api/personal-invites/{value}/join',{'name':'Пользователь'},201).json
+    assert accepted['event_id']==eid
+    assert call(other,'GET',f'/api/member/{eid}').json['participant']['name']=='Пользователь'
+    assert call(anonymous,'GET',f'/api/personal-invites/{value}').json['used'] is True
+    call(owner,'POST',f'/api/personal-invites/{value}/join',{'name':'Повтор'},409)
+    assert len(call(owner,'GET',f'/api/santas/{eid}').json['participants'])==2
+    call(other,'POST',f'/api/invites/{event["invite_key"]}/join',{'name':'Дубликат'},409)
