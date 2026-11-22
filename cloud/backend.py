@@ -214,6 +214,18 @@ class CloudRequest(Handler):
         special=social.handle(self,method,path,con)
         if special is not None:
             return special
+        # Legacy bearer links can be retained for unclaimed guests, but once a
+        # player is bound to an account, possession of a copied link is not enough.
+        # Covers ALL /api/participant/<token> reads and mutations, including
+        # wishes, chat, private assignments, roster and completed-game photos.
+        capability=re.fullmatch(r'/api/participant/([A-Za-z0-9_-]{43})(?:/.*)?',path)
+        if capability:
+            participant=con.execute('SELECT user_id FROM participants WHERE access_hash=?',
+                                    (token_hash(capability.group(1)),)).fetchone()
+            if participant and participant['user_id'] is not None:
+                viewer=self.user(con)
+                if not viewer or viewer['id']!=participant['user_id']:
+                    raise ApiError(404,'Личная ссылка недействительна')
         # Original wishlist, reservation and random matching routes.
         result=super().handle_api(method,path,con)
         social.after_mutation(self,method,path,con,result)

@@ -1629,7 +1629,7 @@ def test_social_game_invitation_member_permissions_and_admin(application,monkeyp
     assert not any(x['id']==event_id for x in call(owner,'GET','/api/santas').json['invitations'])
     key=call(owner,'GET',f'/api/santas/{event_id}').json['event']['invite_key']
     joined=call(friend,'POST',f'/api/invites/{key}/join',{'name':'Friend'},201)
-    assert joined.json['participant_token']
+    assert joined.json=={'event_id':event_id}
     assert not any(x['id']==event_id for x in call(friend,'GET','/api/santas').json['invitations'])
     game=call(friend,'GET',f'/api/member/{event_id}').json
     assert game['event']['id']==event_id and game['participant']['name']=='Friend'
@@ -1999,7 +1999,7 @@ def test_private_finished_santa_memory_upload_and_no_public_leak(application):
     call(owner,'PUT',base,{'image_data':PNG},409)
     call(owner,'GET',base,status=409)
     call(member,'GET',base,status=404)
-    member_link=call(member,'POST',f'/api/invites/{invite}/join',{'name':'Member'},201).json['participant_token']
+    member_link=call(member,'POST',f'/api/invites/{invite}/join',{'name':'Member'},201).json['event_id']
     call(owner,'POST',f'/api/santas/{eid}/draw',{},200)
     call(owner,'POST',f'/api/santas/{eid}/finish',{},200)
     assert call(owner,'GET',base).json['memory'] is None
@@ -2217,3 +2217,88 @@ def test_flask_serves_one_time_personal_santa_deep_link(application):
     assert b'/app.js' in page.data
     bad=application.test_client().get('/join/p/not-43-chars')
     assert bad.status_code==404
+
+
+def test_admin_user_directory_is_paginated_and_only_for_site_admin(application,monkeypatch):
+    """Admin directory never exposes passwords, emails or other private content."""
+    monkeypatch.delenv('SHURSH_ADMIN_EMAILS',raising=False)
+    anon=application.test_client()
+    user=login(application,'other@example.test')
+    manager=login(application)
+    call(anon,'GET','/api/admin/users',status=401)
+    call(user,'GET','/api/admin/users',status=403)
+    monkeypatch.setenv('SHURSH_ADMIN_EMAILS','owner@example.test')
+    result=call(manager,'GET','/api/admin/users').json
+    assert result['limit']==25 and result['offset']==0 and result['total']>=2
+    allowed={'id','name','handle','avatar_emoji','created_at','discoverable',
+             'wishlists_count','organized_games','joined_games'}
+    assert all(set(u)==allowed for u in result['users'])
+    assert all('@example.test' not in str(u) for u in result['users'])
+    assert call(manager,'GET','/api/admin/users?q=owner').json['total']>=1
+    assert call(manager,'GET','/api/admin/users?offset=10000').json['users']==[]
+    call(manager,'GET','/api/admin/users?offset=-1',status=400)
+    call(manager,'GET','/api/admin/users?offset=10001',status=400)
+    call(manager,'GET','/api/admin/users?q='+'a'*51,status=400)
+    call(user,'GET','/api/admin/overview',status=403)
+
+
+def test_cross_user_wishlist_santa_and_capability_isolation(application):
+    """BOLA/IDOR: sequential IDs cannot access other users' resources."""
+    owner=login(application)
+    outsider=login(application,'other@example.test')
+    anon=application.test_client()
+    eid=call(owner,'POST','/api/santas',{'title':'Private game IDOR'},201).json['id']
+    lid=call(owner,'POST','/api/lists',{'title':'Private list IDOR','visibility':'private'},201).json['id']
+    wid=call(owner,'POST',f'/api/lists/{lid}/wishes',{'title':'Secret gift'},201).json['id']
+    share=call(owner,'GET',f'/api/lists/{lid}').json['list']['share_key']
+    for path in (f'/api/santas/{eid}',f'/api/santas/{eid}/roster',
+                 f'/api/santas/{eid}/my-wishes',f'/api/santas/{eid}/memory',
+                 f'/api/member/{eid}',f'/api/member/{eid}/roster',
+                 f'/api/member/{eid}/wishes',f'/api/member/{eid}/messages/general',
+                 f'/api/lists/{lid}'):
+        call(outsider,'GET',path,status=404)
+    call(anon,'GET',f'/api/santas/{eid}',status=401)
+    call(anon,'GET',f'/api/member/{eid}',status=401)
+    call(outsider,'POST',f'/api/santas/{eid}/my-wishes',{'title':'Injected'},404)
+    call(outsider,'POST',f'/api/santas/{eid}/draw',{},404)
+    call(outsider,'DELETE',f'/api/santas/{eid}',status=404)
+    call(outsider,'PATCH',f'/api/wishes/{wid}',{'title':'Hijacked'},404)
+    call(outsider,'DELETE',f'/api/wishes/{wid}',status=404)
+    call(anon,'GET',f'/api/public/{share}',status=404)
+    call(outsider,'GET',f'/api/public/{share}',status=404)
+    call(outsider,'POST',f'/api/public/{share}/reserve/{wid}',{},404)
+    assert call(owner,'GET',f'/api/lists/{lid}').json['wishes'][0]['title']=='Secret gift'
+
+
+def test_claimed_guest_capability_requires_same_registered_identity(application):
+    """A copied bearer link may not bypass UID after the guest seat is claimed."""
+    organizer=login(application,'other@example.test')
+    member=login(application)
+    anonymous=application.test_client()
+    eid=call(organizer,'POST','/api/santas',{'title':'Claimed bearer privacy'},201).json['id']
+    bearer=call(organizer,'POST',f'/api/santas/{eid}/participants',
+                {'name':'Guest fixture'},201).json['participant_token']
+    assert call(anonymous,'GET',f'/api/participant/{bearer}').status_code==200
+    call(member,'POST',f'/api/participant/{bearer}/claim',{},200)
+    for path in (f'/api/participant/{bearer}',f'/api/participant/{bearer}/roster',
+                 f'/api/participant/{bearer}/wishes'):
+        call(anonymous,'GET',path,status=404)
+        call(organizer,'GET',path,status=404)
+        call(member,'GET',path,status=200)
+    call(anonymous,'POST',f'/api/participant/{bearer}/wishes',{'title':'Hijacked'},404)
+    call(organizer,'PATCH',f'/api/participant/{bearer}/preferences',
+         {'wanted':'Hijacked'},404)
+    assert call(member,'GET',f'/api/member/{eid}').json['participant']['name']=='Guest fixture'
+
+
+def test_social_meta_profile_and_legacy_link_ux_static(application):
+    """Prevent markup regressions on invite URLs, metadata and buttons."""
+    html=application.test_client().get('/').get_data(as_text=True)
+    js=application.test_client().get('/app.js').get_data(as_text=True)
+    social=application.test_client().get('/social-ui.js').get_data(as_text=True)
+    assert 'property="og:title"' in html and 'property="og:description"' in html
+    assert 'место для хотелок и сюрпризов' not in html
+    assert 'Тайный Санта ' + '$' + '{ico("plus")}' not in js
+    assert 'memberView&&participantToken&&!d.participant.user_id' in js
+    assert 'data-social-action="edit-avatar"' in js
+    assert 'async function socialEditAvatarModal' in social

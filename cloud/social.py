@@ -98,6 +98,30 @@ def handle(handler, method, path, con):
         counts['new_feedback']=con.execute("SELECT count(*) AS n FROM developer_feedback WHERE status='new'").fetchone()['n']
         return 200,{'stats':counts},None
 
+    if path == '/api/admin/users' and method == 'GET':
+        # Never return passwords, session tokens, emails, friendship edges,
+        # gift reservations, private wishes or private Santa assignments.
+        handler.is_site_admin(con)
+        raw_offset=(handler.request.args.get('offset') or '0').strip()
+        if not re.fullmatch(r'\d{1,5}',raw_offset) or int(raw_offset)>10000:
+            raise ApiError(400,'Неверная страница')
+        offset=int(raw_offset)
+        search=(handler.request.args.get('q') or '').strip()
+        if len(search)>50:
+            raise ApiError(400,'Слишком длинный поисковый запрос')
+        where='WHERE (p.name ILIKE ? OR coalesce(p.handle,\'\') ILIKE ?)' if search else ''
+        args=('%'+search+'%','%'+search.lstrip('@')+'%') if search else ()
+        total=con.execute('SELECT count(*) AS n FROM profiles p '+where,args).fetchone()['n']
+        rows=con.execute('''SELECT p.id,p.name,p.handle,p.avatar_emoji,p.created_at,p.discoverable,
+                 (SELECT count(*) FROM wishlists w WHERE w.owner_id=p.id) AS wishlists_count,
+                 (SELECT count(*) FROM santa_events e WHERE e.owner_id=p.id) AS organized_games,
+                 (SELECT count(*) FROM participants m WHERE m.user_id=p.id) AS joined_games
+                 FROM profiles p '''+where+'''
+                 ORDER BY p.created_at DESC,p.id DESC LIMIT ? OFFSET ?''',
+                 (*args,25,offset)).fetchall()
+        return 200,{'users':[dict(row) for row in rows],
+                    'total':total,'offset':offset,'limit':25},None
+
     if path == '/api/profile/me' and method in ('GET','PATCH'):
         user=handler.auth(con)
         if method=='PATCH':

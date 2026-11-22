@@ -23,8 +23,10 @@ const socialEmojiChoices=["🎁","🎄","🐱","🦊","🐻","🐼","🐸","🦄
 function socialAvatar(p,extra=''){
  return '<span class="avatar emoji-avatar '+extra+'" aria-hidden="true">'+esc(p.avatar_emoji||'🎁')+'</span>';
 }
-function socialIdentity(p){
- return '<div class="social-profile-identity">'+socialAvatar(p,'profile-emoji')+
+function socialIdentity(p,editable=false){
+ const avatar=socialAvatar(p,'profile-emoji');
+ return '<div class="social-profile-identity">'+(editable?
+  '<button class="profile-avatar-edit" type="button" data-social-action="edit-avatar" aria-label="Изменить аватарку" title="Изменить аватарку">'+avatar+'<span class="profile-avatar-edit-icon">'+ico('edit',16)+'</span></button>':avatar)+
  '<div class="profile-identity-text"><h1>'+esc(p.name)+'</h1>'+
  (p.handle?'<span class="profile-handle">@'+esc(p.handle)+'</span>':'')+
  (p.city?'<div class="profile-city">'+ico('home',16)+' '+esc(p.city)+'</div>':'')+
@@ -97,7 +99,7 @@ async function socialOwnProfilePage(marker=lastRenderToken){
  shell('<main class="container page social-page social-profile-page">'+
   '<div class="social-page-heading"><span class="section-label">Твоя визитная карточка</span><h1>Мой профиль</h1>'+
   '<p>Имя, никнейм и аватар видят другие. Почта остаётся приватной</p></div>'+
-  '<section class="panel profile-main-card">'+socialIdentity(p)+
+  '<section class="panel profile-main-card">'+socialIdentity(p,true)+
   '<div class="profile-actions">'+
   '<button type="button" class="btn btn-dark btn-small" data-social-action="edit-profile">'+ico('edit')+' Редактировать профиль</button>'+
   '<button type="button" class="btn btn-soft btn-small" data-nav="/users/'+attr(p.id)+'">Как видят друзья</button></div></section>'+
@@ -125,6 +127,25 @@ async function socialEditProfileModal(){
    clearOwnerTabViews(['/profile']);notice('Профиль обновлён');await socialOwnProfilePage();
   }});
  const bio=modalRoot.querySelector('#fld-bio');if(bio)bio.maxLength=500;
+}
+async function socialEditAvatarModal(){
+ if(!currentUser){loginModal();return;}
+ const {profile}=await api('/api/profile/me');
+ const choices=socialEmojiChoices.map(emoji=>
+  '<button type="button" class="emoji-choice'+(emoji===profile.avatar_emoji?' selected':'')+
+  '" data-avatar-pick="'+attr(emoji)+'" aria-pressed="'+String(emoji===profile.avatar_emoji)+'">'+esc(emoji)+'</button>').join('');
+ modal({title:'Изменить аватарку',subtitle:'Выбери эмодзи, который будет виден друзьям',
+  content:'<div class="emoji-grid" role="group" aria-label="Выбрать эмодзи">'+choices+'</div>'+
+    '<input type="hidden" name="avatar_emoji" id="social-avatar-value" value="'+attr(profile.avatar_emoji||'🎁')+'">',
+  submitLabel:'Сохранить',onSubmit:async form=>{
+   const value=form.elements.avatar_emoji.value;
+   const updated=await api('/api/profile/me',{method:'PATCH',body:{avatar_emoji:value}});
+   currentUser.avatar_emoji=updated.profile.avatar_emoji;
+   document.querySelectorAll('.header-avatar').forEach(button=>button.textContent=currentUser.avatar_emoji);
+   clearOwnerTabViews(['/profile']);
+   if(currentPath()==='/profile')await socialOwnProfilePage();
+   notice('Аватарка обновлена');
+  }});
 }
 async function socialAccountModal(kind){
  if(isPreview){notice('Настройки входа доступны только на сайте',true);return;}
@@ -208,14 +229,48 @@ async function socialNotificationsPage(marker=lastRenderToken){
   '</section></main>');
  socialRefreshBadge();
 }
+function socialAdminUsersMarkup(page){
+ const rows=(page.users||[]).map(u=>'<tr><td><div class="admin-user-identity"><span class="admin-user-emoji">'+
+    esc(u.avatar_emoji||'🎁')+'</span><span><strong>'+esc(u.name)+'</strong>'+
+    '<small>ID: '+esc(String(u.id).slice(0,8))+'</small></span></div></td>'+
+    '<td>'+(u.handle?'@'+esc(u.handle):'<span class="muted">—</span>')+'</td>'+
+    '<td><time datetime="'+attr(u.created_at)+'">'+esc(new Date(u.created_at).toLocaleString('ru-RU',{dateStyle:'medium',timeStyle:'short'}))+'</time></td>'+
+    '<td>'+Number(u.wishlists_count||0)+'</td><td>'+Number(u.organized_games||0)+'</td>'+
+    '<td>'+Number(u.joined_games||0)+'</td><td>'+(u.discoverable?'В поиске':'Скрыт')+'</td></tr>').join('');
+ const from=page.total?Number(page.offset)+1:0;
+ const to=Math.min(Number(page.offset)+Number(page.limit),Number(page.total));
+ return '<div class="admin-users-table-scroll"><table class="admin-users-table"><thead><tr>'+
+  '<th>Игрок</th><th>Ник</th><th>Регистрация</th><th>Вишлисты</th>'+
+  '<th>Свои Санты</th><th>Участие</th><th>Профиль</th></tr></thead><tbody>'+
+  (rows||'<tr><td colspan="7" class="muted">Игроки не найдены</td></tr>')+'</tbody></table></div>'+
+  '<div class="admin-users-pager"><span>'+from+'–'+to+' из '+Number(page.total)+'</span>'+
+  '<div class="btn-row"><button type="button" class="btn btn-soft btn-small" data-social-action="admin-users-prev" data-offset="'+Math.max(0,page.offset-page.limit)+'"'+(page.offset===0?' disabled':'')+'>Назад</button>'+
+  '<button type="button" class="btn btn-soft btn-small" data-social-action="admin-users-next" data-offset="'+(page.offset+page.limit)+'"'+(to>=page.total?' disabled':'')+'>Вперёд</button></div></div>';
+}
+async function socialLoadAdminUsers(offset=0){
+ const root=document.querySelector('[data-admin-users-content]');if(!root)return;
+ const query=document.getElementById('admin-users-query')?.value.trim()||'';
+ const page=await api('/api/admin/users?offset='+offset+'&q='+encodeURIComponent(query));
+ if(root.isConnected){root.innerHTML=socialAdminUsersMarkup(page);}
+}
 async function socialAdminPage(marker=lastRenderToken){
  if(!currentUser?.is_admin){errorView(new Error('Доступ только администратору'));return;}
- const {stats}=await api('/api/admin/overview');if(marker!==lastRenderToken)return;
+ const [{stats},page]=await Promise.all([api('/api/admin/overview'),api('/api/admin/users')]);
+ if(marker!==lastRenderToken)return;
  const labels={users:'Активных профилей',wishlists:'Вишлистов',wishes:'Подарков',events:'Игр',friends:'Дружеских связей',notifications:'Уведомлений',new_feedback:'Новых обращений'};
- shell('<main class="container page social-page"><div class="page-hero"><div><div class="section-label">Шурш! / управление</div>'+
-  '<h1>Админка</h1><p>Общие показатели без раскрытия личных переписок и бронирований</p></div></div>'+
+ shell('<main class="container page social-page admin-page"><div class="page-hero"><div><div class="section-label">Шурш! / управление</div>'+
+  '<h1>Админка</h1><p>Статистика проекта и зарегистрированные пользователи. Без доступа к личным перепискам и секретам жеребьёвки</p></div></div>'+
   '<div class="social-stat-grid">'+Object.entries(labels).map(([key,label])=>'<article class="panel"><strong>'+Number(stats[key]||0)+'</strong><span>'+label+'</span></article>').join('')+'</div>'+
+  '<section class="panel admin-users-panel"><div class="panel-heading-actions"><h2>Зарегистрированные игроки</h2><span class="chip">'+Number(page.total)+'</span></div>'+
+  '<form id="admin-users-search" class="admin-users-search"><label for="admin-users-query" class="sr-only">Найти игрока</label>'+
+  '<input id="admin-users-query" class="input" type="search" placeholder="Поиск по имени или нику" maxlength="50" autocomplete="off">'+
+  '<button class="btn btn-dark btn-small" type="submit">Найти</button></form>'+
+  '<div data-admin-users-content>'+socialAdminUsersMarkup(page)+'</div></section>'+
   '<button class="btn btn-dark" data-nav="/admin/feedback">Обращения пользователей '+ico('arrow')+'</button></main>');
+ document.getElementById('admin-users-search')?.addEventListener('submit',async e=>{
+   e.preventDefault();
+   try{await socialLoadAdminUsers(0);}catch(error){notice(error.message,true);}
+ });
 }
 async function socialInviteFriendsModal(){
  if(!currentUser||!loadedSanta?.event||loadedSanta.event.status!=='open')return;
@@ -255,6 +310,8 @@ document.addEventListener('click',async e=>{
    renderNotificationModalTab();socialUnreadLast=0;void socialRefreshBadge(true);return;
   }
   if(action==='edit-profile'){await socialEditProfileModal();return;}
+  if(action==='edit-avatar'){await socialEditAvatarModal();return;}
+  if(action==='admin-users-next'||action==='admin-users-prev'){await socialLoadAdminUsers(Number(target.dataset.offset)||0);return;}
    if(action==='change-email'){await socialAccountModal('email');return;}
    if(action==='change-password'){await socialAccountModal('password');return;}
   if(action==='invite-friends'){await socialInviteFriendsModal();return;}

@@ -543,3 +543,44 @@
 .invite-auth-gate .btn-row{display:flex;gap:10px;justify-content:center;flex-wrap:wrap;width:100%}
 .invite-auth-gate .btn{min-height:44px}
 @media(max-width:520px){.invite-auth-gate{padding:18px 14px}.invite-auth-gate .btn{flex:1 1 130px;min-width:0}}
+
+/* 2026-11-22: focused UX fixes; unchanged shared UI primitives. */
+.dashboard-welcome .welcome-name{display:inline-block;white-space:nowrap;overflow-wrap:normal;word-break:normal;hyphens:none;max-width:100%;vertical-align:baseline}
+.dashboard-welcome .welcome-intro{white-space:normal}
+.dashboard-welcome .welcome-name-long{font-size:clamp(17px,3vw,34px);letter-spacing:-.045em}
+.profile-avatar-edit{position:relative;display:inline-grid;place-items:center;flex:0 0 auto;border:0;padding:0;background:transparent;border-radius:30px;cursor:pointer;color:var(--ink)}
+.profile-avatar-edit .profile-emoji{pointer-events:none}
+.profile-avatar-edit-icon{position:absolute;right:-6px;bottom:-5px;display:grid;place-items:center;width:30px;height:30px;border-radius:50%;background:var(--ink);color:white;border:2px solid #fffdf8;transition:background .15s,transform .15s}
+.profile-avatar-edit:hover .profile-avatar-edit-icon{background:#755bb2;transform:scale(1.08)}
+.profile-avatar-edit:focus-visible{outline:3px solid var(--focus-color);outline-offset:5px}
+.game-gift-placeholder{display:grid;place-items:center;width:100%;height:100%;min-height:130px;background:#f4e6d8}
+.game-gift-placeholder svg{width:min(68%,150px);height:auto;max-height:95%;display:block}
+.gift-details-modal .gift-dialog-fallback{display:grid;place-items:center;width:100%;min-height:230px;border-radius:20px;background:#f4e6d8}
+.gift-details-modal .gift-dialog-fallback svg{display:block;width:min(72%,210px);height:auto;max-height:205px}
+.gift-details-modal .gift-dialog-footer .btn.btn-dark{background:#27272b;color:#fff!important;border-color:#27272b}
+.gift-details-modal .gift-dialog-footer .btn.btn-dark:hover,
+.gift-details-modal .gift-dialog-footer .btn.btn-dark:focus-visible{background:#45434a!important;color:#fff!important;border-color:#45434a}
+.gift-details-modal .gift-dialog-footer .btn.btn-soft{color:#27272b!important;border-color:#e3ddd2;background:#fffefa}
+.gift-details-modal .gift-dialog-footer .btn.btn-soft:hover{color:#27272b!important;background:#f6ebdf}
+.admin-users-panel{margin-top:26px;min-width:0;overflow:hidden}
+.admin-users-panel .panel-heading-actions{margin-bottom:20px}
+.admin-users-search{display:flex;gap:10px;align-items:center;margin-bottom:18px}
+.admin-users-search .input{width:100%;min-width:0;max-width:440px}
+.admin-users-table-scroll{max-width:100%;overflow-x:auto;border:1px solid var(--border);border-radius:16px}
+.admin-users-table{width:100%;min-width:830px;border-collapse:collapse;text-align:left;font-size:13px}
+.admin-users-table th{background:#f4efe8;color:#625c57;text-transform:uppercase;letter-spacing:.035em;font-size:10px}
+.admin-users-table th,.admin-users-table td{padding:13px 12px;border-bottom:1px solid var(--border);vertical-align:middle}
+.admin-users-table tr:last-child td{border-bottom:0}
+.admin-users-table th:first-child,.admin-users-table td:first-child{padding-left:16px}
+.admin-user-identity{display:flex;align-items:center;gap:9px;min-width:145px}
+.admin-user-identity strong{display:block;font-weight:800}
+.admin-user-identity small{display:block;font-size:10px;color:var(--muted);margin-top:3px}
+.admin-user-emoji{width:36px;height:36px;border-radius:12px;background:#f4e6d8;display:grid;place-items:center;font-size:21px;flex-shrink:0}
+.admin-users-pager{display:flex;align-items:center;justify-content:space-between;gap:12px;padding-top:15px;color:var(--muted);font-size:13px}
+@media(max-width:760px){
+ .profile-avatar-edit-icon{width:28px;height:28px}
+ .gift-details-modal .gift-dialog-fallback{min-height:145px}
+ .admin-users-panel{padding:20px 13px}
+ .admin-users-search .btn{min-width:75px;padding-inline:12px}
+ .admin-users-pager .btn{min-height:44px}
+}

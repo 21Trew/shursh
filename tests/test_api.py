@@ -385,5 +385,5 @@ def test_registered_only_invites_and_one_time_personal_link(server, owner):
     assert len(owner.get(url).json()['participants'])==2
     public_join=second.post(server+'/api/invites/'+key+'/join',json={'name':'Второй'})
     assert public_join.status_code==201,public_join.text
-    assert public_join.json()['event_id']==eid
+    assert public_join.json()=={'event_id':eid}, 'Registered players must never receive anonymous bearer tokens'
     assert len(owner.get(url).json()['participants'])==3

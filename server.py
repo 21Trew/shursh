@@ -1269,12 +1269,12 @@ class Handler(BaseHTTPRequestHandler):
                 raise ApiError(409,'Ты уже участвуешь в этой игре')
             if any(p['name'].strip().casefold()==name.casefold() for p in participants):
                 raise ApiError(409,'Участник с таким именем уже в игре')
-            value=token()
-            con.execute('INSERT INTO participants(event_id,user_id,name,access_hash,created_at) VALUES(?,?,?,?,?)',
-                        (event['id'],signed_in['id'] if signed_in else None,
-                         name,token_hash(value),now()))
+            # Registered joins must not mint an anonymous bearer credential.
+            # The existing session and UID are the only authority for this member.
+            con.execute('INSERT INTO participants(event_id,user_id,name,created_at) VALUES(?,?,?,?)',
+                        (event['id'],signed_in['id'],name,now()))
             con.execute('COMMIT')
-            return 201,{'participant_token':value,'event_id':event['id']},None
+            return 201,{'event_id':event['id']},None
         match=re.fullmatch(r'/api/participant/([A-Za-z0-9_\-]+)/roster',path)
         if match and method=='GET':
             member=con.execute('''SELECT p.event_id,e.status FROM participants p
@@ -1286,7 +1286,7 @@ class Handler(BaseHTTPRequestHandler):
         match=re.fullmatch(r'/api/participant/([A-Za-z0-9_\-]+)',path)
         if match and method=='GET':
             # A personal bearer link grants membership view, not organizer powers.
-            part=con.execute('''SELECT p.id,p.name,p.event_id, e.title,e.description,e.exchange_date,e.budget_cents,
+            part=con.execute('''SELECT p.id,p.name,p.event_id,p.user_id, e.title,e.description,e.exchange_date,e.budget_cents,
                         e.currency,e.rules,e.status FROM participants p
                         JOIN santa_events e ON e.id=p.event_id WHERE p.access_hash=?''',
                         (token_hash(match.group(1)),)).fetchone()

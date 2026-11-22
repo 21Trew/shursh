@@ -2,7 +2,7 @@
 'use strict';
 function gameWishCard(w,source='own'){
  const mine=source==='own';
- const image=w.image_data?'<img src="'+attr(w.image_data)+'" alt="'+attr(w.title)+'" loading="lazy" decoding="async">':artFor(w);
+ const image=w.image_data?'<img src="'+attr(w.image_data)+'" alt="'+attr(w.title)+'" loading="lazy" decoding="async">': '<div class="game-gift-placeholder">'+fallbackArt('gift')+'</div>';
  const actions=mine?'<div class="game-gift-overlay-actions"><button type="button" class="btn btn-soft" data-action="edit-game-gift" data-id="'+w.id+'" aria-label="Изменить подарок" title="Изменить">'+ico('edit')+'</button>'+
   '<button type="button" class="btn btn-soft" data-action="delete-game-gift" data-id="'+w.id+'" aria-label="Удалить подарок" title="Удалить">'+ico('trash')+'</button></div>':'';
  return '<article class="wish-card game-gift-card">'+
@@ -26,7 +26,7 @@ function showGameWishDetails(el){
  if(!gift)return;
  const mine=source!=='recipient';
  const image=gift.image_data?'<img class="gift-dialog-image" src="'+attr(gift.image_data)+'" alt="'+attr(gift.title)+'">':
-   '<div class="gift-dialog-fallback">'+artFor(gift)+'</div>';
+   '<div class="gift-dialog-fallback" role="img" aria-label="Фото подарка не добавлено">'+fallbackArt('gift')+'</div>';
  const description=gift.description?'<div class="gift-dialog-description"><strong>Комментарий</strong><p>'+esc(gift.description)+'</p></div>':'';
  const store=gift.shop_url?'<a class="btn btn-soft" href="'+attr(gift.shop_url)+'" target="_blank" rel="noopener noreferrer">В магазин '+ico('external')+'</a>':'';
  const footer=(mine?'<button type="button" class="btn btn-soft" data-action="edit-game-gift" data-id="'+gift.id+'">'+ico('edit')+' Изменить</button>':'<span></span>')+
@@ -164,7 +164,7 @@ function santaRosterPerson(p,state){
  const mine=state.memberView&&p.id===state.memberId;
  const adminActions=!state.memberView&&state.event.status==='open'&&!organizer;
  const profile=!!currentUser&&!!p.user_id;
- return '<div class="person-row"'+(profile?' data-santa-profile="'+attr(p.user_id)+'" role="link" tabindex="0" title="Открыть профиль"':'')+'><div class="avatar">'+esc(p.name.slice(0,1).toUpperCase())+
+ return '<div class="person-row"'+(profile?' data-santa-profile="'+attr(p.user_id)+'" role="link" tabindex="0" aria-label="Открыть профиль участника '+attr(p.name)+'"':'')+'><div class="avatar">'+esc(p.name.slice(0,1).toUpperCase())+
   '</div><div class="person-main"><div class="person-topline"><strong class="person-name">'+esc(p.name)+'</strong>'+
   (mine?'<span class="chip">Ты</span>':'')+
   (organizer?'<span class="chip chip-peach organizer-label">Организатор</span>':'')+'</div><small>'+
