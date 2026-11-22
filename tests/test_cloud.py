@@ -2301,3 +2301,71 @@ def test_social_meta_profile_and_legacy_link_ux_static(application):
     assert 'memberView&&participantToken&&!d.participant.user_id' in js
     assert 'data-social-action="edit-avatar"' in js
     assert 'async function socialEditAvatarModal' in social
+
+
+@pytest.mark.browser
+def test_browser_ux_fixes_avatar_gift_placeholder_and_admin_directory(browser_http,monkeypatch):
+    """Real Chromium interaction for the new avatar picker, Santa fallback and admin table."""
+    from playwright.sync_api import sync_playwright,expect
+    from uuid import uuid4
+    monkeypatch.setenv('SHURSH_ADMIN_EMAILS','owner@example.test')
+    with sync_playwright() as play:
+        browser=play.chromium.launch(headless=True,args=['--no-sandbox'])
+        try:
+            page=browser.new_page(viewport={'width':390,'height':844})
+            page.set_default_timeout(15000)
+            page.goto(browser_http+'/')
+            browser_login(page)
+            expect(page.locator('.santa-create-cta')).not_to_contain_text('ico')
+            assert page.locator('.santa-create-cta svg.icon').count()==1
+            assert page.locator('.dashboard-welcome .welcome-name').evaluate(
+                "el => getComputedStyle(el).whiteSpace")=='nowrap'
+
+            event=page.evaluate("""async name => {
+                const response=await fetch('/api/santas',{method:'POST',
+                  headers:{'Content-Type':'application/json'},
+                  body:JSON.stringify({title:name})});
+                if(!response.ok)throw Error('Game fixture failed');
+                return await response.json();
+            }""",'UI regression '+uuid4().hex[:8])
+            eid=event['id']
+            page.goto(browser_http+'/santa/'+str(eid))
+            expect(page.locator('button[data-action="add-game-gift"]')).to_be_visible()
+            page.locator('button[data-action="add-game-gift"]').click()
+            page.locator('#fld-title').fill('Подарок без фото')
+            page.locator('.modal-fixed-footer button[type="submit"]').click()
+            expect(page.locator('.game-gift-card .game-gift-placeholder svg')).to_be_visible()
+            page.locator('.game-gift-primary').first.click()
+            expect(page.locator('.gift-details-modal .gift-dialog-fallback svg')).to_be_visible()
+            close=page.locator('.gift-details-modal .gift-dialog-footer .btn-dark')
+            close.hover()
+            assert close.evaluate("el => getComputedStyle(el).color")=='rgb(255, 255, 255)'
+            close.click()
+            row=page.locator('.person-row[data-santa-profile]').first
+            assert row.count()==1 and row.get_attribute('title') is None
+            page.locator('header .header-avatar').click()
+            expect(page.get_by_role('dialog',name='Изменить аватарку')).to_be_visible()
+            page.locator('[data-avatar-pick="🦊"]').click()
+            page.locator('.modal-fixed-footer button[type="submit"]').click()
+            expect(page.locator('header .header-avatar')).to_have_text('🦊')
+            page.goto(browser_http+'/profile')
+            expect(page.locator('button.profile-avatar-edit')).to_be_visible()
+            page.locator('button.profile-avatar-edit').click()
+            expect(page.get_by_role('dialog',name='Изменить аватарку')).to_be_visible()
+            page.keyboard.press('Escape')
+            page.goto(browser_http+'/admin')
+            expect(page.locator('.admin-users-table')).to_be_visible()
+            expect(page.locator('.admin-users-table tbody tr').first).to_be_visible()
+            page.locator('#admin-users-query').fill('owner')
+            page.locator('#admin-users-search button[type="submit"]').click()
+            expect(page.locator('.admin-users-table tbody')).to_contain_text('Owner')
+            # No account email, secret gift, bearer token or private messages in rows.
+            assert '@example.test' not in page.locator('.admin-users-table').inner_text()
+            assert page.evaluate("""async () => {
+                const response=await fetch('/api/profile/me',{method:'PATCH',
+                  headers:{'Content-Type':'application/json'},
+                  body:JSON.stringify({avatar_emoji:'🎁'})});
+                return response.status;
+            }""")==200
+        finally:
+            browser.close()
