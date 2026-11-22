@@ -228,7 +228,7 @@ def test_santa_atomic_draw_and_isolation(application):
     guests=[]
     for name in ['A','B','C']:
         guest=application.test_client()
-        t=call(guest,'POST',f'/api/invites/{key}/join',{'name':name},201).json['participant_token']
+        t=call(c,'POST',f'/api/santas/{eid}/participants',{'name':name},201).json['participant_token']
         call(guest,'POST',f'/api/participant/{t}/wishes',{'title':name+' gift'},201)
         guests.append((guest,t,name))
     people={p['name']:p['id'] for p in call(c,'GET',f'/api/santas/{eid}').json['participants']}
@@ -248,7 +248,7 @@ def test_santa_atomic_draw_and_isolation(application):
     assert sum(not r.json['already_drawn'] for r in draws)==1
     call(c,'DELETE',f'/api/santas/{eid}/participants/{people["A"]}',status=409)
     call(other,'POST',f'/api/santas/{eid}/draw',{},404)
-    call(application.test_client(),'POST',f'/api/invites/{key}/join',{'name':'Late'},409)
+    call(application.test_client(),'POST',f'/api/invites/{key}/join',{'name':'Late'},401)
     for guest,t,name in guests:
         assert call(guest,'GET',f'/api/participant/{t}').json['assignment']=={'revealed':False}
         r=call(guest,'POST',f'/api/participant/{t}/reveal',{}).json['assignment']
@@ -277,7 +277,7 @@ def test_cloud_santa_management_and_wishlist_import(application):
     original=created['participant_token']
     assert call(application.test_client(),'GET',f'/api/participant/{original}').json['participant']['name']=='Игрок 1'
     call(owner,'POST',f'/api/santas/{eid}/participants',{'name':'ИГРОК 1'},409)
-    call(application.test_client(),'POST',f'/api/invites/{invite}/join',
+    call(other,'POST',f'/api/invites/{invite}/join',
          {'name':'игрок 1'},409)
     new=call(owner,'POST',f'/api/santas/{eid}/participants/{created["id"]}/new-link',
              {},200).json['participant_token']
@@ -347,7 +347,7 @@ def test_direct_browser_links_and_api_errors(application):
     lid,wid,key=make_list(owner)
     eid=call(owner,'POST','/api/santas',{'title':'Deep links'},201).json['id']
     invite=call(owner,'GET',f'/api/santas/{eid}').json['event']['invite_key']
-    participant=call(guest,'POST',f'/api/invites/{invite}/join',{'name':'Guest'},201).json['participant_token']
+    participant=call(owner,'POST',f'/api/santas/{eid}/participants',{'name':'Guest'},201).json['participant_token']
     # Legacy bearer routes stay addressable for pre-existing bookings,
     # but anonymous users can no longer create new reservations.
     call(guest,'POST',f'/api/public/{key}/reserve/{wid}',{},401)
@@ -1221,7 +1221,7 @@ def test_santa_gift_details_group_chat_and_anonymous_pair_chat(application):
     guest=application.test_client()
     tokens={}
     for name in ('Альфа','Бета'):
-        tokens[name]=call(guest,'POST',f'/api/invites/{event["invite_key"]}/join',
+        tokens[name]=call(owner,'POST',f'/api/santas/{eid}/participants',
                           {'name':name},201).json['participant_token']
     t=tokens['Альфа']
     gift=call(guest,'POST',f'/api/participant/{t}/wishes',{
@@ -1293,7 +1293,7 @@ def test_santa_legacy_database_feature_gate(application,monkeypatch):
     assert game['my_wishes'][0]['wanted']==''
     call(owner,'GET',f'/api/santas/{eid}/messages/general',status=409)
     invite=game['event']['invite_key']
-    participant=call(application.test_client(),'POST',f'/api/invites/{invite}/join',
+    participant=call(owner,'POST',f'/api/santas/{eid}/participants',
                      {'name':'Гость'},201).json['participant_token']
     guest=call(application.test_client(),'GET',f'/api/participant/{participant}').json
     assert guest['rich_enabled'] is False
@@ -1310,7 +1310,7 @@ def test_live_santa_roster_is_private_and_updates_on_join(application):
     call(application.test_client(),'GET',own_roster,status=401)
     invitation=call(owner,'GET',f'/api/santas/{eid}').json['event']['invite_key']
     member=application.test_client()
-    key=call(member,'POST',f'/api/invites/{invitation}/join',
+    key=call(owner,'POST',f'/api/santas/{eid}/participants',
              {'name':'Гость'},201).json['participant_token']
     guest_roster=f'/api/participant/{key}/roster'
     data=call(member,'GET',guest_roster).json
@@ -1348,7 +1348,7 @@ def test_participant_preferences_and_chat_post_ack(application):
     guest=application.test_client()
     eid=call(owner,'POST','/api/santas',{'title':'Preference isolation'},201).json['id']
     invite=call(owner,'GET',f'/api/santas/{eid}').json['event']['invite_key']
-    token=call(guest,'POST',f'/api/invites/{invite}/join',{'name':'Visitor'},201).json['participant_token']
+    token=call(owner,'POST',f'/api/santas/{eid}/participants',{'name':'Visitor'},201).json['participant_token']
     saved=call(guest,'PATCH',f'/api/participant/{token}/preferences',
                {'wanted':'Книги','unwanted':'Пластик'}).json
     assert saved['preferences']=={'wanted':'Книги','unwanted':'Пластик'}
@@ -1685,7 +1685,7 @@ def test_santa_private_link_claim_to_logged_in_account(application):
     event_id=call(organizer,'POST','/api/santas',{'title':'Account link claim'},201).json['id']
     key=call(organizer,'GET',f'/api/santas/{event_id}').json['event']['invite_key']
     guest=application.test_client()
-    join=call(guest,'POST',f'/api/invites/{key}/join',{'name':'Guest for account'},201)
+    join=call(organizer,'POST',f'/api/santas/{event_id}/participants',{'name':'Guest for account'},201)
     personal_token=join.json['participant_token']
     assert len(personal_token)==43
     before=call(target,'GET','/api/santas').json['events']
@@ -1979,7 +1979,7 @@ def test_private_finished_santa_memory_upload_and_no_public_leak(application):
     eid=call(owner,'POST','/api/santas',{'title':title},201).json['id']
     base=f'/api/santas/{eid}/memory'
     invite=call(owner,'GET',f'/api/santas/{eid}').json['event']['invite_key']
-    guest_link=call(anonymous,'POST',f'/api/invites/{invite}/join',{'name':'Guest'},201).json['participant_token']
+    guest_link=call(owner,'POST',f'/api/santas/{eid}/participants',{'name':'Guest'},201).json['participant_token']
     call(owner,'POST',base,{'image_data':PNG},404)
     call(owner,'PUT',base,{'image_data':PNG},409)
     call(owner,'GET',base,status=409)

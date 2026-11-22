@@ -121,7 +121,7 @@ def test_santa_guest_access_reveal_and_frozen_rules(server,owner):
     joined=[]
     for name in ('Катя','Петя'):
         s=requests.Session()
-        a=s.post(server+f'/api/invites/{key}/join',json={'name':name})
+        a=owner.post(server+f'/api/santas/{eid}/participants',json={'name':name})
         assert a.status_code==201,a.text
         t=a.json()['participant_token'];joined.append((name,t,s))
         assert s.post(server+f'/api/participant/{t}/wishes',json={'title':f'Хочу подарок для {name}'}).status_code==201
@@ -135,7 +135,7 @@ def test_santa_guest_access_reveal_and_frozen_rules(server,owner):
     assert owner.post(server+f'/api/santas/{eid}/draw',json={}).json()['already_drawn'] is True
     assert owner.delete(server+f'/api/santas/{eid}/participants/{pids["Катя"]}').status_code==409
     assert owner.post(server+f'/api/santas/{eid}/exclusions',json=exclusion).status_code==409
-    assert requests.post(server+f'/api/invites/{key}/join',json={'name':'Поздний гость'}).status_code==409
+    assert requests.post(server+f'/api/invites/{key}/join',json={'name':'Поздний гость'}).status_code==401
     for name,t,s in joined:
         before=s.get(server+f'/api/participant/{t}').json()
         assert before['assignment']=={'revealed':False}
@@ -165,7 +165,7 @@ def test_concurrent_draw_idempotent(server,owner):
     r=owner.post(server+'/api/santas',json={'title':'Параллельная жеребьёвка'})
     eid=r.json()['id'];key=owner.get(server+f'/api/santas/{eid}').json()['event']['invite_key']
     for name in ('А','Б','В'):
-        assert requests.post(server+f'/api/invites/{key}/join',json={'name':name}).status_code==201
+        assert owner.post(server+f'/api/santas/{eid}/participants',json={'name':name}).status_code==201
     cookies=owner.cookies.get_dict()
     def draw(_):
         r=requests.post(server+f'/api/santas/{eid}/draw',json={},cookies=cookies,timeout=10)
@@ -194,7 +194,7 @@ def test_santa_organizer_can_add_players_and_prevent_self_join(server,owner):
     assert requests.get(server+f'/api/participant/{token}').status_code==200
     assert owner.post(server+f'/api/santas/{eid}/participants',
                       json={'name':'  МАША  '}).status_code==409
-    assert requests.post(server+f'/api/invites/{key}/join',
+    assert registered_buyer(server).post(server+f'/api/invites/{key}/join',
                          json={'name':'маша'}).status_code==409
     assert owner.get(server+f'/api/santas/{eid}').json()['participants'][-1]['name']=='Маша'
 
@@ -256,7 +256,7 @@ def test_import_only_owned_wishlist_items_into_santa(server,owner):
 
     event=owner.get(server+f'/api/santas/{e}').json()['event']
     guest=requests.Session()
-    join=guest.post(server+f'/api/invites/{event["invite_key"]}/join',json={'name':'Гость'})
+    join=owner.post(server+f'/api/santas/{e}/participants',json={'name':'Гость'})
     assert join.status_code==201
     token=join.json()['participant_token']
     assert guest.post(server+f'/api/participant/{token}/wishes/import',
@@ -275,7 +275,7 @@ def test_santa_game_gift_cards_and_anonymous_chats(server,owner):
     users={}
     for name in ('Первый','Второй'):
         session=requests.Session()
-        response=session.post(server+f'/api/invites/{key}/join',json={'name':name})
+        response=owner.post(server+f'/api/santas/{eid}/participants',json={'name':name})
         assert response.status_code==201,response.text
         users[name]=(session,response.json()['participant_token'])
     one,t1=users['Первый']
