@@ -623,7 +623,7 @@ function shell(body){
  const bell=app.querySelector('.header-bell');if(bell)bell.classList.toggle('active',currentPath()==='/notifications');
   closeUiSelect();view.innerHTML=body;enhanceSelects(view);view.removeAttribute('aria-busy');app.classList.remove('route-loading');
  renderedOwnerTab=ownerTab(currentPath())?currentPath():null;
- document.title='Шурш! — вишлисты и Тайный Санта';
+ document.title='Шурш! - вишлисты и Тайный Санта';
  if(currentUser&&!isPreview){
   if(typeof socialRefreshBadge==='function')void socialRefreshBadge();
   scheduleOwnerWarmup();

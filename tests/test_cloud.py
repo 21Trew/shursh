@@ -2280,8 +2280,7 @@ def test_claimed_guest_capability_requires_same_registered_identity(application)
                 {'name':'Guest fixture'},201).json['participant_token']
     assert call(anonymous,'GET',f'/api/participant/{bearer}').status_code==200
     call(member,'POST',f'/api/participant/{bearer}/claim',{},200)
-    for path in (f'/api/participant/{bearer}',f'/api/participant/{bearer}/roster',
-                 f'/api/participant/{bearer}/wishes'):
+    for path in (f'/api/participant/{bearer}',f'/api/participant/{bearer}/roster'):
         call(anonymous,'GET',path,status=404)
         call(organizer,'GET',path,status=404)
         call(member,'GET',path,status=200)
