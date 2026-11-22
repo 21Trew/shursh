@@ -2204,3 +2204,13 @@ def test_browser_registered_santa_join_from_shared_and_personal_links(browser_ht
             assert other_guest.url.endswith('/santa/'+str(other_id))
         finally:
             browser.close()
+
+
+def test_flask_serves_one_time_personal_santa_deep_link(application):
+    """The Flask SPA allowlist must serve the new nested /join/p/<token> route."""
+    secret='A'*43
+    page=application.test_client().get('/join/p/'+secret)
+    assert page.status_code==200
+    assert b'/app.js' in page.data
+    bad=application.test_client().get('/join/p/not-43-chars')
+    assert bad.status_code==404
