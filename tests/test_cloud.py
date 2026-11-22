@@ -803,12 +803,19 @@ def test_browser_santa_invites_draw_and_private_reveals(browser_http):
                 context = browser.new_context(viewport={'width': 390, 'height': 844} if mobile else {'width': 1366, 'height': 900}, is_mobile=mobile)
                 guest = context.new_page()
                 guest.set_default_timeout(15000)
-                guest.goto(invite)
-                expect(guest.locator('.invite-card h1')).to_have_text(title)
-                guest.locator('#join-name').fill(name)
-                guest.locator('#join-form button[type="submit"]').click()
-                expect(guest).to_have_url(re.compile(r'/p/[A-Za-z0-9_-]+$'))
-                token = guest.url.rsplit('/', 1)[-1]
+                # Historical bearer-member E2E uses a pre-created legacy slot.
+                # New public joins require a registered account (covered separately).
+                issued=owner.evaluate("""async ({id,name}) => {
+                    const response=await fetch('/api/santas/'+id+'/participants',{
+                      method:'POST',headers:{'Content-Type':'application/json'},
+                      body:JSON.stringify({name})});
+                    if(!response.ok)throw Error('Fixture creation failed');
+                    return await response.json();
+                }""",{'id':eid,'name':name})
+                token=issued['participant_token']
+                guest.goto(browser_http+'/p/'+token)
+                expect(guest).to_have_url(re.compile(r'/p/[A-Za-z0-9_-]+
+
                 expect(guest.locator('#game-chat [data-chat-room="general"]')).to_be_visible()
                 guest.locator('[data-action="edit-santa-preferences"]').click()
                 expect(guest.locator('#santa-preferences-form')).to_be_visible()
@@ -933,12 +940,13 @@ def test_browser_card_clicks_and_santa_settings(browser_http):
             owner.locator('#modal-form button[type="submit"], .modal-fixed-footer button[type="submit"]').click()
             expect(owner.locator('.details-box')).to_contain_text('2 450')
             owner.locator('button[data-action="add-player"]').click()
-            owner.locator('#fld-name').fill('Аня')
+            expect(owner.locator('.modal')).not_to_contain_text('Имя участника')
             owner.locator('#modal-form button[type="submit"], .modal-fixed-footer button[type="submit"]').click()
-            expect(owner.locator('.modal h2')).to_have_text('Личная ссылка участника')
-            participant_link=owner.locator('input[aria-label="Личная ссылка участника"]').input_value()
+            expect(owner.locator('.modal h2')).to_have_text('Личное приглашение')
+            participant_link=owner.locator('input[aria-label="Личная ссылка для приглашения"]').input_value()
             owner.locator('.modal-close').click()
-            expect(owner.locator('.person-row')).to_have_count(2)
+            # A link does not insert a placeholder participant.
+            expect(owner.locator('.person-row')).to_have_count(1)
             owner.locator('button[data-action="import-own-wishes"]').first.click()
             expect(owner.locator('[name="wish_ids"]:checked')).to_have_count(1)
             owner.locator('#modal-form button[type="submit"], .modal-fixed-footer button[type="submit"]').click()
@@ -964,6 +972,10 @@ def test_browser_card_clicks_and_santa_settings(browser_http):
             other.locator('#fld-title').fill('Тёплый шарф')
             other.locator('#modal-form button[type="submit"], .modal-fixed-footer button[type="submit"]').click()
             other.goto(participant_link)
+            expect(other.locator('#join-form')).to_be_visible()
+            other.locator('#join-name').fill('Аня')
+            other.locator('#join-form button[type="submit"]').click()
+            expect(other).to_have_url(re.compile(r'/santa/\d+$'))
             other.locator('button[data-action="import-own-wishes"]').click()
             expect(other.locator('[name="wish_ids"]:checked')).to_have_count(1)
             other.locator('#modal-form button[type="submit"], .modal-fixed-footer button[type="submit"]').click()
@@ -2122,3 +2134,73 @@ def test_personal_santa_invites_require_login_and_are_single_use(application):
     call(owner,'POST',f'/api/personal-invites/{value}/join',{'name':'Повтор'},409)
     assert len(call(owner,'GET',f'/api/santas/{eid}').json['participants'])==2
     call(other,'POST',f'/api/invites/{event["invite_key"]}/join',{'name':'Дубликат'},409)
+
+@pytest.mark.browser
+def test_browser_registered_santa_join_from_shared_and_personal_links(browser_http):
+    """A personal invitation is one-time; guest sees login gate; name belongs to the account."""
+    from playwright.sync_api import sync_playwright,expect
+    with sync_playwright() as play:
+        browser=play.chromium.launch(headless=True,args=['--no-sandbox'])
+        try:
+            owner=browser.new_page(viewport={'width':390,'height':844})
+            owner.goto(browser_http+'/')
+            browser_login(owner)
+            created=owner.evaluate("""async () => {
+                const response=await fetch('/api/santas',{method:'POST',
+                  headers:{'Content-Type':'application/json'},
+                  body:JSON.stringify({title:'Registered personal browser game'})});
+                if(!response.ok)throw Error('Game fixture creation failed');
+                return await response.json();
+            }""")
+            eid=created['id']
+            personal=owner.evaluate("""async id => {
+                const response=await fetch('/api/santas/'+id+'/personal-invites',{
+                    method:'POST',headers:{'Content-Type':'application/json'},body:'{}'});
+                if(!response.ok)throw Error('Personal invite creation failed');
+                return await response.json();
+            }""",eid)
+            invite_url=browser_http+'/join/p/'+personal['invite_token']
+            guest=browser.new_page(viewport={'width':375,'height':760})
+            guest.goto(invite_url)
+            expect(guest.locator('.invite-auth-gate')).to_be_visible()
+            expect(guest.locator('#join-form')).to_have_count(0)
+            browser_login(guest,'other@example.test')
+            expect(guest.locator('#join-form')).to_be_visible()
+            guest.locator('#join-name').fill('Новый игрок')
+            guest.locator('#join-form button[type="submit"]').click()
+            expect(guest).to_have_url(re.compile(r'/santa/\d+$'))
+            expect(guest.locator('.person-list')).to_contain_text('Новый игрок')
+            assert owner.evaluate("""async id => {
+                const response=await fetch('/api/santas/'+id);
+                return (await response.json()).participants.length;
+            }""",eid)==2
+            # A private invite cannot be redeemed by another account after use.
+            observer=browser.new_page()
+            observer.goto(invite_url)
+            expect(observer.locator('.invite-card')).to_contain_text('уже использована')
+            game=owner.evaluate("""async id => {
+                const response=await fetch('/api/santas/'+id);
+                return (await response.json()).event;
+            }""",eid)
+            other_event=owner.evaluate("""async () => {
+                const response=await fetch('/api/santas',{method:'POST',
+                   headers:{'Content-Type':'application/json'},
+                   body:JSON.stringify({title:'Shared invite game'})});
+                return await response.json();
+            }""")
+            other_id=other_event['id']
+            share=owner.evaluate("""async id => {
+                const response=await fetch('/api/santas/'+id);
+                return (await response.json()).event.invite_key;
+            }""",other_id)
+            other_guest=browser.new_page(viewport={'width':390,'height':844})
+            other_guest.goto(browser_http+'/join/'+share)
+            expect(other_guest.locator('.invite-auth-gate')).to_be_visible()
+            browser_login(other_guest,'other@example.test')
+            expect(other_guest.locator('#join-form')).to_be_visible()
+            other_guest.locator('#join-name').fill('Участник общей ссылки')
+            other_guest.locator('#join-form button[type="submit"]').click()
+            expect(other_guest).to_have_url(re.compile(r'/santa/\d+$'))
+            assert other_guest.url.endswith('/santa/'+str(other_id))
+        finally:
+            browser.close()
