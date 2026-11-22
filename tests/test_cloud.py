@@ -814,7 +814,7 @@ def test_browser_santa_invites_draw_and_private_reveals(browser_http):
                 }""",{'id':eid,'name':name})
                 token=issued['participant_token']
                 guest.goto(browser_http+'/p/'+token)
-                expect(guest).to_have_url(re.compile(r'/p/[A-Za-z0-9_-]+
+                expect(guest).to_have_url(re.compile(r'/p/[A-Za-z0-9_-]+$'))
 
                 expect(guest.locator('#game-chat [data-chat-room="general"]')).to_be_visible()
                 guest.locator('[data-action="edit-santa-preferences"]').click()
