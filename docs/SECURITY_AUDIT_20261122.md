@@ -35,7 +35,14 @@ Scope: application source at PR #4, Supabase Staging metadata and the disposable
 
 - RLS enabled and direct SELECT privileges absent for roles `anon` and `authenticated` on 11 sensitive public tables inspected: profiles, wishlists, wishes, reservations, santa_events, participants, participant_wishes, assignments, santa_messages, santa_memories and santa_personal_invites.
 - Supabase Security Advisors reported `lints=[]` at review time.
-- These checks cover Staging only; they do not prove that Production schema, grants or deployments match.
+- Staging checks are independent from the Production metadata verification below; deployed application code and authentication flows must still be smoke-tested separately.
+
+## Production Supabase metadata (read-only verification)
+
+- Ten existing sensitive public tables (profiles, wishlists, wishes, reservations, santa_events, participants, participant_wishes, assignments, santa_messages, santa_memories) have RLS enabled. Neither `anon` nor `authenticated` has direct SELECT.
+- `santa_personal_invites` is absent from Production at this time; its migration was applied only in Staging.
+- Production Supabase Security Advisors reports one **WARN: Leaked Password Protection Disabled**. The Supabase Auth leaked-password check should be enabled, subject to account feature availability and explicit Production-setting approval. Reference: https://supabase.com/docs/guides/auth/password-security#password-strength-and-leaked-password-protection
+- Verification used only metadata and advisor read APIs; no live user records, emails or session secrets were retrieved.
 
 ## Existing mitigations reviewed
 
