@@ -1225,3 +1225,53 @@ def test_cookie_notice_responsive_alignment_chromium_and_webkit(browser_https):
     (output/"metrics.json").write_text(
         json.dumps(observations,ensure_ascii=False,indent=2),encoding="utf-8"
     )
+
+
+@pytest.mark.browser
+def test_guest_bootstrap_resilience_on_mobile_chromium_and_webkit(browser_https):
+    """No empty guest list; a blocked optional script or API must not leave only the logo."""
+    with sync_playwright() as play:
+        for browser_type in (play.chromium, play.webkit):
+            browser = browser_type.launch(headless=True)
+            try:
+                context = browser.new_context(
+                    viewport={'width':390,'height':844}, is_mobile=True,
+                    ignore_https_errors=True)
+                page=context.new_page()
+                try:
+                    page.route('**/santa-ui.js',lambda route:route.abort())
+                    page.route('**/social-ui.js',lambda route:route.abort())
+                    page.goto(browser_https+'/',wait_until='domcontentloaded')
+                    expect(page.locator('.hero-copy h1')).to_contain_text(
+                        'Подарки, о которых',timeout=10000)
+                    assert page.locator('.loading-screen').count()==0
+                    assert page.evaluate('document.documentElement.scrollWidth <= innerWidth + 2')
+                finally:
+                    context.close()
+
+                context=browser.new_context(viewport={'width':390,'height':844},
+                                            is_mobile=True,ignore_https_errors=True)
+                page=context.new_page()
+                try:
+                    page.route('**/api/dashboard',lambda route:route.abort())
+                    page.goto(browser_https+'/',wait_until='domcontentloaded')
+                    expect(page.locator('.error-page h1')).to_have_text(
+                        'Не получилось загрузить Шурш',timeout=10000)
+                    assert page.locator('.error-page a[href="/"]').count()==1
+                finally:
+                    context.close()
+
+                context=browser.new_context(viewport={'width':390,'height':844},
+                                            is_mobile=True,ignore_https_errors=True)
+                page=context.new_page()
+                try:
+                    page.goto(browser_https+'/lists',wait_until='domcontentloaded')
+                    expect(page.locator('.hero-copy h1')).to_contain_text(
+                        'Подарки, о которых',timeout=10000)
+                    assert page.url.rstrip('/')==browser_https
+                    assert page.locator('.cookie-notice button').count()==1
+                    assert page.locator('.loading-help').count()==0
+                finally:
+                    context.close()
+            finally:
+                browser.close()
