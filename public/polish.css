@@ -664,7 +664,7 @@ input[type="checkbox"]:not(.shursh-checkbox input):checked::after{content:"✓";
 .santa-actions-row>[data-open="santa"]{background:#f5cfbb;border-color:#e0af95}
 .santa-actions-row>[data-open="santa"]:hover{background:#f2c1a8;border-color:#d69e82}
 .cookie-notice{left:50%;transform:translateX(-50%);width:max-content;max-width:calc(100vw - 32px);justify-content:center}
-.cookie-message{display:grid;justify-items:center;flex:0 1 auto;min-width:0;line-height:1.5;text-align:center;hyphens:none;overflow-wrap:normal;word-break:normal}
+.cookie-notice > .cookie-message{display:grid;justify-items:center;flex:0 1 auto;min-width:0;line-height:1.5;text-align:center;hyphens:none;overflow-wrap:normal;word-break:normal}
 .cookie-message>span{display:block;white-space:nowrap}
 .santa-inline-editor{min-width:0;max-width:100%;border:1.5px solid #c9aa95;border-radius:10px;padding:6px 10px;background:#fffdf9;color:var(--ink);font:inherit;line-height:inherit;letter-spacing:inherit}
 .santa-inline-editor-title{width:min(650px,100%);font-family:var(--heading);font-size:inherit}
