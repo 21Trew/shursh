@@ -1248,7 +1248,13 @@ function setupAuthFormValidation(form,register){
   return message;
  };
  for(const input of inputs){
-  input.addEventListener('blur',()=>{touched.add(input.name);validate(input);});
+  input.addEventListener('blur',event=>{
+   // Modal footer controls are moved into a fixed rail. Creating an error while
+   // pointer-down changes dialog height and can swallow a click on "Register".
+   // Navigation does not require validating the old form; submit validates all.
+   if(event.relatedTarget?.closest('[data-open],[data-close],[type="submit"]'))return;
+   touched.add(input.name);validate(input);
+  });
   input.addEventListener('input',()=>{
    if(touched.has(input.name))validate(input);
    if(register&&input.name==='password'&&touched.has('confirm_password')){
