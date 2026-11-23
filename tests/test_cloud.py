@@ -2517,3 +2517,47 @@ def test_browser_santa_rules_are_collapsed_and_update_without_page_redraw(browse
             assert page.locator('.modal-backdrop').count()==0
         finally:
             browser.close()
+
+
+@pytest.mark.browser
+def test_browser_cookie_notice_has_intrinsic_width_on_mobile_and_desktop(browser_http):
+    """Cookie banner hugs its two text lines and button rather than stretching."""
+    from playwright.sync_api import sync_playwright, expect
+    with sync_playwright() as playwright:
+        browser = playwright.chromium.launch()
+        try:
+            for viewport_width in (320, 375, 768, 1280):
+                page = browser.new_page(viewport={'width': viewport_width, 'height': 720})
+                try:
+                    page.goto(browser_http, wait_until='domcontentloaded')
+                    notice = page.locator('.cookie-notice')
+                    expect(notice).to_be_visible()
+                    page.evaluate('document.fonts.ready')
+                    geometry = notice.evaluate("""element => {
+                        const box = element.getBoundingClientRect();
+                        const style = getComputedStyle(element);
+                        const message = element.querySelector('.cookie-message');
+                        const button = element.querySelector('button');
+                        const messageBox = message.getBoundingClientRect();
+                        const buttonBox = button.getBoundingClientRect();
+                        const innerWidth = box.width - parseFloat(style.paddingLeft) -
+                            parseFloat(style.paddingRight) - parseFloat(style.borderLeftWidth) -
+                            parseFloat(style.borderRightWidth);
+                        const gap = parseFloat(style.columnGap) || 0;
+                        const desiredInnerWidth = style.flexDirection === 'column'
+                            ? Math.max(messageBox.width, buttonBox.width)
+                            : messageBox.width + buttonBox.width + gap;
+                        return { left: box.left, width: box.width, center: box.left + box.width / 2,
+                            viewportWidth: innerWidth, desiredInnerWidth,
+                            messageWidth: messageBox.width,
+                            lineCount: message.querySelectorAll(':scope > span').length,
+                            clipped: [...message.children].some(line => line.scrollWidth > line.clientWidth + 1) };
+                    }""")
+                    assert abs(geometry['center'] - viewport_width / 2) <= 1, geometry
+                    assert geometry['width'] <= viewport_width - (20 if viewport_width <= 400 else 32) + 1, geometry
+                    assert abs(geometry['viewportWidth'] - geometry['desiredInnerWidth']) <= 2, geometry
+                    assert geometry['lineCount'] == 2 and not geometry['clipped'], geometry
+                finally:
+                    page.close()
+        finally:
+            browser.close()
