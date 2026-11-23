@@ -1195,7 +1195,7 @@ def test_browser_confirmation_return_clears_provider_hash(browser_http):
 @pytest.mark.browser
 @pytest.mark.fontperf
 def test_font_loading_observation(browser_http):
-    """Browser-observed font requests; external third-party timing is non-gating."""
+    """Fonts load from first-party static assets without a Google Fonts dependency."""
     import json
     from time import perf_counter
     from playwright.sync_api import sync_playwright
@@ -1212,21 +1212,19 @@ def test_font_loading_observation(browser_http):
                 new Promise(resolve=>setTimeout(()=>resolve(false),8000))
               ]);
               const faces=[...document.fonts].map(f=>({family:f.family,status:f.status}));
-              const resources=performance.getEntriesByType('resource')
-                .filter(x=>/^https:\/\/fonts\.(?:googleapis|gstatic)\.com\//.test(x.name))
-                .map(x=>({domain:new URL(x.name).hostname,
-                           durationMs:Math.round(x.duration),
-                           transferSize:x.transferSize}));
+              const all=performance.getEntriesByType('resource');
+              const external=all.filter(x=>/^https:\/\/fonts\.(?:googleapis|gstatic)\.com\//.test(x.name));
+              const local=all.filter(x=>/\/fonts\/(?:onest|unbounded)-.*\.woff2/.test(x.name));
               return {fontReady:done,fontFaces:faces.length,
                 loadedFaces:faces.filter(x=>x.status==='loaded').length,
-                resources};
+                externalCount:external.length,localCount:local.length};
             }""")
-            assert isinstance(fonts['resources'],list)
+            assert fonts['fontReady'], fonts
+            assert fonts['externalCount']==0, fonts
+            assert fonts['loadedFaces']>0 and fonts['localCount']>0, fonts
             print('SHURSH_FONT_PERF='+json.dumps({
-                'scope':'CI-Chromium-external-Google-Fonts','domContentLoadedMs':dom_ms,
-                'fontReady':fonts['fontReady'],'fontFaceCount':fonts['fontFaces'],
-                'loadedFaceCount':fonts['loadedFaces'],
-                'resources':fonts['resources']},ensure_ascii=False))
+                'scope':'CI-Chromium-local-fonts','domContentLoadedMs':dom_ms,
+                **fonts},ensure_ascii=False))
         finally:
             browser.close()
 
