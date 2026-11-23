@@ -38,6 +38,7 @@ jobs:
       - run: node --check public/preview-store.js
       - run: node --check tools/perf-browser.js
       - run: node --check tools/release-smoke.mjs
+      - run: node --check tools/ru-network-probe.mjs
 
   public-release-smoke:
     if: github.event_name == 'pull_request' && github.head_ref == 'feat/supabase-mvp'
