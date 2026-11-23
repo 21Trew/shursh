@@ -1818,6 +1818,9 @@ def test_browser_santa_preferences_readonly_until_edit_and_mobile_density(browse
             expect(page.locator('#santa-preferences-form')).to_be_hidden()
             expect(page.locator('#santa-preferences-display')).to_contain_text('Настольные игры')
             expect(page.locator('#santa-preferences-display')).to_contain_text('Настойки')
+            expect(page.locator('#santa-preferences-display > button')).to_contain_text('Редактировать')
+            expect(page.locator('#santa-preferences-display .santa-pref-row')).to_have_count(2)
+            expect(page.locator('#santa-preferences-display')).to_contain_text('Настойки')
             assert page.evaluate('document.documentElement.scrollWidth<=innerWidth+2')
             assert page.evaluate('document.querySelector("#game-chat").getBoundingClientRect().width <= innerWidth')
         finally:

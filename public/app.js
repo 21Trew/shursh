@@ -1039,7 +1039,7 @@ async function santaGamePage(id,marker=lastRenderToken,participantToken=null){
    ev.preventDefault();const form=ev.currentTarget,button=form.querySelector('button');
    button.disabled=true;
    try{await api(activeGameContext.base+'/preferences',{method:'PATCH',body:readForm(form)});
-    if(form.isConnected){const summary=document.querySelector('#santa-preferences-display');if(summary){const values=readForm(form);summary.querySelector('[data-preferences-summary]').innerHTML=preferenceSummary(values);const button=summary.querySelector('[data-action="edit-santa-preferences"]');if(button)button.innerHTML=ico('edit')+' '+(values.wanted||values.unwanted?'Редактировать':'Добавить пожелания');summary.hidden=false;}form.hidden=true;}
+    if(form.isConnected){const summary=document.querySelector('#santa-preferences-display');if(summary){const values=readForm(form);summary.querySelector('[data-preferences-summary]').innerHTML=preferenceSummary(values);const button=summary.querySelector(':scope > button[data-action="edit-santa-preferences"]');if(button)button.innerHTML=ico('edit')+' '+(values.wanted||values.unwanted?'Редактировать':'Добавить пожелания');summary.hidden=false;}form.hidden=true;}
     notice('Пожелания сохранены');
    }catch(err){notice(err.message,true)}finally{button.disabled=false;}
   });
