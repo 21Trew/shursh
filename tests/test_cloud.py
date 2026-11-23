@@ -2343,6 +2343,7 @@ def test_browser_ux_fixes_avatar_gift_placeholder_and_admin_directory(browser_ht
             expect(page.locator('button[data-action="add-game-gift"]')).to_be_visible()
             page.locator('button[data-action="add-game-gift"]').click()
             page.locator('#fld-title').fill('Подарок без фото')
+            page.locator('#fld-shop_url').fill('https://example.com/gift')
             page.locator('.modal-fixed-footer button[type="submit"]').click()
             expect(page.locator('.game-gift-card .game-gift-placeholder svg')).to_be_visible()
             page.locator('.game-gift-primary').first.click()
@@ -2352,6 +2353,27 @@ def test_browser_ux_fixes_avatar_gift_placeholder_and_admin_directory(browser_ht
             expect(edit_icon.locator('svg.icon')).to_have_count(1)
             assert edit_icon.get_attribute('aria-label')=='Изменить подарок'
             assert page.locator('.gift-details-modal .gift-dialog-footer [data-action="edit-game-gift"]').count()==0
+            shop=page.locator('.gift-details-modal .gift-dialog-copy > a.btn')
+            expect(shop).to_be_visible()
+            for width in (390,1280):
+                page.set_viewport_size({'width':width,'height':844})
+                edges=page.locator('.gift-details-modal').evaluate("""dialog => {
+                    const right = selector => {
+                        const el = dialog.querySelector(selector);
+                        return el?.getBoundingClientRect().right;
+                    };
+                    return {
+                        edit:right('.gift-dialog-edit'),
+                        shop:right('.gift-dialog-copy > a.btn'),
+                        close:right('.gift-dialog-footer [data-close]'),
+                        content:right('.gift-dialog-layout')
+                    };
+                }""")
+                assert all(isinstance(v,(int,float)) for v in edges.values()),(width,edges)
+                assert abs(edges['edit']-edges['shop'])<=2,(width,edges)
+                assert abs(edges['edit']-edges['close'])<=2,(width,edges)
+                assert abs(edges['edit']-edges['content'])<=2,(width,edges)
+            page.set_viewport_size({'width':390,'height':844})
             close=page.locator('.gift-details-modal .gift-dialog-footer .btn-dark')
             close.hover()
             assert close.evaluate("el => getComputedStyle(el).color")=='rgb(255, 255, 255)'
