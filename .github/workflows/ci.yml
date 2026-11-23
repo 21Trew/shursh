@@ -164,8 +164,12 @@ jobs:
         run: docker build --tag shursh-ru-pilot:ci .
       - name: Confirm container rejects missing Staging credentials
         run: |
-          if docker run --rm shursh-ru-pilot:ci; then
+          if output="$(docker run --rm shursh-ru-pilot:ci 2>&1)"; then
             echo "Pilot container unexpectedly accepted an empty environment"
+            exit 1
+          fi
+          if ! printf '%s' "$output" | grep -q 'Russian pilot requires a separate strong rate-limit secret'; then
+            echo "Pilot stopped for an unexpected reason (not a Staging credential guard)"
             exit 1
           fi
       - name: Anonymous HTTP smoke with synthetic CI-only Staging-shaped variables
