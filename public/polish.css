@@ -688,3 +688,46 @@ input[type="checkbox"]:not(.shursh-checkbox input):checked::after{content:"✓";
 .cookie-notice{padding-inline:14px}
 .cookie-notice button{min-height:44px}
 @media(prefers-reduced-motion:reduce){.santa-detail-layout .person-list .person-row{transition:none}}
+
+
+/* Admin: two clear destinations and a dedicated responsive user directory. */
+.admin-hub-grid{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:18px;align-items:stretch}
+.admin-hub-card{display:flex;flex-direction:column;gap:14px;min-width:0;padding:28px!important;text-decoration:none;color:var(--ink);border-radius:24px;transition:background-color .2s,border-color .2s,transform .2s}
+.admin-hub-users{background:#e6f0e7;border-color:#c3dac7}
+.admin-hub-feedback{background:#f5e9d7;border-color:#e2cdb2}
+.admin-hub-card:hover{transform:translateY(-2px)}
+.admin-hub-users:hover{background:#d8e9d8;border-color:#a7c8b0}
+.admin-hub-feedback:hover{background:#f0deca;border-color:#d3b18d}
+.admin-hub-card:focus-visible{outline:3px solid #a66d43;outline-offset:3px}
+.admin-hub-card-top{display:flex;align-items:center;justify-content:space-between;gap:15px}
+.admin-hub-icon{width:54px;height:54px;border-radius:17px;background:#fffefa;display:grid;place-items:center;color:var(--ink)}
+.admin-hub-arrow{width:44px;height:44px;display:grid;place-items:center}
+.admin-hub-card>strong{font-family:var(--heading);font-size:clamp(19px,2vw,26px);letter-spacing:-.045em}
+.admin-hub-card>p{color:#5f5955;font-size:14px;line-height:1.5;flex:1}
+.admin-hub-metric{font-weight:800;font-size:13px;color:#514f4d}
+.admin-section-back{display:flex;align-items:center;min-height:32px}
+.admin-section-back .text-link{display:inline-flex;gap:6px;align-items:center;min-height:44px}
+.admin-page .admin-users-panel{margin-top:0}
+.admin-users-search{min-width:0;max-width:100%}
+.admin-users-search .input{max-width:520px;flex:1 1 280px;min-height:48px}
+.admin-users-panel [data-admin-users-content][aria-busy=true]{opacity:.65;transition:opacity .12s}
+.admin-users-table-scroll{overscroll-behavior-x:contain;-webkit-overflow-scrolling:touch}
+@media(max-width:760px){
+ .admin-hub-grid{grid-template-columns:1fr;gap:13px}
+ .admin-hub-card{padding:22px!important}
+ .admin-users-search .input{width:100%;max-width:none}
+ .admin-users-pager{flex-wrap:wrap}
+}
+@media(prefers-reduced-motion:reduce){.admin-hub-card{transition:none}.admin-hub-card:hover{transform:none}}
+
+/* Gift details: editor is a single subtle icon below the dialog title rail. */
+.gift-dialog-layout{position:relative}
+.gift-dialog-edit{position:absolute;top:2px;right:0;z-index:3;display:grid;place-items:center;width:44px;height:44px;min-width:44px;padding:0;border:0;border-radius:13px;background:#fffdf8;color:#353032;cursor:pointer;transition:background-color .15s}
+.gift-dialog-edit:hover{background:#f1dfcf}
+.gift-dialog-edit:focus-visible{outline:3px solid #a66d43;outline-offset:2px}
+.gift-dialog-edit .icon{width:20px;height:20px}
+.gift-dialog-edit::after{content:attr(data-tooltip);position:absolute;top:calc(100% + 6px);right:0;padding:6px 10px;background:#27272b;color:#fff;border-radius:9px;font-size:11px;font-weight:700;line-height:1.3;white-space:nowrap;text-align:center;opacity:0;pointer-events:none}
+.gift-dialog-edit:hover::after,.gift-dialog-edit:focus-visible::after{opacity:1}
+.gift-dialog-copy .gift-dialog-price{padding-right:56px}
+@media(max-width:760px){.gift-dialog-edit{top:9px;right:9px;box-shadow:0 2px 10px rgba(40,31,29,.09)}.gift-dialog-copy .gift-dialog-price{padding-right:0}}
+@media(prefers-reduced-motion:reduce){.gift-dialog-edit{transition:none}}
