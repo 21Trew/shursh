@@ -60,7 +60,7 @@ def security_headers(result):
     # Static UI assets are public and identical for every user. Reusing them
     # avoids repeated downloads on reload; HTML, APIs and capability URLs
     # must always remain private and uncached.
-    if request.path in ('/app.js','/santa-ui.js','/social-ui.js','/styles.css','/favicon.svg','/favicon.ico'):
+    if request.path in ('/app.js','/santa-ui.js','/social-ui.js','/styles.css','/polish.css','/fonts.css','/favicon.svg','/favicon.ico') or request.path.startswith('/fonts/'):
         result.headers['Cache-Control'] = 'public, max-age=300, must-revalidate'
     else:
         result.headers['Cache-Control'] = 'no-store'
@@ -69,7 +69,7 @@ def security_headers(result):
     result.headers['X-Frame-Options'] = 'DENY'
     result.headers['X-Robots-Tag'] = 'noindex, nofollow'
     result.headers['Content-Security-Policy'] = ("default-src 'self'; img-src 'self' data:; "
-        "style-src 'self' 'unsafe-inline' https://fonts.googleapis.com; font-src 'self' https://fonts.gstatic.com; "
+        "style-src 'self' 'unsafe-inline'; font-src 'self'; "
         "script-src 'self'; base-uri 'none'; object-src 'none'; frame-ancestors 'none'; form-action 'self'")
     return result
 
@@ -197,7 +197,9 @@ def image(filename):
 @app.get('/')
 @app.get('/<path:route>')
 def frontend(route=''):
-    if route in ('app.js','santa-ui.js','social-ui.js','styles.css','polish.css','favicon.svg','favicon.ico'):
+    if route in ('app.js','santa-ui.js','social-ui.js','styles.css','polish.css','fonts.css','favicon.svg','favicon.ico'):
+        return send_from_directory(ROOT/'public',route)
+    if re.fullmatch(r'fonts/(?:onest|unbounded)-(?:cyrillic|cyrillic-ext|latin)-wght-normal\\.woff2',route):
         return send_from_directory(ROOT/'public',route)
     # Serve only known app routes; never include the simulator or repository files.
     if route in ('','index.html','lists','santas','friends','profile','notifications','admin','admin/users','admin/feedback') or re.fullmatch(r'(?:list|santa)/[0-9]{1,16}|(?:w|r|join|p)/[A-Za-z0-9_-]{1,128}|join/p/[A-Za-z0-9_-]{43}|users/[0-9a-fA-F-]{36}',route):
