@@ -1714,8 +1714,9 @@ def test_santa_private_link_claim_to_logged_in_account(application):
     assert bound['event_id']==event_id
     assert any(x['id']==event_id for x in call(target,'GET','/api/santas').json['events'])
     assert any(x['id']==event_id for x in call(target,'GET','/api/dashboard').json['events'])
-    call(target,'POST',f'/api/participant/{personal_token}/claim',{},200)
-    call(organizer,'POST',f'/api/participant/{personal_token}/claim',{},409)
+    call(target,'POST',f'/api/participant/{personal_token}/claim',{},404)
+    call(organizer,'POST',f'/api/participant/{personal_token}/claim',{},404)
+    call(guest,'GET',f'/api/participant/{personal_token}',status=404)
     # Authenticated membership no longer depends on retaining the bearer link.
     member=call(target,'GET',f'/api/member/{event_id}').json
     assert member['participant']['name']=='Guest for account'
@@ -2276,18 +2277,20 @@ def test_claimed_guest_capability_requires_same_registered_identity(application)
     member=login(application)
     anonymous=application.test_client()
     eid=call(organizer,'POST','/api/santas',{'title':'Claimed bearer privacy'},201).json['id']
-    bearer=call(organizer,'POST',f'/api/santas/{eid}/participants',
-                {'name':'Guest fixture'},201).json['participant_token']
+    created=call(organizer,'POST',f'/api/santas/{eid}/participants',
+                {'name':'Guest fixture'},201).json
+    bearer=created['participant_token']
     assert call(anonymous,'GET',f'/api/participant/{bearer}').status_code==200
     call(member,'POST',f'/api/participant/{bearer}/claim',{},200)
     for path in (f'/api/participant/{bearer}',f'/api/participant/{bearer}/roster'):
         call(anonymous,'GET',path,status=404)
         call(organizer,'GET',path,status=404)
-        call(member,'GET',path,status=200)
+        call(member,'GET',path,status=404)
     call(anonymous,'POST',f'/api/participant/{bearer}/wishes',{'title':'Hijacked'},404)
     call(organizer,'PATCH',f'/api/participant/{bearer}/preferences',
          {'wanted':'Hijacked'},404)
     assert call(member,'GET',f'/api/member/{eid}').json['participant']['name']=='Guest fixture'
+    call(organizer,'POST',f'/api/santas/{eid}/participants/{created["id"]}/new-link',{},409)
 
 
 def test_social_meta_profile_and_legacy_link_ux_static(application):
@@ -2369,3 +2372,15 @@ def test_browser_ux_fixes_avatar_gift_placeholder_and_admin_directory(browser_ht
             }""")==200
         finally:
             browser.close()
+
+
+def test_favicon_ico_fallback_is_available(application):
+    """Static fallback favicon matches the shipped brand and is never a 404."""
+    ico=application.test_client().get('/favicon.ico')
+    assert ico.status_code==200
+    assert ico.data[:4]==b'\x00\x00\x01\x00'
+    assert len(ico.data)>500
+    svg=application.test_client().get('/favicon.svg')
+    assert svg.status_code==200
+    html=application.test_client().get('/').get_data(as_text=True)
+    assert 'href="/favicon.ico"' in html and 'href="/favicon.svg"' in html

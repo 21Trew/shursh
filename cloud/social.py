@@ -359,7 +359,7 @@ def handle(handler, method, path, con):
             raise ApiError(409,'Ты уже участвуешь в этой игре')
         # Use a conditional row update to reject a second, concurrent claim.
         # A stale read must never be reported as a successful account binding.
-        updated=con.execute('''UPDATE participants SET user_id=?
+        updated=con.execute('''UPDATE participants SET user_id=?,access_hash=NULL
                               WHERE id=? AND user_id IS NULL
                                 AND NOT EXISTS (
                                   SELECT 1 FROM participants other
