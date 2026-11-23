@@ -320,11 +320,6 @@ async function socialAdminUsersPage(marker=lastRenderToken){
    if(adminUsersSearchTimer!==null)clearTimeout(adminUsersSearchTimer);
    adminUsersSearchTimer=setTimeout(()=>{adminUsersSearchTimer=null;void socialLoadAdminUsers(0);},250);
  });
- search?.addEventListener('search',()=>{
-   if(adminUsersSearchTimer!==null)clearTimeout(adminUsersSearchTimer);
-   adminUsersSearchTimer=null;
-   void socialLoadAdminUsers(0);
- });
 }
 async function socialInviteFriendsModal(){
  if(!currentUser||!loadedSanta?.event||loadedSanta.event.status!=='open')return;
