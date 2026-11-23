@@ -1,0 +1,30 @@
+name: Vendor approved RU webfont assets
+
+on:
+  push:
+    branches: [fix/ru-selfhost-fonts-20261123]
+
+permissions:
+  contents: write
+
+jobs:
+  vendor-fonts:
+    if: github.actor == '21Trew'
+    runs-on: ubuntu-latest
+    timeout-minutes: 4
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.13'
+      - name: Download and validate font files
+        run: python tools/vendor-ru-fonts.py
+      - name: Commit pinned assets to the feature branch
+        run: |
+          git add public/fonts/*.woff2
+          if git diff --cached --quiet; then
+            echo "No changes to font binaries"
+            exit 0
+          fi
+          git -c user.name='github-actions[bot]' -c user.email='41898282+github-actions[bot]@users.noreply.github.com' commit -m 'assets(fonts): commit verified local WOFF2 files'
+          git push origin HEAD:fix/ru-selfhost-fonts-20261123
