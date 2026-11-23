@@ -739,3 +739,22 @@ input[type="checkbox"]:not(.shursh-checkbox input):checked::after{content:"✓";
 @media(max-width:760px){
  .gift-details-modal .modal-fixed-footer{padding-right:30px}
 }
+
+/* Even if mobile JavaScript never arrives, the static loader offers a native
+   retry action instead of displaying the brand mark forever. */
+.loading-help{
+ visibility:hidden;opacity:0;animation:shursh-loading-help-reveal 1ms steps(1,end) 7s forwards;
+ display:flex;flex-direction:column;align-items:center;gap:12px;
+ text-align:center;padding:12px 18px;max-width:min(340px,calc(100vw - 24px));
+ font-size:14px;color:var(--muted);
+}
+.loading-help .btn{min-height:44px;padding:11px 20px}
+@keyframes shursh-loading-help-reveal{to{visibility:visible;opacity:1}}
+@media(prefers-reduced-motion:reduce){
+ .loading-help{animation-duration:1ms}
+}
+@media(max-width:760px){
+ body:has(.cookie-notice) #page-view>main.page{
+  min-height:calc(100dvh - 70px);
+ }
+}
