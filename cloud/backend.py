@@ -16,6 +16,39 @@ SESSION_SECONDS = 24 * 60 * 60
 IMAGE_USER_LIMIT = 12_000_000
 IMAGE_TOTAL_LIMIT = 100_000_000
 
+# Input-shape checks; Supabase owns password policy and authentication.
+AUTH_DOMAIN = re.compile(r'[a-z0-9](?:[a-z0-9-]{0,61}[a-z0-9])?(?:\.[a-z0-9](?:[a-z0-9-]{0,61}[a-z0-9])?)+', re.I)
+AUTH_INVALID_LOCAL = set('"<>,:;()[]\\')
+
+def valid_auth_email(raw):
+    email = req(raw, 'Почта', 200).lower()
+    parts = email.split('@')
+    if len(parts) != 2:
+        raise ApiError(400, 'Укажи корректную почту')
+    local, domain = parts
+    if (not 1 <= len(local) <= 64 or not 1 <= len(domain) <= 253
+            or local.startswith('.') or local.endswith('.') or '..' in local
+            or any(ch.isspace() or ord(ch)<33 or ord(ch)==127 or ch in AUTH_INVALID_LOCAL for ch in local)
+            or not AUTH_DOMAIN.fullmatch(domain)
+            or len(domain.rsplit('.', 1)[-1]) < 2
+            or email == 'demo@shursh.local'):
+        raise ApiError(400, 'Укажи корректную почту')
+    return email
+
+
+def valid_auth_password(raw):
+    if (not isinstance(raw, str) or not 8 <= len(raw) <= 200
+            or '\x00' in raw or any(0xD800 <= ord(ch) <= 0xDFFF for ch in raw)):
+        raise ApiError(400, 'Пароль должен содержать от 8 до 200 символов')
+    return raw
+
+
+def valid_signup_name(raw):
+    value = req(raw, 'Имя', 40)
+    if any(ord(ch) < 32 or ord(ch) == 127 for ch in value):
+        raise ApiError(400, 'Убери недопустимые символы из имени')
+    return value
+
 
 def serialize(value):
     if isinstance(value, (datetime, date)):
@@ -94,9 +127,7 @@ class CloudRequest(Handler):
         # Fixed per-IP limit, independent of the generic API quota. Avoid
         # exposing whether the email exists or has already been verified.
         data = self.body()
-        email = req(data.get('email'), 'Почта', 200).lower()
-        if not re.fullmatch(r'[^\s@]+@[^\s@]+\.[^\s@]+', email) or email == 'demo@shursh.local':
-            raise ApiError(400, 'Укажи корректную почту')
+        email = valid_auth_email(data.get('email'))
         self.throttled('auth-resend', 3, 600)
         db.close_request_connection()
         started_auth = time.perf_counter()
@@ -135,17 +166,12 @@ class CloudRequest(Handler):
         # so slow Supabase Auth does not reserve a PostgreSQL connection.
         db.close_request_connection()
         data = self.body()
-        email = req(data.get('email'), 'Почта', 200).lower()
-        if not re.fullmatch(r'[^\s@]+@[^\s@]+\.[^\s@]+', email) or email == 'demo@shursh.local':
-            raise ApiError(400, 'Укажи корректную почту')
-        password = data.get('password')
-        if (not isinstance(password, str) or not 8 <= len(password) <= 200
-                or '\x00' in password or any(0xD800 <= ord(ch) <= 0xDFFF for ch in password)):
-            raise ApiError(400, 'Пароль должен содержать от 8 до 200 символов')
+        email = valid_auth_email(data.get('email'))
+        password = valid_auth_password(data.get('password'))
         action = 'register' if path.endswith('register') else 'login'
         payload = {'email': email, 'password': password}
         if action == 'register':
-            payload['data'] = {'name': req(data.get('name'), 'Имя', 40)}
+            payload['data'] = {'name': valid_signup_name(data.get('name'))}
         started_auth = time.perf_counter()
         try:
             result = auth.auth_request(action, **payload)
