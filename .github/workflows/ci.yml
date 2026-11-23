@@ -24,6 +24,7 @@ jobs:
       - run: python -m py_compile server.py
       - run: python -m pytest -q tests/test_api.py
       - run: python -m pytest -q tests/test_preview_isolation.py
+      - run: python -m pytest -q tests/test_ru_pilot_preflight.py
       - run: python -m pytest -q tests/test_product_metadata.py tests/test_product_sources.py
 
   frontend-syntax:
@@ -151,3 +152,58 @@ jobs:
           path: artifacts/pr4-ui/
           if-no-files-found: warn
           retention-days: 7
+
+  ru-pilot-container:
+    if: github.event_name == 'pull_request' && github.head_ref == 'feat/ru-app-platform-pilot-20261123'
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v4
+      - name: Build the exact Timeweb Dockerfile
+        run: docker build --tag shursh-ru-pilot:ci .
+      - name: Confirm container rejects missing Staging credentials
+        run: |
+          if docker run --rm shursh-ru-pilot:ci; then
+            echo "Pilot container unexpectedly accepted an empty environment"
+            exit 1
+          fi
+      - name: Anonymous HTTP smoke with synthetic CI-only Staging-shaped variables
+        run: |
+          docker run --rm -d --name shursh-pilot-ci -p 127.0.0.1:8789:8080 \
+            -e 'SHURSH_DATABASE_URL=postgresql://shursh_preview_login.vwhzhbsaspbelkvnjjho:fake-ci-password@aws-0-eu-central-1.pooler.supabase.com:6543/postgres?sslmode=require' \
+            -e 'SUPABASE_URL=https://vwhzhbsaspbelkvnjjho.supabase.co' \
+            -e 'SUPABASE_PUBLISHABLE_KEY=sb_publishable_fake_for_ci' \
+            -e 'SHURSH_RATE_SECRET=ci-only-staging-shape-secret-never-real' \
+            shursh-ru-pilot:ci
+          trap 'docker rm -f shursh-pilot-ci >/dev/null 2>&1 || true' EXIT
+          python - <<'PY'
+          import json
+          import time
+          import urllib.error
+          import urllib.request
+          base='http://127.0.0.1:8789'
+          for attempt in range(30):
+              try:
+                  with urllib.request.urlopen(base+'/',timeout=2) as r:
+                      if r.status==200:
+                          break
+              except (OSError,urllib.error.URLError):
+                  time.sleep(1)
+          else:
+              raise SystemExit('Pilot container did not start')
+          for path in ('/','/app.js','/styles.css','/fonts.css',
+                       '/fonts/onest-cyrillic-wght-normal.woff2',
+                       '/api/me','/api/dashboard'):
+              with urllib.request.urlopen(base+path,timeout=5) as r:
+                  assert r.status==200,(path,r.status)
+                  data=r.read()
+                  assert data,(path,'empty response')
+                  if path=='/api/me':
+                      payload=json.loads(data)
+                      assert payload['user'] is None and payload['demo'] is False
+                  if path=='/api/dashboard':
+                      payload=json.loads(data)
+                      assert payload['user'] is None
+                      assert not payload['lists'] and not payload['events']
+          print('RU pilot container: anonymous HTTP smoke passed')
+          PY
