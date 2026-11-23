@@ -1188,6 +1188,84 @@ function resendConfirmationModal(email=''){
   },
   footer:'Уже подтвердил адрес? <button type="button" data-open="login">Войти</button>'});
 }
+function authFieldIssue(input, form, register){
+ const value=input.value, kind=input.name;
+ if(kind==='name' && register){
+  const trimmed=value.trim();
+  if(!trimmed)return 'Укажи имя';
+  if(trimmed.length>40)return 'Имя должно быть не длиннее 40 символов';
+  if(/[\u0000-\u001f\u007f]/.test(trimmed))return 'В имени есть недопустимые символы';
+ }
+ if(kind==='email'){
+  const email=value.trim(), parts=email.split('@');
+  if(!email)return 'Укажи почту';
+  if(email.length>200||parts.length!==2)return 'Проверь адрес электронной почты';
+  const [local,domain]=parts;
+  const domainPattern=/^[a-z0-9](?:[a-z0-9-]{0,61}[a-z0-9])?(?:\.[a-z0-9](?:[a-z0-9-]{0,61}[a-z0-9])?)+$/i;
+  const localForbidden=/[\s"<>,:;()[\]\\]/;
+  if(!local||local.length>64||local.startsWith('.')||local.endsWith('.')||
+     local.includes('..')||localForbidden.test(local)||!domainPattern.test(domain)||
+     domain.split('.').at(-1).length<2||email.toLowerCase()==='demo@shursh.local'){
+    return 'Проверь адрес электронной почты';
+  }
+ }
+ if(kind==='password'){
+  if(!value)return 'Введи пароль';
+  const len=Array.from(value).length;
+  if(len<8||len>200||value.includes('\u0000')){
+   return 'Пароль должен содержать от 8 до 200 символов';
+  }
+ }
+ if(kind==='confirm_password' && register){
+  if(!value)return 'Повтори пароль';
+  if(value!==form.elements.password.value)return 'Пароли не совпадают';
+ }
+ return '';
+}
+function setupAuthFormValidation(form,register){
+ if(!form)return;
+ // Inline errors, not native validation popups which differ across mobile browsers.
+ form.noValidate=true;
+ const names=register?['name','email','password','confirm_password']:['email','password'];
+ const inputs=names.map(name=>form.elements.namedItem(name)).filter(Boolean);
+ const touched=new Set();
+ const validate=input=>{
+  const message=authFieldIssue(input,form,register), field=input.closest('.field');
+  const id='auth-error-'+input.name;
+  let node=field?.querySelector('#'+id);
+  if(!node&&field){
+   node=document.createElement('p');
+   node.id=id;node.className='auth-field-error';node.setAttribute('aria-live','polite');
+   node.hidden=true;field.append(node);
+  }
+  if(node){node.textContent=message;node.hidden=!message;}
+  input.toggleAttribute('aria-invalid',!!message);
+  const hint=input.name==='password'&&register?'password-hint':'';
+  const ids=[hint,message?id:''].filter(Boolean).join(' ');
+  if(ids)input.setAttribute('aria-describedby',ids);
+  else input.removeAttribute('aria-describedby');
+  return message;
+ };
+ for(const input of inputs){
+  input.addEventListener('blur',()=>{touched.add(input.name);validate(input);});
+  input.addEventListener('input',()=>{
+   if(touched.has(input.name))validate(input);
+   if(register&&input.name==='password'&&touched.has('confirm_password')){
+    validate(form.elements.confirm_password);
+   }
+  });
+ }
+ form.addEventListener('submit',event=>{
+  const invalid=inputs.filter(input=>{touched.add(input.name);return !!validate(input);});
+  if(invalid.length){
+   event.preventDefault();event.stopImmediatePropagation();
+   invalid[0].focus({preventScroll:false});
+   return;
+  }
+  form.elements.email.value=form.elements.email.value.trim().toLowerCase();
+  if(register)form.elements.name.value=form.elements.name.value.trim();
+ },true);
+}
 function loginModal(mode='login'){
  const register=mode==='register';
  // Registering or logging in directly from a private participant page
@@ -1196,11 +1274,13 @@ function loginModal(mode='login'){
  if(pageToken&&!pendingGameClaim)savePendingGameClaim(pageToken);
  modal({title:register?'Давай знакомиться!':'С возвращением!',
   subtitle:pendingGameClaim?'После входа сохраним эту игру в твоём аккаунте':register?'Создай аккаунт, чтобы хранить свои списки и организовывать игры':'Твои желания уже соскучились',
-  content:(register?field('Как тебя зовут?','name','Например, Саша','text','',true,'maxlength="40"'):'')+
-   field('Почта','email','you@example.com','email','',true,'autocomplete="email"')+passwordField(register),
+  content:(register?field('Как тебя зовут?','name','Например, Саша','text','',true,'maxlength="40" autocomplete="name"'):'')+
+   field('Почта','email','you@example.com','email','',true,'autocomplete="email" maxlength="200"')+passwordField(register)+
+   (register?field('Повтори пароль','confirm_password','Тот же пароль','password','',true,'autocomplete="new-password" minlength="8" maxlength="200"'):''),
   submitLabel:register?'Создать аккаунт':'Войти',
   onSubmit:async form=>{
    const payload=readForm(form);
+   delete payload.confirm_password;
    const result=await api(register?'/api/register':'/api/login',{method:'POST',body:payload});
    if(result.pending_confirmation){if(register)persistSignupClaim();confirmationModal(payload.email);return;}
    currentUser=result.user;broadcastSessionChange();
@@ -1220,6 +1300,7 @@ function loginModal(mode='login'){
    (!register?'<span> · </span><button type="button" data-open="resend">Не пришло подтверждение?</button>':'')+
    (!register&&isDemo?'<p style="margin-top:12px"><button type="button" data-action="demo-login">Войти в демонстрационный аккаунт →</button></p>':'')
  });
+ setupAuthFormValidation(modalRoot.querySelector('#modal-form'),register);
 }
 function listModal(edit=null){if(!currentUser){loginModal('register');return;}
  const selected=edit||{};modal({title:edit?'Настройки вишлиста':'Новый вишлист',subtitle:edit?'Меняй оформление и доступ, когда захочешь':'Как назовём твою маленькую коллекцию желаний?',content:`${field('Название','title','Например, День рождения, ура!','text',selected.title||'',true,'maxlength="90"')}${textArea('Пара слов о списке','description','Что важно знать дарителям?',selected.description||'')}<div class="form-grid">${selectField('Повод','occasion',['Просто так','День рождения','Годовщина','Новоселье','Свадьба','Новый год','Другое'].map(v=>[v,v]),selected.occasion||'День рождения')}${selectField('Оформление','theme',[['peach','🟠 Персиковое'],['lilac','🟣 Лавандовое'],['mint','🟢 Мятное'],['yellow','🟡 Солнечное']],selected.theme||'peach')}</div>${selectField('Доступ к списку','visibility',[['link','По ссылке'],['private','Только мне']],selected.visibility||'link')}`,submitLabel:edit?'Сохранить':'Создать список',onSubmit:async form=>{const payload=readForm(form);if(edit){await api(`/api/lists/${edit.id}`,{method:'PATCH',body:payload});notice('Настройки сохранены');await render();}else{const r=await api('/api/lists',{method:'POST',body:payload});notice('Список создан!');nav(`/list/${r.id}`);}}});}
@@ -1557,7 +1638,10 @@ document.addEventListener('click',async ev=>{
    const field=generator.closest('.password-field'),input=field?.querySelector('input[name="password"]');
    if(!input)return;
    input.value=securePassword();input.type='text';
+   const confirmation=field.closest('form')?.elements.namedItem('confirm_password');
+   if(confirmation)confirmation.value=input.value;
    input.dispatchEvent(new Event('input',{bubbles:true}));
+   confirmation?.dispatchEvent(new Event('input',{bubbles:true}));
    const toggle=field.querySelector('[data-password-visibility]');
    toggle.setAttribute('aria-pressed','true');toggle.setAttribute('aria-label','Скрыть пароль');toggle.innerHTML=ico('eye-off');
    const hint=field.querySelector('#password-hint');
