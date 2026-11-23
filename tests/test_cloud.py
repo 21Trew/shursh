@@ -26,6 +26,13 @@ def db_setup():
     with psycopg.connect(dsn, autocommit=True) as con:
         con.execute('CREATE ROLE anon NOLOGIN; CREATE ROLE authenticated NOLOGIN; CREATE ROLE service_role NOLOGIN BYPASSRLS; CREATE SCHEMA auth; CREATE TABLE auth.users(id uuid PRIMARY KEY)')
         for migration in sorted((ROOT/'supabase/migrations').glob('*.sql')):
+            # Supabase-managed pg_cron is not installed in the vanilla postgres:17 CI image.
+            # Verify this migration on Supabase Staging; never silently skip app schema migrations.
+            if migration.name == '20261123090000_unused_personal_invites_cron.sql':
+                sql = migration.read_text()
+                assert 'pg_cron' in sql and 'claimed_at IS NULL' in sql and 'claimed_by IS NULL' in sql
+                assert "interval '24 hours'" in sql and "'* * * * *'" in sql
+                continue
             con.execute(migration.read_text())
         for uid in IDS.values():
             con.execute('INSERT INTO auth.users(id) VALUES(%s)', (uid,))
