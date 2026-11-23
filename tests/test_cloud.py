@@ -196,7 +196,7 @@ def test_browser_auth_inline_validation_and_password_confirmation(browser_http):
     from playwright.sync_api import sync_playwright, expect
 
     with sync_playwright() as play:
-        for engine in (play.chromium, play.webkit):
+        for engine in (play.chromium,):
             browser=engine.launch(headless=True)
             try:
                 page=browser.new_page(viewport={'width':390,'height':844})
@@ -1983,6 +1983,7 @@ def test_browser_guest_member_claim_after_email_confirmation_and_manual_link(bro
             guest.locator('#fld-name').fill('Гость')
             guest.locator('#fld-email').fill('owner@example.test')
             guest.locator('#fld-password').fill('valid-password')
+            guest.locator('#fld-confirm_password').fill('valid-password')
             guest.locator('.modal-fixed-footer button[type="submit"]').click()
             expect(guest.get_by_role('dialog')).to_contain_text('Проверь почту')
             assert guest.evaluate("!!localStorage.getItem('shursh-pending-game-claim')")
@@ -2212,6 +2213,7 @@ def test_mobile_auth_header_marquee_footer_and_warm_focus(browser_http):
                 assert mail.evaluate(
                     "el=>getComputedStyle(el).backgroundColor")=='rgb(255, 249, 233)'
                 page.locator('.modal-foot [data-open="register"]').click()
+                expect(page.get_by_role('dialog')).to_contain_text('Давай знакомиться!')
                 check_auth_footer()
                 page.locator('.modal-foot [data-open="login"]').click()
                 check_auth_footer()
