@@ -215,7 +215,8 @@ async function api(path,opts={}){
  const version=ownerCacheVersion;
  const request=(async()=>{
   const response=await fetch(path,{method,headers:{'Content-Type':'application/json'},
-   credentials:'same-origin',body:opts.body?JSON.stringify(opts.body):undefined});
+   credentials:'same-origin',body:opts.body?JSON.stringify(opts.body):undefined,
+   signal:opts.signal});
   const data=await response.json().catch(()=>({error:'Не удалось прочитать ответ сервера'}));
   if(!response.ok){const err=new Error(data.error||'Произошла ошибка');err.status=response.status;throw err;}
   if(method!=='GET')invalidateOwnerDataForMutation(path);
@@ -230,6 +231,15 @@ async function api(path,opts={}){
   });
  }
  return request;
+}
+async function startupApi(path){
+ const controller=new AbortController();
+ const timeout=setTimeout(()=>controller.abort(),9000);
+ try{return await api(path,{signal:controller.signal});}
+ catch(error){
+  if(controller.signal.aborted)throw new Error('Не удалось дождаться ответа сервера. Проверь соединение и попробуй ещё раз');
+  throw error;
+ }finally{clearTimeout(timeout);}
 }
 function notice(message,error=false){const n=document.createElement('div');n.className='toast'+(error?' error':'');n.textContent=message;document.getElementById('toast-root').replaceChildren(n);clearTimeout(toastTimeout);toastTimeout=setTimeout(()=>n.remove(),4500);}
 async function clipboard(value){try{await navigator.clipboard.writeText(value);notice('Ссылка скопирована!');}catch{modal({title:'Скопируй ссылку',content:`<div class="field"><label>Ссылка</label><input class="input" autofocus readonly value="${attr(value)}" onclick="this.select()"></div>`});}}
@@ -704,6 +714,7 @@ function home(){shell(`<main><section class="container hero"><div class="hero-co
  <section class="container"><div class="privacy-strip"><div class="privacy-illustration">${envelopeArt()}</div><div><div class="section-label">04 / Тс-с, секрет!</div><h2>Бронируй подарок. Не выдавай сюрприз</h2><p>Друг выбрал подарок? Он отметит его занятым, чтобы никто не купил такой же. Владелец списка не увидит бронирование в своём кабинете. Даритель получит отдельную ссылку для отмены</p></div></div></section>
  <section class="container section"><div class="section-intro"><div><div class="section-label">05 / Дарить без повода - тоже повод</div><h2>Для всех ваших<br>«хочу порадовать»</h2></div></div><div class="occasions">${[['gift','День рождения'],['heart','Годовщина'],['home','Новоселье'],['spark','Просто так'],['users','Свадьба'],['star','Любой праздник']].map(a=>`<span class="occasion-chip">${ico(a[0])} ${a[1]}</span>`).join('')}</div></section>
  <section class="container"><div class="final-cta"><div><h2>Пусть хорошие подарки случаются чаще</h2><p>Первый список можно собрать прямо сейчас</p></div><button class="btn btn-dark" data-open="list">Создать свой список ${ico('arrow')}</button></div></section></main>`);}
+const loadingHelpMarkup='<div class="loading-help"><p>Загрузка занимает больше времени, чем обычно</p><a class="btn btn-soft" href="/">Повторить загрузку</a></div>';
 function loading(){
  renderedOwnerTab=null;
  const view=app.querySelector('#page-view');
@@ -720,7 +731,7 @@ function loading(){
     '</main>';
   return;
  }
- app.innerHTML=header()+'<div class="loading-screen"><div class="loading-mark">шурш<span>!</span></div><div class="loading-line"></div></div>';
+ app.innerHTML=header()+'<div class="loading-screen"><div class="loading-mark">шурш<span>!</span></div><div class="loading-line"></div>'+loadingHelpMarkup+'</div>';
 }
 function errorView(err,title='Что-то пошло не так'){shell(`<main class="container page"><div class="error-page">${envelopeArt()}<h1>${esc(title)}</h1><p>${esc(err?.message||'Не удалось загрузить страницу')}</p><button class="btn btn-dark" data-nav="/">На главную ${ico('arrow')}</button></div></main>`);}
 function emptyState(title,desc,button,open){return `<div class="blank-state"><div class="blank-illustration">${fallbackArt('gift')}</div><h3>${esc(title)}</h3><p>${esc(desc)}</p><button class="btn btn-dark" data-open="${attr(open)}">${esc(button)} ${ico('plus')}</button></div>`;}
@@ -758,7 +769,11 @@ function friendWishlistTiles(lists){
  return wishlistCategoryFilter(lists)+'<div class="friend-stack-grid">'+cards+'</div>';
 }
 async function listsPage(marker=lastRenderToken){
- if(!currentUser){shell('<main class="container page"><h1>Мои вишлисты</h1><p>Войди, чтобы создавать списки</p><button class="btn btn-dark" data-open="login">Войти</button></main>');return;}
+ if(!currentUser){
+  // A restored private tab is not a useful anonymous entrypoint.
+  if(!isPreview&&currentPath()==='/lists')history.replaceState(null,'','/');
+  home();return;
+ }
  const {lists}=await api('/api/lists');if(marker!==lastRenderToken)return;
  currentOwnedWishlists=lists;wishlistTabGeneration++;
  shell('<main class="container page wishlists-page"><div class="page-hero"><div><div class="section-label">Коллекция желаний</div><h1>Вишлисты</h1><p>Мои желания и открытые списки друзей</p></div><div class="btn-row"><button class="btn btn-dark" data-open="list">Новый список '+ico('plus')+'</button></div></div>'+
@@ -1496,14 +1511,14 @@ if(!isPreview && ['access_token','refresh_token','error','error_code','error_des
 async function render(){const marker=++lastRenderToken;try{
  const path=currentPath();
  if(!renderStarted&&path==='/'&&!isPreview){
-  const data=await api('/api/dashboard');
+  const data=await startupApi('/api/dashboard');
   if(marker!==lastRenderToken)return;
   currentUser=data.user;isDemo=data.demo;renderStarted=true;
   if(currentUser){seedOwnerCache('/api/dashboard',data);dashboardContent(data);}else home();
   return;
  }
  if(!renderStarted){
-  const r=await api('/api/me');
+  const r=await startupApi('/api/me');
   if(marker!==lastRenderToken)return;
   currentUser=r.user;isDemo=r.demo;renderStarted=true;
  }
@@ -1516,7 +1531,13 @@ async function render(){const marker=++lastRenderToken;try{
    /^\/list\/\d+$/.test(path)?'/api/lists/'+path.split('/')[2]:null);
  if(!routeApi||!cachedOwnerValue(routeApi))loading();
  if(path==='/friends')await socialFriendsPage(marker);else if(path==='/profile')await socialOwnProfilePage(marker);else if(/^\/users\/[0-9a-fA-F-]{36}$/.test(path))await socialProfilePage(path.split('/')[2],marker);else if(path==='/notifications')await socialNotificationsPage(marker);else if(path==='/admin')await socialAdminPage(marker);else if(path==='/admin/users')await socialAdminUsersPage(marker);else if(path==='/lists')await listsPage();else if(/^\/list\/\d+$/.test(path))await ownerListPage(path.split('/')[2]);else if(/^\/w\/[A-Za-z0-9_-]+$/.test(path))await publicListPage(path.split('/')[2]);else if(/^\/r\/[A-Za-z0-9_-]+$/.test(path))await reservationPage(path.split('/')[2]);else if(path==='/santas')await santasPage();else if(path==='/admin/feedback')await adminFeedbackPage();else if(/^\/santa\/\d+$/.test(path))await santaAdminPage(path.split('/')[2]);else if(/^\/join\/p\/[A-Za-z0-9_-]{43}$/.test(path))await invitePage(path.split('/')[3],marker,true);else if(/^\/join\/[A-Za-z0-9_-]+$/.test(path))await invitePage(path.split('/')[2]);else if(/^\/p\/[A-Za-z0-9_-]+$/.test(path))await participantPage(path.split('/')[2]);else errorView(new Error('Похоже, такой страницы ещё нет'),'Страница потерялась');
- }catch(err){if(marker===lastRenderToken)errorView(err,err.message?.includes('404')?'Не найдена':'Страница не загрузилась');}}
+ }catch(err){if(marker===lastRenderToken){
+  if(!renderStarted){
+   shell('<main class="container page"><div class="error-page"><h1>Не получилось загрузить Шурш</h1>'+
+    '<p>Соединение с сервером прервалось или отвечает слишком долго. Попробуй снова</p>'+
+    '<a class="btn btn-dark" href="/">Повторить загрузку</a></div></main>');
+  }else errorView(err,err.message?.includes('404')?'Не найдена':'Страница не загрузилась');
+ }}}
 document.addEventListener('click',async ev=>{
  const reveal=ev.target.closest('[data-password-visibility]');
  if(reveal){
