@@ -101,11 +101,8 @@ def handle(handler, method, path, con):
 
     if path == '/api/admin/overview' and method == 'GET':
         handler.is_site_admin(con)
-        counts={}
-        for key,table in (('users','profiles'),('wishlists','wishlists'),
-                          ('wishes','wishes'),('events','santa_events'),
-                          ('friends','friendships'),('notifications','social_notifications')):
-            counts[key]=con.execute(f'SELECT count(*) AS n FROM {table}').fetchone()['n']
+        # Admin hub only needs actionable totals; do not scan unrelated private tables.
+        counts={'users':con.execute('SELECT count(*) AS n FROM profiles').fetchone()['n']}
         counts['new_feedback']=con.execute("SELECT count(*) AS n FROM developer_feedback WHERE status='new'").fetchone()['n']
         return 200,{'stats':counts},None
 
