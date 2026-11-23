@@ -937,11 +937,15 @@ def test_browser_card_clicks_and_santa_settings(browser_http):
             expect(owner.locator('#join-form')).to_have_count(0)
 
             owner.goto(browser_http+'/santa/'+eid)
-            owner.locator('button[data-action="edit-santa"]').click()
-            owner.locator('#fld-budget').fill('2450')
-            owner.locator('#fld-exchange_date').fill('2027-02-12')
-            owner.locator('#modal-form button[type="submit"], .modal-fixed-footer button[type="submit"]').click()
+            owner.locator('button[data-action="edit-santa-budget"]').click()
+            owner.locator('input.santa-inline-editor-budget').fill('2450')
+            owner.locator('input.santa-inline-editor-budget').press('Enter')
             expect(owner.locator('.details-box')).to_contain_text('2 450')
+            owner.locator('button[data-action="edit-santa-date"]').click()
+            owner.locator('input.santa-inline-editor-exchange_date').fill('2027-02-12')
+            owner.locator('input.santa-inline-editor-exchange_date').press('Enter')
+            expect(owner.locator('.details-box')).to_contain_text('12 февраля')
+            assert owner.locator('.modal-backdrop').count()==0
             owner.locator('button[data-action="add-player"]').click()
             expect(owner.locator('.modal')).not_to_contain_text('Имя участника')
             owner.locator('#modal-form button[type="submit"], .modal-fixed-footer button[type="submit"]').click()
@@ -2507,8 +2511,9 @@ def test_browser_santa_rules_are_collapsed_and_update_without_page_redraw(browse
             expect(page.locator('#santa-rules-list .rule-chip')).to_have_count(0)
             assert page.evaluate("document.querySelector('main')===window.__santaStableRoot")
             page.locator('[data-action="edit-santa-title"]').click()
-            page.locator('#fld-title').fill('Изменённое название')
-            page.locator('.modal-fixed-footer button[type="submit"]').click()
+            page.locator('input.santa-inline-editor-title').fill('Изменённое название')
+            page.locator('input.santa-inline-editor-title').press('Enter')
             expect(page.locator('[data-santa-field="title"]')).to_have_text('Изменённое название')
+            assert page.locator('.modal-backdrop').count()==0
         finally:
             browser.close()
