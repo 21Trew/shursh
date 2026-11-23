@@ -10,7 +10,8 @@ const isPreview = window.location.protocol === 'file:' || window.location.pathna
 const ico = (name, size=20) => `<svg class="icon" width="${size}" height="${size}" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">${({
   plus:'<path d="M12 5v14M5 12h14"/>', arrow:'<path d="M5 12h14m-6-6 6 6-6 6"/>',
   back:'<path d="m15 18-6-6 6-6M9 12h11"/>', copy:'<rect x="8" y="8" width="12" height="12" rx="2"/><path d="M16 8V6a2 2 0 0 0-2-2H6a2 2 0 0 0-2 2v8a2 2 0 0 0 2 2h2"/>',
-  gift:'<rect x="3" y="9" width="18" height="12" rx="2"/><path d="M3 12h18M12 9v12M12 9c-6 0-6-6-2-6 2 0 2 3 2 6Zm0 0c6 0 6-6 2-6-2 0-2 3-2 6Z"/>',
+  link:'<path d="M10 13a5 5 0 0 0 7.07 0l3-3a5 5 0 0 0-7.07-7.07l-1.7 1.7M14 11a5 5 0 0 0-7.07 0l-3 3a5 5 0 0 0 7.07 7.07l1.7-1.7"/>',
+   gift:'<rect x="3" y="9" width="18" height="12" rx="2"/><path d="M3 12h18M12 9v12M12 9c-6 0-6-6-2-6 2 0 2 3 2 6Zm0 0c6 0 6-6 2-6-2 0-2 3-2 6Z"/>',
   heart:'<path d="M20.8 4.9a5.5 5.5 0 0 0-7.8 0l-1 1-1-1a5.5 5.5 0 0 0-7.8 7.8l1 1L12 21l7.8-7.3 1-1a5.5 5.5 0 0 0 0-7.8Z"/>',
   lock:'<rect x="5" y="11" width="14" height="10" rx="2"/><path d="M8 11V7a4 4 0 0 1 8 0v4"/>',
   eye:'<path d="M2 12s3.6-6 10-6 10 6 10 6-3.6 6-10 6S2 12 2 12Z"/><circle cx="12" cy="12" r="3"/>',
@@ -592,7 +593,7 @@ function ensureCookieNotice(){
  if(document.querySelector('.cookie-notice'))return;
  try{if(localStorage.getItem('shursh-cookie-notice-v1')==='yes')return;}catch{}
  const node=document.createElement('div');node.className='cookie-notice';node.setAttribute('role','status');
- node.innerHTML='<span>Используем только необходимые cookie для входа и работы сайта</span><button type="button" data-action="cookie-ack" aria-label="Понятно">Понятно</button>';
+ node.innerHTML='<span class="cookie-message"><span>Используем необходимые cookie</span><span>для входа и работы сайта</span></span><button type="button" data-action="cookie-ack" aria-label="Понятно">Понятно</button>';
  document.body.appendChild(node);
 }
 function shell(body){
@@ -1019,7 +1020,7 @@ async function santaGamePage(id,marker=lastRenderToken,participantToken=null){
  ${d.rich_enabled!==false?`<button class="btn btn-dark btn-small" type="button" data-action="add-game-gift">${ico('plus')} Добавить подарок</button>`:
  `<form class="form" id="legacy-santa-wish-form"><div class="share-field"><input class="input" name="title" required maxlength="130" placeholder="Название подарка"><button class="btn btn-dark btn-small" type="submit">Добавить ${ico('plus')}</button></div></form><p class="note">Подробные карточки появятся после обновления игры</p>`}</div>
  ${!memberView&&e.status==='open'?`<div class="panel"><h2>Исключения</h2><p class="note">Укажи пары, которые не должны выпадать друг другу. Ограничения работают направленно: «А → Б» означает, что А не может дарить Б</p><div class="rules-list" id="santa-rules-list" style="margin:17px 0">${santaRuleMarkup(d.exclusions,people)}</div><button type="button" class="btn btn-soft btn-small santa-rule-toggle" data-action="toggle-santa-rule-form">${ico('plus')} Добавить ограничение</button><form class="form santa-rule-editor" id="rule-form" hidden><div class="form-grid">${selects('giver_id','Кто дарит')}${selects('receiver_id','Кому нельзя дарить')}</div><div class="btn-row"><button class="btn btn-soft btn-small" type="button" data-action="toggle-santa-rule-form">Отмена</button><button class="btn btn-dark btn-small" type="submit">Сохранить ограничение</button></div></form></div>`:''}
- </div><div><div class="panel"><div class="panel-heading-actions"><h2>О событии</h2>${!memberView?`<button class="btn btn-soft btn-small" data-action="edit-santa">${ico('edit')} Изменить</button>`:''}</div><div class="details-box santa-event-details"><p>${ico('calendar')} <strong>Дата:</strong> ${dateRu(e.exchange_date)}</p><p>${ico('gift')} <strong>Бюджет:</strong> ${money(e.budget_cents,e.currency)}</p><p>${ico('users')} <strong>Участники:</strong> <span data-santa-event-count>${people.length}</span></p>${e.rules?`<div class="divider-line"></div><strong>Правила:</strong><p>${esc(e.rules)}</p>`:''}</div></div>
+ </div><div><div class="panel"><div class="panel-heading-actions"><h2>О событии</h2></div><div class="details-box santa-event-details"><p>${ico('calendar')} <strong>Дата:</strong> ${memberView?dateRu(e.exchange_date):`<button type="button" class="santa-inline-field santa-inline-value" data-action="edit-santa-date" data-santa-field="exchange_date" aria-label="Изменить дату обмена">${dateRu(e.exchange_date)}</button>`}</p><p>${ico('gift')} <strong>Бюджет:</strong> ${memberView?money(e.budget_cents,e.currency):`<button type="button" class="santa-inline-field santa-inline-value" data-action="edit-santa-budget" data-santa-field="budget" aria-label="Изменить бюджет">${money(e.budget_cents,e.currency)}</button>`}</p><p>${ico('users')} <strong>Участники:</strong> <span data-santa-event-count>${people.length}</span></p>${e.rules?`<div class="divider-line"></div><strong>Правила:</strong><p>${esc(e.rules)}</p>`:''}</div></div>
  ${!memberView&&e.status==='open'?`<div class="panel"><h2>Время раскрыть карты?</h2><p class="note">После жеребьёвки приглашения, состав и исключения будут заморожены. Каждый увидит только своего получателя</p><div class="alert santa-draw-hint"><span class="santa-draw-hint-icon">${ico('info')}</span><span>Понадобится минимум 3 участника. Желательно, чтобы все успели присоединиться</span></div><button class="btn btn-dark" style="width:100%" data-action="draw" ${people.length<3?'disabled':''}>Провести жеребьёвку ${ico('spark')}</button></div>`:`<div class="panel"><h2>Кому ты даришь</h2>${drawPerformed?secretCard(memberView?d.assignment:d.my_assignment,!memberView,memberView?participantToken:id):`<div class="secret-card">${envelopeArt()}<h2>${e.status==='finished'?'Игра завершена без жеребьёвки':'Пока храним интригу'}</h2><p>${e.status==='finished'?'Получатели не назначались':'Организатор ещё собирает всех участников. После жеребьёвки здесь появится конверт с твоим получателем'}</p></div>`}</div>`}
  ${memberView&&participantToken&&!d.participant.user_id?`<div class="panel"><h2>Твоя личная ссылка</h2><p class="note">Эта гостевая ссылка даёт доступ к твоей игре без аккаунта. Не пересылай её другим</p>${!d.participant.user_id&&!isPreview?`<div class="game-save-account"><p>Привяжи это гостевое место к своему аккаунту, чтобы больше не пользоваться ссылкой</p><button class="btn btn-dark btn-small" type="button" data-action="claim-game" data-token="${attr(participantToken)}">${ico("check")} Сохранить игру в аккаунте</button></div>`:""}<div class="share-field"><input class="input" readonly value="${attr(getLink(`/p/${participantToken}`))}" aria-label="Личная ссылка"><button class="btn btn-dark btn-small" data-action="copy" data-url="${attr(getLink(`/p/${participantToken}`))}">${ico('copy')} Копировать</button></div></div>`:''}
  </div></div>
@@ -1091,18 +1092,38 @@ function santaRuleMarkup(exclusions,people){
 }
 function refreshSantaRules(){const root=document.getElementById('santa-rules-list');if(root&&loadedSanta)root.innerHTML=santaRuleMarkup(loadedSanta.exclusions,loadedSanta.participants);}
 function editSantaIdentity(fieldName){
- const event=loadedSanta?.event;if(!event)return;
- const label=fieldName==='title'?'Название игры':'Описание игры';
- modal({title:'Изменить '+label.toLowerCase(),
-  content:fieldName==='title'?field(label,'title','Название Тайного Санты','text',event.title,true,'maxlength="90"'):textArea(label,'description','Расскажи о вашем празднике',event.description||''),
-  submitLabel:'Сохранить',onSubmit:async form=>{
-   const value=readForm(form)[fieldName];
+ const event=loadedSanta?.event,control=document.querySelector('[data-santa-field="'+fieldName+'"]');
+ if(!event||!control||control.tagName!=='BUTTON')return;
+ const budget=fieldName==='budget',date=fieldName==='exchange_date',description=fieldName==='description';
+ const old=budget?(event.budget_cents==null?'':String(event.budget_cents/100)):String(event[fieldName]||'');
+ const editor=document.createElement(description?'textarea':'input');
+ editor.className='santa-inline-editor santa-inline-editor-'+fieldName;
+ if(!description)editor.type=date?'date':budget?'number':'text';
+ if(budget){editor.min='0';editor.max='100000000';editor.step='0.01';}
+ if(description)editor.maxLength=800;
+ if(fieldName==='title')editor.maxLength=90;
+ editor.value=old;
+ editor.setAttribute('aria-label',({title:'Название игры',description:'Описание игры',exchange_date:'Дата обмена',budget:'Бюджет подарка'})[fieldName]);
+ let settled=false;
+ const restore=()=>{if(editor.isConnected)editor.replaceWith(control);};
+ const save=async()=>{
+  if(settled)return;settled=true;
+  const value=editor.value.trim();
+  if(value===old.trim()){restore();return;}
+  if((fieldName==='title'||date)&&!value){restore();notice('Заполни поле',true);return;}
+  if(budget&&(!Number.isFinite(Number(value))||Number(value)<0||Number(value)>100000000)){restore();notice('Некорректный бюджет',true);return;}
+  editor.disabled=true;
+  try{
    await api('/api/santas/'+event.id,{method:'PATCH',body:{[fieldName]:value}});
-   event[fieldName]=value;
-   const el=document.querySelector('[data-santa-field="'+fieldName+'"]');
-   if(el)el.textContent=value||(fieldName==='description'?'Праздник начинается с маленькой тайны':'');
-   notice('Изменения сохранены');
-  }});
+   if(budget)event.budget_cents=value===''?null:Math.round(Number(value)*100);else event[fieldName]=value;
+   control.textContent=budget?money(event.budget_cents,event.currency):date?dateRu(value):value||(description?'Праздник начинается с маленькой тайны':'');
+   restore();notice('Изменения сохранены');
+  }catch(error){editor.disabled=false;restore();notice(error.message,true);}
+ };
+ editor.addEventListener('keydown',e=>{if(e.key==='Escape'){e.preventDefault();settled=true;restore();control.focus({preventScroll:true});}else if(e.key==='Enter'&&(!description||!e.shiftKey)){e.preventDefault();void save();}});
+ editor.addEventListener('blur',()=>{void save();},{once:true});
+ control.replaceWith(editor);editor.focus({preventScroll:true});
+ if(!budget&&!date)editor.select();
 }
 function preferenceSummary(preferences){
  const row=(title,value)=>'<button type="button" class="game-gift-note santa-pref-row" data-action="edit-santa-preferences" title="Редактировать пожелания"><strong>'+title+'</strong><p>'+(value?esc(value):'<span class="muted">Не указано</span>')+'</p></button>';
@@ -1271,20 +1292,6 @@ function addPlayerModal(){
    showPersonalInviteLink(result.invite_token);
   }});
 }
-function santaSettingsModal(){
- const event=loadedSanta?.event;
- if(!event)return;
- const budget=event.budget_cents==null?'':String(Number(event.budget_cents)/100);
- modal({title:'Настройки игры',subtitle:'Бюджет и дату можно изменить и после жеребьёвки. Состав участников останется прежним',
-   content:field('Дата обмена','exchange_date','','date',event.exchange_date||'')+
-     field('Бюджет подарка','budget','Например, 2000','number',budget,false,'min="0" max="100000000" step="0.01"')+
-     '<p class="field-hint">Бюджет ориентировочный и виден всем участникам</p>',
-   submitLabel:'Сохранить',onSubmit:async form=>{
-     await api('/api/santas/'+event.id,{method:'PATCH',body:readForm(form)});
-     notice('Настройки игры обновлены');
-     await render();
-   }});
-}
 async function importOwnWishesModal(el){
  if(!currentUser){loginModal();return;}
  // One server call fetches only safe list/gift titles (no bulky image blobs).
@@ -1411,9 +1418,9 @@ async function dispatch(action,el){try{
   });
  }
  if(action==='show-wish')showWishDetails(el);
- if(action==='edit-santa')santaSettingsModal();
+ if(action==='edit-santa')editSantaIdentity('exchange_date');
  if(action==='toggle-santa-rule-form'){const f=document.getElementById('rule-form');if(f){f.hidden=!f.hidden;document.querySelector('.santa-rule-toggle')?.toggleAttribute('hidden',!f.hidden);if(!f.hidden)f.querySelector('select')?.focus();}return;}
- if(action==='edit-santa-title'||action==='edit-santa-description'){editSantaIdentity(action==='edit-santa-title'?'title':'description');return;}
+ if(action==='edit-santa-title'||action==='edit-santa-description'||action==='edit-santa-date'||action==='edit-santa-budget'){editSantaIdentity(({'edit-santa-title':'title','edit-santa-description':'description','edit-santa-date':'exchange_date','edit-santa-budget':'budget'})[action]);return;}
  if(action==='cookie-ack'){try{localStorage.setItem('shursh-cookie-notice-v1','yes')}catch{}document.querySelector('.cookie-notice')?.remove();return;}
  if(action==='add-player')addPlayerModal();
  if(action==='import-own-wishes')await importOwnWishesModal(el);
