@@ -729,5 +729,8 @@ input[type="checkbox"]:not(.shursh-checkbox input):checked::after{content:"✓";
 .gift-dialog-edit::after{content:attr(data-tooltip);position:absolute;top:calc(100% + 6px);right:0;padding:6px 10px;background:#27272b;color:#fff;border-radius:9px;font-size:11px;font-weight:700;line-height:1.3;white-space:nowrap;text-align:center;opacity:0;pointer-events:none}
 .gift-dialog-edit:hover::after,.gift-dialog-edit:focus-visible::after{opacity:1}
 .gift-dialog-copy .gift-dialog-price{padding-right:56px}
-@media(max-width:760px){.gift-dialog-edit{top:9px;right:9px;box-shadow:0 2px 10px rgba(40,31,29,.09)}.gift-dialog-copy .gift-dialog-price{padding-right:0}}
+@media(max-width:760px){.gift-dialog-edit{top:9px;right:0;box-shadow:0 2px 10px rgba(40,31,29,.09)}.gift-dialog-copy .gift-dialog-price{padding-right:0}}
 @media(prefers-reduced-motion:reduce){.gift-dialog-edit{transition:none}}
+
+/* Gift details: all right-hand actions share the modal's content/footer grid edge. */
+.gift-details-modal .gift-dialog-copy > .btn{align-self:flex-end;max-width:100%}
