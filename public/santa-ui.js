@@ -50,7 +50,7 @@ function showGameWishDetails(el){
  const description=gift.description?'<div class="gift-dialog-description"><strong>Комментарий</strong><p>'+esc(gift.description)+'</p></div>':'';
  const store=gift.shop_url?'<a class="btn btn-soft" href="'+attr(gift.shop_url)+'" target="_blank" rel="noopener noreferrer">В магазин '+ico('external')+'</a>':'';
  const footer='<button type="button" class="btn btn-dark" data-close>Закрыть</button>';
- const edit=mine?'<button type="button" class="gift-dialog-edit" data-action="edit-game-gift" data-id="'+gift.id+'" aria-label="Изменить подарок" data-tooltip="Изменить" title="Изменить">'+ico('edit',20)+'</button>':'';
+ const edit=mine?'<button type="button" class="gift-dialog-edit" data-action="edit-game-gift" data-id="'+gift.id+'" aria-label="Изменить подарок" data-tooltip="Изменить">'+ico('edit',20)+'</button>':'';
  modal({title:gift.title,content:'<div class="gift-dialog-layout">'+edit+'<div class="gift-dialog-media">'+image+'</div>'+
   '<div class="gift-dialog-copy"><div class="gift-dialog-price">'+money(gift.price_cents,gift.currency)+'</div>'+
   description+store+'</div></div>',
