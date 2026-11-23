@@ -21,4 +21,4 @@ COPY tools/ru_pilot_preflight.py ./tools/ru_pilot_preflight.py
 
 USER 10001:10001
 EXPOSE 8080
-CMD ["/bin/sh", "-ec", "python tools/ru_pilot_preflight.py && exec gunicorn --workers 1 --worker-class gthread --threads 4 --bind 0.0.0.0:${PORT:-8080} --timeout 35 --access-logfile /dev/null --error-logfile - app:app"]
+CMD ["/bin/sh", "-ec", "python -m tools.ru_pilot_preflight && exec gunicorn --workers 1 --worker-class gthread --threads 4 --bind 0.0.0.0:${PORT:-8080} --timeout 35 --access-logfile /dev/null --error-logfile - app:app"]
