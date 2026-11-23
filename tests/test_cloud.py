@@ -2456,3 +2456,56 @@ def test_small_scoped_ui_updates_and_user_settings_source(application):
     assert 'new Intl.DateTimeFormat' in social
     assert 'notification-settings-form' in social
     assert '.game-gifts-arrows[hidden]' in css
+
+
+@pytest.mark.browser
+def test_browser_santa_rules_are_collapsed_and_update_without_page_redraw(browser_http):
+    """Adding/removing exclusions must preserve the game DOM and chat state."""
+    from playwright.sync_api import sync_playwright, expect
+    from uuid import uuid4
+    with sync_playwright() as play:
+        browser=play.chromium.launch(headless=True,args=['--no-sandbox'])
+        try:
+            page=browser.new_page(viewport={'width':390,'height':844})
+            page.set_default_timeout(15000)
+            page.goto(browser_http+'/')
+            browser_login(page)
+            game=page.evaluate("""async name=>{
+              const r=await fetch('/api/santas',{method:'POST',
+                headers:{'Content-Type':'application/json'},
+                body:JSON.stringify({title:name})});
+              if(!r.ok)throw Error('game fixture failed');
+              return await r.json();
+            }""",'No-repaint '+uuid4().hex[:7])
+            eid=game['id']
+            player=page.evaluate("""async id=>{
+              const r=await fetch('/api/santas/'+id+'/participants',{method:'POST',
+                headers:{'Content-Type':'application/json'},
+                body:JSON.stringify({name:'Other gift giver'})});
+              if(!r.ok)throw Error('participant fixture failed');
+              return await r.json();
+            }""",eid)
+            guest_id=str(player['id'])
+            page.goto(browser_http+'/santa/'+str(eid))
+            expect(page.locator('#rule-form')).to_be_hidden()
+            page.locator('[data-action="toggle-santa-rule-form"]').first.click()
+            expect(page.locator('#rule-form')).to_be_visible()
+            giver=page.locator('select[name="giver_id"]')
+            recipient=page.locator('select[name="receiver_id"]')
+            options=giver.locator('option').evaluate_all('els=>els.map(e=>e.value)')
+            owner_id=next(value for value in options if value and value!=guest_id)
+            giver.select_option(owner_id)
+            recipient.select_option(guest_id)
+            page.evaluate("window.__santaStableRoot=document.querySelector('main')")
+            page.locator('#rule-form [type="submit"]').click()
+            expect(page.locator('#santa-rules-list .rule-chip')).to_have_count(1)
+            assert page.evaluate("document.querySelector('main')===window.__santaStableRoot")
+            page.locator('#santa-rules-list [data-action="remove-rule"]').click()
+            expect(page.locator('#santa-rules-list .rule-chip')).to_have_count(0)
+            assert page.evaluate("document.querySelector('main')===window.__santaStableRoot")
+            page.locator('[data-action="edit-santa-title"]').click()
+            page.locator('#fld-title').fill('Изменённое название')
+            page.locator('.modal-fixed-footer button[type="submit"]').click()
+            expect(page.locator('[data-santa-field="title"]')).to_have_text('Изменённое название')
+        finally:
+            browser.close()

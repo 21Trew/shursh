@@ -218,7 +218,10 @@ def test_santa_edit_budget_date_and_freeze_participants(server,owner):
     assert event['exchange_date']=='2027-01-15'
     assert owner.patch(server+f'/api/santas/{eid}',
                        json={'exchange_date':'2027-02-30'}).status_code==400
-    assert owner.patch(server+f'/api/santas/{eid}',json={'title':'Что угодно'}).status_code==400
+    assert owner.patch(server+f'/api/santas/{eid}',json={'title':'Что угодно','description':'Новые планы'}).status_code==200
+    changed=owner.get(server+f'/api/santas/{eid}').json()['event']
+    assert changed['title']=='Что угодно' and changed['description']=='Новые планы'
+    assert owner.patch(server+f'/api/santas/{eid}',json={'title':' '}).status_code==400
     assert owner.patch(server+f'/api/santas/{eid}',
                        json={'budget':-10}).status_code==400
     for name in ('Гость А','Гость Б'):
