@@ -685,5 +685,6 @@ input[type="checkbox"]:not(.shursh-checkbox input):checked::after{content:"✓";
 .santa-detail-layout .person-actions [data-tooltip]:hover::after,.santa-detail-layout .person-actions [data-tooltip]:focus-visible::after{opacity:1}
 @media(max-width:400px){.cookie-notice{width:max-content;max-width:calc(100vw - 20px);left:50%;flex-direction:column;gap:8px}.cookie-notice button{min-height:38px;width:100%}.cookie-message{font-size:12px}}
 /* Cookie acknowledgment must meet the shared 44px touch-target threshold. */
+.cookie-notice{padding-inline:14px}
 .cookie-notice button{min-height:44px}
 @media(prefers-reduced-motion:reduce){.santa-detail-layout .person-list .person-row{transition:none}}
