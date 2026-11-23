@@ -1066,11 +1066,11 @@ def test_browser_navigation_cache_invalidation_and_persistent_header(browser_htt
             page.on('request',lambda request: visited.append((request.method,request.url.split(browser_http)[-1]))
                     if request.url.startswith(browser_http+'/api/') else None)
             page.locator('header .nav [data-nav="/lists"]').click()
-            expect(page.locator('main h1')).to_contain_text('Твои вишлисты')
+            expect(page.locator('main h1')).to_contain_text('Вишлисты')
             page.locator('header .nav [data-nav="/santas"]').click()
             expect(page.locator('main h1')).to_contain_text('Тайный Санта')
             page.locator('header .nav [data-nav="/lists"]').click()
-            expect(page.locator('main h1')).to_contain_text('Твои вишлисты')
+            expect(page.locator('main h1')).to_contain_text('Вишлисты')
             assert sum(method=='GET' and path=='/api/lists' for method,path in visited)==0,visited
             assert sum(method=='GET' and path=='/api/santas' for method,path in visited)==0,visited
             assert page.evaluate('document.querySelector(".site-header") === window.__stableHeader')
@@ -1136,7 +1136,7 @@ def test_owner_tab_navigation_reuses_data_and_dom(browser_http):
             requests=[]
             page.on('request', lambda r: requests.append(r.url) if '/api/' in r.url else None)
             page.locator('header .nav [data-nav="/lists"]').click()
-            expect(page.locator('main h1')).to_contain_text('Твои вишлисты')
+            expect(page.locator('main h1')).to_contain_text('Вишлисты')
             page.locator('main').evaluate("(el) => el.dataset.identity = 'same-node'")
             page.locator('header .nav [data-nav="/santas"]').click()
             expect(page.locator('main h1')).to_contain_text('Тайный Санта')
@@ -2302,7 +2302,7 @@ def test_social_meta_profile_and_legacy_link_ux_static(application):
     assert 'место для хотелок и сюрпризов' not in html
     assert 'Тайный Санта ' + '$' + '{ico("plus")}' not in js
     assert 'memberView&&participantToken&&!d.participant.user_id' in js
-    assert 'data-social-action="edit-avatar"' in js
+    assert 'data-nav="/profile" aria-label="Открыть профиль"' in js
     assert 'async function socialEditAvatarModal' in social
 
 
@@ -2347,6 +2347,8 @@ def test_browser_ux_fixes_avatar_gift_placeholder_and_admin_directory(browser_ht
             row=page.locator('.person-row[data-santa-profile]').first
             assert row.count()==1 and row.get_attribute('title') is None
             page.locator('header .header-avatar').click()
+            expect(page.locator('main h1')).to_contain_text('Мой профиль')
+            page.locator('button.profile-avatar-edit').click()
             expect(page.get_by_role('dialog',name='Изменить аватарку')).to_be_visible()
             page.locator('[data-avatar-pick="🦊"]').click()
             page.locator('.modal-fixed-footer button[type="submit"]').click()
@@ -2384,3 +2386,73 @@ def test_favicon_ico_fallback_is_available(application):
     assert svg.status_code==200
     html=application.test_client().get('/').get_data(as_text=True)
     assert 'href="/favicon.ico"' in html and 'href="/favicon.svg"' in html
+
+
+def test_personal_invites_expire_after_24h_and_are_pruned_without_touching_seats(application):
+    """Expired unused invite tokens never grant access and are pruned on the next issuance."""
+    from server import token_hash
+    owner=login(application)
+    guest=login(application,'other@example.test')
+    eid=call(owner,'POST','/api/santas',{'title':'24-hour invite TTL'},201).json['id']
+    key=call(owner,'POST',f'/api/santas/{eid}/personal-invites',{},201).json['invite_token']
+    with psycopg.connect(os.environ['SHURSH_DATABASE_URL']) as con:
+        con.execute("UPDATE public.santa_personal_invites SET created_at=now()-interval '25 hours' WHERE token_hash=%s",
+                    (token_hash(key),))
+    call(guest,'GET',f'/api/personal-invites/{key}',status=404)
+    call(guest,'POST',f'/api/personal-invites/{key}/join',{'name':'Too late'},404)
+    before=call(owner,'GET',f'/api/santas/{eid}').json
+    assert len(before['participants'])==1
+    call(owner,'POST',f'/api/santas/{eid}/personal-invites',{},201)
+    with psycopg.connect(os.environ['SHURSH_DATABASE_URL']) as con:
+        assert con.execute('SELECT count(*) FROM public.santa_personal_invites WHERE token_hash=%s',
+                           (token_hash(key),)).fetchone()[0]==0
+
+
+def test_owner_can_edit_santa_title_and_description_without_changing_memberships(application):
+    owner=login(application)
+    other=login(application,'other@example.test')
+    eid=call(owner,'POST','/api/santas',{'title':'Original game'},201).json['id']
+    call(other,'PATCH',f'/api/santas/{eid}',{'title':'Takeover'},404)
+    call(owner,'PATCH',f'/api/santas/{eid}',{'title':'Новый заголовок','description':'Новое описание'},200)
+    event=call(owner,'GET',f'/api/santas/{eid}').json
+    assert event['event']['title']=='Новый заголовок'
+    assert event['event']['description']=='Новое описание'
+    assert len(event['participants'])==1
+    call(owner,'PATCH',f'/api/santas/{eid}',{'title':' '},400)
+    call(owner,'PATCH',f'/api/santas/{eid}',{'description':'x'*501},400)
+
+
+def test_notification_settings_are_owner_scoped_and_filter_future_delivery(application):
+    from cloud import db, social
+    owner=login(application)
+    other=login(application,'other@example.test')
+    settings=call(owner,'GET','/api/profile/me').json['profile']
+    assert all(settings[name] is True for name in social.NOTIFY_FIELDS)
+    call(other,'PATCH','/api/profile/me',{'notify_friends':'false'},400)
+    updated=call(owner,'PATCH','/api/profile/me',{'notify_friends':False,'notify_santa':True}).json['profile']
+    assert updated['notify_friends'] is False
+    assert updated['notify_santa'] is True
+    with application.test_request_context('/api/test'):
+        with db.transaction(write=True) as con:
+            social._notify(con,str(IDS['owner@example.test']),'friend_request','suppress-notify-test','/')
+            social._notify(con,str(IDS['owner@example.test']),'santa_drawn','allow-notify-test','/')
+    data=call(owner,'GET','/api/notifications').json['items']
+    assert any(row['message']=='allow-notify-test' for row in data)
+    assert not any(row['message']=='suppress-notify-test' for row in data)
+    restored=call(owner,'PATCH','/api/profile/me',{'notify_friends':True}).json['profile']
+    assert restored['notify_friends'] is True
+
+
+def test_small_scoped_ui_updates_and_user_settings_source(application):
+    js=application.test_client().get('/app.js').get_data(as_text=True)
+    social=application.test_client().get('/social-ui.js').get_data(as_text=True)
+    css=application.test_client().get('/polish.css').get_data(as_text=True)
+    assert "function refreshSantaRules()" in js
+    assert 'data-action="toggle-santa-rule-form"' in js
+    assert 'data-action="edit-santa-title"' in js
+    assert 'data-action="edit-santa-description"' in js
+    assert 'function ensureCookieNotice()' in js
+    assert 'function shurshCheckbox(' in social
+    assert 'new Intl.DateTimeFormat' in social
+    assert 'notification-settings-form' in social
+    assert '.game-gifts-arrows[hidden]' in css

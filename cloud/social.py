@@ -5,6 +5,13 @@ No new outbound integrations or background jobs.
 import re
 from uuid import UUID
 
+NOTIFY_FIELDS=('notify_friends','notify_santa','notify_gifts','notify_system')
+NOTIFY_KIND_FIELD={
+ 'friend_request':'notify_friends','friend_accept':'notify_friends',
+ 'santa_invitation':'notify_santa','santa_joined':'notify_santa','santa_drawn':'notify_santa',
+ 'wishlist_new':'notify_gifts','wish_new':'notify_gifts','wish_request':'notify_gifts',
+ 'reservation_anonymous':'notify_gifts'
+}
 PROFILE_EMOJIS = frozenset(["🎁","🎄","🐱","🦊","🐻","🐼","🐸","🦄","🐰","🧸","✨","🌸","🌼","🌙","⭐","🎮","🎨","📚","🎵","🚀","☕","🍓","💚"])
 from server import ApiError, req, optional, token_hash
 
@@ -38,6 +45,10 @@ def _relationship(con, current, other):
 
 def _notify(con, recipient, kind, message, url='/', actor=None):
     # The text and target URL must be constructed solely by the server.
+    setting=NOTIFY_KIND_FIELD.get(kind,'notify_system')
+    pref=con.execute('SELECT '+setting+' FROM profiles WHERE id=?',(recipient,)).fetchone()
+    if not pref or not pref[setting]:
+        return
     con.execute('''INSERT INTO social_notifications(recipient_id,actor_id,kind,message,target_path)
                    VALUES(?,?,?,?,?)''',(recipient,actor,kind,message[:240],url[:300]))
 
@@ -151,11 +162,16 @@ def handle(handler, method, path, con):
                 if not isinstance(data['discoverable'],bool):
                     raise ApiError(400,'Неверная настройка видимости')
                 fields['discoverable']=data['discoverable']
+            for setting in NOTIFY_FIELDS:
+                if setting in data:
+                    if not isinstance(data[setting],bool):
+                        raise ApiError(400,'Неверная настройка уведомлений')
+                    fields[setting]=data[setting]
             if not fields:
                 raise ApiError(400,'Нет изменений')
             con.execute('UPDATE profiles SET '+', '.join(k+'=?' for k in fields)+' WHERE id=?',
                         (*fields.values(),user['id']))
-        p=con.execute('SELECT id,name,bio,discoverable,handle,avatar_emoji,city FROM profiles WHERE id=?',(user['id'],)).fetchone()
+        p=con.execute('SELECT id,name,bio,discoverable,handle,avatar_emoji,city,notify_friends,notify_santa,notify_gifts,notify_system FROM profiles WHERE id=?',(user['id'],)).fetchone()
         lists=con.execute("""SELECT l.id,l.title,l.description,l.occasion,l.theme,l.share_key,
                             count(w.id) AS wish_count FROM wishlists l
                             LEFT JOIN wishes w ON w.list_id=l.id

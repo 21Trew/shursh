@@ -14,7 +14,7 @@ import secrets
 import sqlite3
 import threading
 import time
-from datetime import datetime, timezone
+from datetime import datetime, timezone, timedelta
 from http import HTTPStatus
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from pathlib import Path
@@ -1000,6 +1000,10 @@ class Handler(BaseHTTPRequestHandler):
                     raise ApiError(400,'Неверная дата')
             if 'budget' in data:
                 updates['budget_cents']=amount(data['budget'])
+            if 'title' in data:
+                updates['title']=req(data['title'],'Название игры',90)
+            if 'description' in data:
+                updates['description']=optional(data['description'],'Описание игры',500)
             if not updates: raise ApiError(400,'Нет изменений')
             con.execute('UPDATE santa_events SET '+', '.join(k+'=?' for k in updates)+
                         ' WHERE id=?',(*updates.values(),eid))
@@ -1007,6 +1011,9 @@ class Handler(BaseHTTPRequestHandler):
         match=re.fullmatch(r'/api/santas/(\d+)/personal-invites',path)
         if match and method=='POST':
             user=self.auth(con);eid=int(match.group(1))
+            # Expired, unused invitation tokens must never remain valid.
+            cutoff=(datetime.now(timezone.utc)-timedelta(days=1)).isoformat(timespec='seconds')
+            con.execute('DELETE FROM santa_personal_invites WHERE claimed_at IS NULL AND created_at <= ?', (cutoff,))
             event=con.execute('SELECT status FROM santa_events WHERE id=? AND owner_id=?',
                               (eid,user['id'])).fetchone()
             if not event: raise ApiError(404,'Игра не найдена')
@@ -1203,7 +1210,8 @@ class Handler(BaseHTTPRequestHandler):
             row=con.execute('''SELECT e.id,e.title,e.description,e.exchange_date,e.budget_cents,
                               e.currency,e.rules,e.status,i.claimed_at
                               FROM santa_personal_invites i JOIN santa_events e ON e.id=i.event_id
-                              WHERE i.token_hash=?''',(token_hash(match.group(1)),)).fetchone()
+                              WHERE i.token_hash=? AND i.created_at > ?''',
+                              (token_hash(match.group(1)),(datetime.now(timezone.utc)-timedelta(days=1)).isoformat(timespec='seconds'))).fetchone()
             if not row: raise ApiError(404,'Приглашение не найдено')
             data=dict(row);used=bool(data.pop('claimed_at'))
             user=self.user(con)
@@ -1220,7 +1228,8 @@ class Handler(BaseHTTPRequestHandler):
             con.execute('BEGIN IMMEDIATE')
             row=con.execute('''SELECT i.event_id,i.claimed_at,e.status
                      FROM santa_personal_invites i JOIN santa_events e ON e.id=i.event_id
-                     WHERE i.token_hash=?''',(token_hash(match.group(1)),)).fetchone()
+                     WHERE i.token_hash=? AND i.created_at > ?''',
+                     (token_hash(match.group(1)),(datetime.now(timezone.utc)-timedelta(days=1)).isoformat(timespec='seconds'))).fetchone()
             if not row: raise ApiError(404,'Приглашение не найдено')
             if row['claimed_at']: raise ApiError(409,'Эта личная ссылка уже использована')
             if row['status']!='open':

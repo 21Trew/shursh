@@ -40,7 +40,7 @@ function socialUserCard(user,actions=''){
 async function socialFriendsPage(marker=lastRenderToken){
  if(!currentUser){loginModal();return;}
  const data=await api('/api/friends');if(marker!==lastRenderToken)return;
- shell('<main class="container page social-page"><div class="page-hero"><div><div class="section-label">Вместе приятнее</div>'+
+ shell('<main class="container page social-page"><div class="page-hero"><div><div class="section-label">Вместе веселее</div>'+
   '<h1>Друзья</h1><p>Ищи знакомых, делись доступными вишлистами и приглашай в игры</p></div></div>'+
   '<section class="panel social-search"><h2>Найти друга</h2><p class="note">По имени или никнейму — без поиска по чужой почте</p><form id="social-search-form" class="share-field">'+
   '<input class="input" name="q" minlength="2" maxlength="40" required placeholder="Имя друга" aria-label="Найти пользователя по имени">'+
@@ -105,7 +105,20 @@ async function socialOwnProfilePage(marker=lastRenderToken){
   '<button type="button" class="btn btn-soft btn-small" data-nav="/users/'+attr(p.id)+'">Как видят друзья</button></div></section>'+
   '<section class="panel profile-security"><div><h2>Вход и безопасность</h2><p class="note">Почта не отображается в публичном профиле</p><div class="account-email">'+esc(p.email||'')+'</div></div>'+
   '<div class="profile-actions"><button class="btn btn-soft btn-small" data-social-action="change-email">Изменить почту</button>'+
-  '<button class="btn btn-soft btn-small" data-social-action="change-password">Изменить пароль</button></div></section></main>');
+  '<button class="btn btn-soft btn-small" data-social-action="change-password">Изменить пароль</button></div></section>'+
+  '<section class="panel profile-notifications"><h2>Какие уведомления получать</h2><p class="note">Настрой события, которые появляются в колокольчике</p>'+
+  '<form id="notification-settings-form" class="notification-settings-list">'+
+  shurshCheckbox('notify_friends','Друзья и заявки',p.notify_friends)+
+  shurshCheckbox('notify_santa','Тайный Санта и приглашения',p.notify_santa)+
+  shurshCheckbox('notify_gifts','Вишлисты и подарки',p.notify_gifts)+
+  shurshCheckbox('notify_system','Системные сообщения',p.notify_system)+
+  '<button class="btn btn-peach btn-small" type="submit">Сохранить настройки</button></form></section></main>');
+ document.getElementById('notification-settings-form')?.addEventListener('submit',async e=>{
+  e.preventDefault();const form=e.currentTarget,button=form.querySelector('[type="submit"]');button.disabled=true;
+  const payload={};for(const name of ['notify_friends','notify_santa','notify_gifts','notify_system'])payload[name]=form.elements[name].checked;
+  try{await api('/api/profile/me',{method:'PATCH',body:payload});clearOwnerTabViews(['/profile']);notice('Настройки уведомлений сохранены');}
+  catch(error){notice(error.message,true);}finally{button.disabled=false;}
+ });
 }
 async function socialEditProfileModal(){
  const d=await api('/api/profile/me'),p=d.profile;
@@ -119,7 +132,7 @@ async function socialEditProfileModal(){
    field('Никнейм (@)','handle','Например, shursh_friend','text',p.handle||'',false,'maxlength="20" autocomplete="username"')+
    field('Город (необязательно)','city','Например, Санкт-Петербург','text',p.city||'',false,'maxlength="60"')+
    textArea('О себе','bio','Что любишь, чем увлекаешься и что тебя радует',p.bio||'')+
-   '<label class="switch-label"><input type="checkbox" name="discoverable"'+(p.discoverable?' checked':'')+'> Показывать мой профиль в поиске</label>',
+   shurshCheckbox('discoverable','Показывать мой профиль в поиске',p.discoverable),
   submitLabel:'Сохранить профиль',onSubmit:async form=>{
    const data=readForm(form);data.discoverable=form.elements.discoverable.checked;
    const response=await api('/api/profile/me',{method:'PATCH',body:data});
@@ -159,6 +172,13 @@ async function socialAccountModal(kind){
    notice(email&&result.pending_confirmation?'Проверь новую почту и подтверди изменение':'Пароль изменён');
   }});
 }
+function socialNotificationDate(date){
+ const value=new Date(date);
+ return Number.isNaN(value.getTime())?'':new Intl.DateTimeFormat('ru-RU',{day:'numeric',month:'long',hour:'2-digit',minute:'2-digit'}).format(value);
+}
+function shurshCheckbox(name,label,checked){
+ return '<label class="shursh-checkbox"><input type="checkbox" name="'+attr(name)+'"'+(checked?' checked':'')+'><span class="shursh-checkbox-mark" aria-hidden="true">'+ico('check',16)+'</span><span>'+esc(label)+'</span></label>';
+}
 let notificationModalItems=[];
 let notificationModalTab='new';
 function notificationCategory(item){
@@ -178,7 +198,7 @@ function renderNotificationModalTab(tab=notificationModalTab){
  panel.innerHTML=items.length?items.map(item=>
   '<div class="notification-item'+(item.read_at?'':' unread')+'">'+
   '<button class="notification-open" type="button" data-social-action="open-notification" data-id="'+item.id+'" data-path="'+attr(item.target_path)+'">'+
-  '<strong>'+esc(item.message)+'</strong><small>'+esc(new Date(item.created_at).toLocaleString('ru-RU'))+'</small></button>'+
+  '<strong>'+esc(item.message)+'</strong><small>'+esc(socialNotificationDate(item.created_at))+'</small></button>'+
   (!item.read_at?'<button class="btn btn-soft btn-small" type="button" data-social-action="read-notification" data-id="'+item.id+'">Прочитано</button>':'')+
   '</div>').join(''):'<p class="note">Здесь пока пусто</p>';
  const unread=notificationModalItems.filter(i=>!i.read_at).length;
@@ -193,7 +213,7 @@ async function socialNotificationsModal(){
  modal({title:'Уведомления',subtitle:'Новости друзей, подарков и игр',
   content:'<div class="notification-dialog"><div class="notification-dialog-toolbar"><div class="notification-tabs" role="tablist" aria-label="Фильтр уведомлений">'+
   tabs.map(([id,label])=>'<button type="button" role="tab" data-notification-tab="'+id+'" aria-selected="'+(id==='new'?'true':'false')+'" class="'+(id==='new'?'active':'')+'">'+label+'</button>').join('')+
-  '</div><button type="button" class="btn btn-soft btn-small notification-read-all" data-social-action="read-all-notifications">Прочесть все</button></div>'+
+  '</div><button type="button" class="notification-read-all" data-social-action="read-all-notifications" aria-label="Прочесть все" title="Прочесть все">'+ico('check')+'</button></div>'+
   '<div id="notification-modal-list" role="tabpanel" aria-live="polite"></div></div>'});
  const anchor=document.querySelector('header .header-bell')?.getBoundingClientRect();
  const overlay=modalRoot.querySelector('.modal-backdrop');
@@ -223,7 +243,7 @@ async function socialNotificationsPage(marker=lastRenderToken){
   '<section class="panel notification-feed">'+(res.items.length?res.items.map(n=>
    '<div class="notification-item'+(n.read_at?'':' unread')+'">'+
    '<button class="notification-open" data-social-action="open-notification" data-id="'+n.id+'" data-path="'+attr(n.target_path)+'">'+
-   '<strong>'+esc(n.message)+'</strong><small>'+esc(new Date(n.created_at).toLocaleString('ru-RU'))+'</small></button>'+
+   '<strong>'+esc(n.message)+'</strong><small>'+esc(socialNotificationDate(n.created_at))+'</small></button>'+
    (!n.read_at?'<button class="btn btn-soft btn-small" data-social-action="read-notification" data-id="'+n.id+'">Прочитано</button>':'')+
    '</div>').join(''):'<p class="note">Пока всё спокойно. Как только появятся новости, они будут здесь</p>')+
   '</section></main>');

@@ -15,9 +15,29 @@ function wishesMarkup(wishes,source='own'){
  if(!wishes?.length)return '<span class="muted note">Пока нет подарков. Добавь конкретные идеи и пожелания</span>';
  return '<div class="game-gifts-carousel"><div class="game-gifts-toolbar"><span class="note">'+
   ruCount(wishes.length,'подарок','подарка','подарков')+'</span>'+
-  (wishes.length>1?'<div class="game-gifts-arrows"><button class="btn btn-soft btn-small" type="button" data-action="scroll-game-gifts" data-direction="prev" aria-label="Предыдущие подарки">'+ico('back')+'</button><button class="btn btn-soft btn-small" type="button" data-action="scroll-game-gifts" data-direction="next" aria-label="Следующие подарки">'+ico('arrow')+'</button></div>':'')+
+  (wishes.length>1?'<div class="game-gifts-arrows" hidden><button class="btn btn-soft btn-small" type="button" data-action="scroll-game-gifts" data-direction="prev" aria-label="Предыдущие подарки">'+ico('back')+'</button><button class="btn btn-soft btn-small" type="button" data-action="scroll-game-gifts" data-direction="next" aria-label="Следующие подарки">'+ico('arrow')+'</button></div>':'')+
   '</div><div class="game-gifts-track" tabindex="0" role="region" aria-label="Подарки — горизонтальная лента">'+
   wishes.map(w=>gameWishCard(w,source)).join('')+'</div></div>';
+}
+function setupGameGiftOverflow(){
+ document.querySelectorAll('.game-gifts-carousel').forEach(carousel=>{
+  const track=carousel.querySelector('.game-gifts-track'),arrows=carousel.querySelector('.game-gifts-arrows');
+  if(!track||!arrows)return;
+  const update=()=>{
+   if(!track.isConnected){observer?.disconnect();return;}
+   const max=Math.max(0,track.scrollWidth-track.clientWidth);
+   arrows.hidden=max<=3;
+   const back=arrows.querySelector('[data-direction="prev"]'),next=arrows.querySelector('[data-direction="next"]');
+   if(back)back.disabled=max<=3||track.scrollLeft<=2;
+   if(next)next.disabled=max<=3||track.scrollLeft>=max-2;
+  };
+  const observer=typeof ResizeObserver==='function'?new ResizeObserver(update):null;
+  observer?.observe(track);
+  for(const card of track.children)observer?.observe(card);
+  track.addEventListener('scroll',update,{passive:true});
+  requestAnimationFrame(update);
+  if(document.fonts?.ready)void document.fonts.ready.then(update);
+ });
 }
 function showGameWishDetails(el){
  const state=activeGameContext;if(!state)return;
