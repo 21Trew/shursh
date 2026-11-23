@@ -758,3 +758,19 @@ input[type="checkbox"]:not(.shursh-checkbox input):checked::after{content:"✓";
   min-height:calc(100dvh - 70px);
  }
 }
+
+/* Authentication forms: local feedback without interruptive toast/modal loops. */
+#modal-form .field input[aria-invalid="true"]{
+ border-color:#a85f4f;
+ background:#fff1eb;
+ box-shadow:0 0 0 1px #a85f4f inset;
+}
+#modal-form .auth-field-error{
+ display:block;
+ margin:6px 0 0;
+ color:#904537;
+ font-size:12px;
+ line-height:1.4;
+ font-weight:600;
+}
+#modal-form .auth-field-error[hidden]{display:none}
