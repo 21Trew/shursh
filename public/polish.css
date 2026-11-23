@@ -647,3 +647,41 @@ input[type="checkbox"]:not(.shursh-checkbox input):checked::after{content:"✓";
 @media(prefers-reduced-motion:reduce){
  .notification-read-all,.shursh-checkbox-mark{transition:none}
 }
+
+/* 23 Nov review: contextual CTA colors, soft borders, inline editing and roster consistency. */
+.btn{border-color:#ded5c8}
+.btn-dark{border-color:transparent}
+.btn-peach{border-color:#e8b49c}
+.btn-lilac{border-color:#c5b2dc}
+.btn-soft{border-color:var(--border)}
+.dashboard-welcome .dashboard-new-list{background:#d7e8dc!important;border-color:#a9cdb8!important}
+.dashboard-welcome .dashboard-new-list:hover{background:#c6dfd0!important;border-color:#94bfa6!important}
+.dashboard-welcome .santa-create-cta{background:#e9d9eb!important;border-color:#cbb6d7!important;color:var(--ink)!important}
+.dashboard-welcome .santa-create-cta:hover{background:#e0cae5!important;border-color:#bea4ce!important}
+.santa-create-cta{background:#f4d5c5!important;border-color:#e6b9a6!important;color:var(--ink)!important}
+.santa-create-cta:hover{background:#efc6b3!important;border-color:#d9aa96!important}
+.santa-actions-row>[data-action="connect-game"]{background:#fffdf7;border-color:#e6dfd4}
+.santa-actions-row>[data-open="santa"]{background:#f5cfbb;border-color:#e0af95}
+.santa-actions-row>[data-open="santa"]:hover{background:#f2c1a8;border-color:#d69e82}
+.cookie-notice{left:50%;transform:translateX(-50%);width:min(450px,calc(100vw - 32px));justify-content:center}
+.cookie-message{display:grid;justify-items:center;flex:1;min-width:0;line-height:1.5;text-align:center;hyphens:none;overflow-wrap:normal;word-break:normal}
+.cookie-message>span{display:block;white-space:nowrap}
+.santa-inline-editor{min-width:0;max-width:100%;border:1.5px solid #c9aa95;border-radius:10px;padding:6px 10px;background:#fffdf9;color:var(--ink);font:inherit;line-height:inherit;letter-spacing:inherit}
+.santa-inline-editor-title{width:min(650px,100%);font-family:var(--heading);font-size:inherit}
+.santa-inline-editor-description{width:min(540px,100%);min-height:92px;resize:vertical;font-size:inherit}
+.santa-inline-editor-exchange_date,.santa-inline-editor-budget{width:min(240px,100%);font-size:14px}
+.santa-inline-value{cursor:text;text-decoration:underline;text-decoration-color:#e4cbb7;text-decoration-thickness:1px;text-underline-offset:3px}
+.santa-event-details .santa-inline-value:hover{color:#986344}
+.santa-detail-layout .person-list .person-row{padding:14px 12px;min-height:72px;border-radius:14px;transition:background-color .15s ease}
+.santa-detail-layout .person-list .person-row:hover,.santa-detail-layout .person-list .person-row:focus-visible{background:#f4ebdf}
+.santa-detail-layout .person-list .person-row[data-santa-profile]::after{left:50%;right:auto;bottom:calc(100% + 6px);transform:translateX(-50%);white-space:nowrap;text-align:center}
+.santa-detail-layout .person-list .person-row[data-santa-profile]:hover:has(.person-actions:hover)::after{opacity:0}
+.santa-detail-layout .person-actions{position:relative;flex-shrink:0;gap:5px}
+.santa-detail-layout .person-actions .btn{position:relative;display:grid;place-items:center;width:44px;height:44px;min-height:44px;padding:0;border:0!important;border-radius:12px;background:transparent;box-shadow:none}
+.santa-detail-layout .person-actions .btn:hover{transform:none;background:#e9ddcc;box-shadow:none}
+.santa-detail-layout .person-actions .btn:focus-visible{outline:2px solid #b8794f;outline-offset:2px}
+.santa-detail-layout .person-actions .btn .icon{width:20px;height:20px;stroke:currentColor}
+.santa-detail-layout .person-actions [data-tooltip]::after{content:attr(data-tooltip);position:absolute;left:50%;bottom:calc(100% + 7px);transform:translateX(-50%);width:max-content;max-width:220px;background:#27272b;color:#fff;font-size:11px;line-height:1.3;font-weight:750;text-align:center;white-space:normal;padding:7px 10px;border-radius:9px;opacity:0;pointer-events:none;z-index:11}
+.santa-detail-layout .person-actions [data-tooltip]:hover::after,.santa-detail-layout .person-actions [data-tooltip]:focus-visible::after{opacity:1}
+@media(max-width:400px){.cookie-notice{width:calc(100vw - 20px);left:50%;flex-direction:column;gap:8px}.cookie-notice button{min-height:38px;width:100%}.cookie-message{font-size:12px}}
+@media(prefers-reduced-motion:reduce){.santa-detail-layout .person-list .person-row{transition:none}}
