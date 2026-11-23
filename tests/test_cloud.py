@@ -709,6 +709,25 @@ def test_browser_register_wishlist_reservation_and_isolation(browser_http):
             page.locator('.modal-fixed-footer button[type="submit"]').click()
             page.set_viewport_size({'width':1366,'height':900})
             expect(page.locator('.wishlist-grid')).to_contain_text(wish)
+            # A compact "Очень хочу" badge must never inherit the 125px
+            # SVG illustration rule, including on narrow mobile cards.
+            badge=page.locator('.wishlist-grid .wish-priority').first
+            expect(badge).to_contain_text('Очень хочу')
+            for width in (390,768,1366):
+                page.set_viewport_size({'width':width,'height':900})
+                size=badge.evaluate("""el => {
+                    const b=el.getBoundingClientRect();
+                    const icon=el.querySelector('svg').getBoundingClientRect();
+                    const art=el.closest('.wish-image').querySelector(':scope > svg').getBoundingClientRect();
+                    const image=el.closest('.wish-image').getBoundingClientRect();
+                    return {badgeWidth:b.width,badgeHeight:b.height,iconWidth:icon.width,
+                            iconHeight:icon.height,artWidth:art.width,
+                            inside:b.left>=image.left&&b.right<=image.right+1};
+                }""")
+                assert size['badgeWidth']<165 and size['badgeHeight']<46,(width,size)
+                assert size['iconWidth']<=16 and size['iconHeight']<=16,(width,size)
+                assert size['artWidth']>=85 and size['inside'],(width,size)
+            page.set_viewport_size({'width':1366,'height':900})
             share = page.locator('button[data-action="copy"][data-url*="/w/"]').get_attribute('data-url')
             assert share.startswith(browser_http + '/w/')
             key = share.rsplit('/', 1)[-1]
