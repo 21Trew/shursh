@@ -2375,7 +2375,19 @@ def test_browser_ux_fixes_avatar_gift_placeholder_and_admin_directory(browser_ht
             assert page.locator('.social-stat-grid').count()==0
             assert page.locator('.admin-users-table').count()==0
             page.locator('.admin-hub-users').click()
-            expect(page).to_have_url(re.compile(r'/admin/users
+            expect(page).to_have_url(re.compile(r'/admin/users'))
+            expect(page.locator('.admin-users-table')).to_be_visible()
+            expect(page.locator('.admin-users-table tbody tr').first).to_be_visible()
+            page.locator('#admin-users-query').fill('owner')
+            assert page.locator('#admin-users-search button[type="submit"]').count()==0
+            expect(page.locator('.admin-users-table tbody')).to_contain_text('Owner',timeout=10000)
+            assert '@example.test' not in page.locator('.admin-users-table').inner_text()
+            page.locator('#admin-users-query').fill('nonexistent-shursh-player')
+            expect(page.locator('.admin-users-table tbody')).to_contain_text('Игроки не найдены',timeout=10000)
+            page.locator('.admin-section-back [data-nav="/admin"]').click()
+            page.locator('.admin-hub-feedback').click()
+            expect(page).to_have_url(re.compile(r'/admin/feedback'))
+            expect(page.locator('main h1')).to_contain_text('Обращения')
             assert page.evaluate("""async () => {
                 const response=await fetch('/api/profile/me',{method:'PATCH',
                   headers:{'Content-Type':'application/json'},
