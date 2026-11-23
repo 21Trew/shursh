@@ -1275,3 +1275,38 @@ def test_guest_bootstrap_resilience_on_mobile_chromium_and_webkit(browser_https)
                     context.close()
             finally:
                 browser.close()
+
+
+@pytest.mark.browser
+def test_mobile_webkit_signup_inline_validation(browser_https):
+    """WebKit/iPhone: invalid signup stays local, corrected form can register."""
+    with sync_playwright() as play:
+        browser=play.webkit.launch(headless=True)
+        try:
+            context=browser.new_context(
+                viewport={"width":390,"height":844},
+                is_mobile=True,ignore_https_errors=True
+            )
+            page=context.new_page()
+            requests=[]
+            page.on('request',lambda req: requests.append('signup')
+                    if req.url.endswith('/api/register') and req.method=='POST' else None)
+            page.goto(browser_https+'/',wait_until='domcontentloaded')
+            page.locator('header [data-open="login"]').click()
+            page.locator('.modal-foot [data-open="register"]').click()
+            expect(page.locator('#fld-confirm_password')).to_be_visible()
+            page.locator('.modal-fixed-footer [type=submit]').click()
+            expect(page.locator('#auth-error-email')).to_have_text('Укажи почту')
+            expect(page.locator('#auth-error-confirm_password')).to_have_text('Повтори пароль')
+            assert requests==[]
+            page.locator('#fld-name').fill('Аня')
+            page.locator('#fld-email').fill('owner@example.test')
+            page.locator('[data-password-generate]').click()
+            password=page.locator('#fld-password').input_value()
+            assert password and page.locator('#fld-confirm_password').input_value()==password
+            page.locator('.modal-fixed-footer [type=submit]').click()
+            expect(page.get_by_role('dialog')).to_contain_text('Проверь почту',timeout=10000)
+            assert requests==['signup']
+            assert page.evaluate('document.documentElement.scrollWidth<=innerWidth+2')
+        finally:
+            browser.close()
