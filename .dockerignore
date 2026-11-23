@@ -1,0 +1,22 @@
+# Never send credentials or personal data into the builder context.
+.git
+.github
+.env
+.env.*
+!.env.example
+*.pem
+*.key
+data/
+uploads/
+screenshots/
+artifacts/
+tests/
+.venv/
+venv/
+__pycache__/
+.pytest_cache/
+*.pyc
+*.sqlite3
+*.db
+*.log
+node_modules/
