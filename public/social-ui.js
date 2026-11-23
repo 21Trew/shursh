@@ -251,45 +251,79 @@ async function socialNotificationsPage(marker=lastRenderToken){
 }
 function socialAdminUsersMarkup(page){
  const rows=(page.users||[]).map(u=>'<tr><td><div class="admin-user-identity"><span class="admin-user-emoji">'+
-    esc(u.avatar_emoji||'🎁')+'</span><span><strong>'+esc(u.name)+'</strong>'+
-    '<small>ID: '+esc(String(u.id).slice(0,8))+'</small></span></div></td>'+
-    '<td>'+(u.handle?'@'+esc(u.handle):'<span class="muted">—</span>')+'</td>'+
-    '<td><time datetime="'+attr(u.created_at)+'">'+esc(new Date(u.created_at).toLocaleString('ru-RU',{dateStyle:'medium',timeStyle:'short'}))+'</time></td>'+
-    '<td>'+Number(u.wishlists_count||0)+'</td><td>'+Number(u.organized_games||0)+'</td>'+
-    '<td>'+Number(u.joined_games||0)+'</td><td>'+(u.discoverable?'В поиске':'Скрыт')+'</td></tr>').join('');
+   esc(u.avatar_emoji||'🎁')+'</span><span><strong>'+esc(u.name)+'</strong>'+
+   '<small>ID: '+esc(String(u.id).slice(0,8))+'</small></span></div></td>'+
+   '<td>'+(u.handle?'@'+esc(u.handle):'<span class="muted">—</span>')+'</td>'+
+   '<td><time datetime="'+attr(u.created_at)+'">'+esc(new Date(u.created_at).toLocaleString('ru-RU',{dateStyle:'medium',timeStyle:'short'}))+'</time></td>'+
+   '<td>'+Number(u.wishlists_count||0)+'</td><td>'+Number(u.organized_games||0)+'</td>'+
+   '<td>'+Number(u.joined_games||0)+'</td><td>'+(u.discoverable?'В поиске':'Скрыт')+'</td></tr>').join('');
  const from=page.total?Number(page.offset)+1:0;
  const to=Math.min(Number(page.offset)+Number(page.limit),Number(page.total));
  return '<div class="admin-users-table-scroll"><table class="admin-users-table"><thead><tr>'+
-  '<th>Игрок</th><th>Ник</th><th>Регистрация</th><th>Вишлисты</th>'+
-  '<th>Свои Санты</th><th>Участие</th><th>Профиль</th></tr></thead><tbody>'+
-  (rows||'<tr><td colspan="7" class="muted">Игроки не найдены</td></tr>')+'</tbody></table></div>'+
-  '<div class="admin-users-pager"><span>'+from+'–'+to+' из '+Number(page.total)+'</span>'+
-  '<div class="btn-row"><button type="button" class="btn btn-soft btn-small" data-social-action="admin-users-prev" data-offset="'+Math.max(0,page.offset-page.limit)+'"'+(page.offset===0?' disabled':'')+'>Назад</button>'+
-  '<button type="button" class="btn btn-soft btn-small" data-social-action="admin-users-next" data-offset="'+(page.offset+page.limit)+'"'+(to>=page.total?' disabled':'')+'>Вперёд</button></div></div>';
+   '<th>Игрок</th><th>Ник</th><th>Регистрация</th><th>Вишлисты</th>'+
+   '<th>Свои Санты</th><th>Участие</th><th>Профиль</th></tr></thead><tbody>'+
+   (rows||'<tr><td colspan="7" class="muted">Игроки не найдены</td></tr>')+'</tbody></table></div>'+
+   '<div class="admin-users-pager"><span>'+from+'–'+to+' из '+Number(page.total)+'</span>'+
+   '<div class="btn-row"><button type="button" class="btn btn-soft btn-small" data-social-action="admin-users-prev" data-offset="'+Math.max(0,page.offset-page.limit)+'"'+(page.offset===0?' disabled':'')+'>Назад</button>'+
+   '<button type="button" class="btn btn-soft btn-small" data-social-action="admin-users-next" data-offset="'+(page.offset+page.limit)+'"'+(to>=page.total?' disabled':'')+'>Вперёд</button></div></div>';
 }
+let adminUsersSearchTimer=null;
+let adminUsersRequestId=0;
 async function socialLoadAdminUsers(offset=0){
- const root=document.querySelector('[data-admin-users-content]');if(!root)return;
- const query=document.getElementById('admin-users-query')?.value.trim()||'';
- const page=await api('/api/admin/users?offset='+offset+'&q='+encodeURIComponent(query));
- if(root.isConnected){root.innerHTML=socialAdminUsersMarkup(page);}
+ const root=document.querySelector('[data-admin-users-content]');
+ const search=document.getElementById('admin-users-query');
+ if(!root||!search)return;
+ const query=search.value.trim(),requestId=++adminUsersRequestId;
+ root.setAttribute('aria-busy','true');
+ try{
+  const page=await api('/api/admin/users?offset='+offset+'&q='+encodeURIComponent(query));
+  if(requestId!==adminUsersRequestId||!root.isConnected||search.value.trim()!==query)return;
+  root.innerHTML=socialAdminUsersMarkup(page);
+ }catch(error){
+  if(requestId===adminUsersRequestId&&root.isConnected)notice(error.message,true);
+ }finally{
+  if(requestId===adminUsersRequestId&&root.isConnected)root.removeAttribute('aria-busy');
+ }
 }
 async function socialAdminPage(marker=lastRenderToken){
  if(!currentUser?.is_admin){errorView(new Error('Доступ только администратору'));return;}
- const [{stats},page]=await Promise.all([api('/api/admin/overview'),api('/api/admin/users')]);
+ const {stats}=await api('/api/admin/overview');
  if(marker!==lastRenderToken)return;
- const labels={users:'Активных профилей',wishlists:'Вишлистов',wishes:'Подарков',events:'Игр',friends:'Дружеских связей',notifications:'Уведомлений',new_feedback:'Новых обращений'};
  shell('<main class="container page social-page admin-page"><div class="page-hero"><div><div class="section-label">Шурш! / управление</div>'+
-  '<h1>Админка</h1><p>Статистика проекта и зарегистрированные пользователи. Без доступа к личным перепискам и секретам жеребьёвки</p></div></div>'+
-  '<div class="social-stat-grid">'+Object.entries(labels).map(([key,label])=>'<article class="panel"><strong>'+Number(stats[key]||0)+'</strong><span>'+label+'</span></article>').join('')+'</div>'+
-  '<section class="panel admin-users-panel"><div class="panel-heading-actions"><h2>Зарегистрированные игроки</h2><span class="chip">'+Number(page.total)+'</span></div>'+
-  '<form id="admin-users-search" class="admin-users-search"><label for="admin-users-query" class="sr-only">Найти игрока</label>'+
-  '<input id="admin-users-query" class="input" type="search" placeholder="Поиск по имени или нику" maxlength="50" autocomplete="off">'+
-  '<button class="btn btn-dark btn-small" type="submit">Найти</button></form>'+
-  '<div data-admin-users-content>'+socialAdminUsersMarkup(page)+'</div></section>'+
-  '<button class="btn btn-dark" data-nav="/admin/feedback">Обращения пользователей '+ico('arrow')+'</button></main>');
- document.getElementById('admin-users-search')?.addEventListener('submit',async e=>{
-   e.preventDefault();
-   try{await socialLoadAdminUsers(0);}catch(error){notice(error.message,true);}
+  '<h1>Центр управления</h1><p>Работа с пользователями и обращениями. Личные переписки и секреты жеребьёвки сюда не попадают</p></div></div>'+
+  '<div class="admin-hub-grid" aria-label="Разделы админки">'+
+  '<a class="panel admin-hub-card admin-hub-users" href="/admin/users" data-nav="/admin/users">'+
+  '<div class="admin-hub-card-top"><span class="admin-hub-icon">'+ico('users',25)+'</span><span class="admin-hub-arrow">'+ico('arrow')+'</span></div>'+
+  '<strong>Пользователи</strong><p>Поиск, регистрации и активность участников</p><span class="admin-hub-metric">'+Number(stats.users||0)+' зарегистрировано</span></a>'+
+  '<a class="panel admin-hub-card admin-hub-feedback" href="/admin/feedback" data-nav="/admin/feedback">'+
+  '<div class="admin-hub-card-top"><span class="admin-hub-icon">'+ico('mail',25)+'</span><span class="admin-hub-arrow">'+ico('arrow')+'</span></div>'+
+  '<strong>Обращения</strong><p>Вопросы, ошибки и предложения пользователей</p><span class="admin-hub-metric">'+Number(stats.new_feedback||0)+' новых</span></a>'+
+  '</div></main>');
+}
+async function socialAdminUsersPage(marker=lastRenderToken){
+ if(!currentUser?.is_admin){errorView(new Error('Доступ только администратору'));return;}
+ const page=await api('/api/admin/users');
+ if(marker!==lastRenderToken)return;
+ ++adminUsersRequestId;
+ if(adminUsersSearchTimer!==null){clearTimeout(adminUsersSearchTimer);adminUsersSearchTimer=null;}
+ shell('<main class="container page social-page admin-page"><div class="admin-section-back"><a href="/admin" data-nav="/admin" class="text-link">'+ico('back',18)+' Все разделы</a></div>'+
+   '<div class="page-hero"><div><div class="section-label">Администрирование / пользователи</div>'+
+   '<h1>Пользователи</h1><p>Поиск по имени и никнейму. Без доступа к личным данным других разделов</p></div></div>'+
+   '<section class="panel admin-users-panel"><div class="panel-heading-actions"><h2>Зарегистрированные игроки</h2><span class="chip">'+Number(page.total)+'</span></div>'+
+   '<form id="admin-users-search" class="admin-users-search" role="search">'+
+   '<label for="admin-users-query" class="sr-only">Поиск пользователей</label>'+
+   '<input id="admin-users-query" class="input" type="search" placeholder="Имя или никнейм" maxlength="50" autocomplete="off" aria-controls="admin-users-content">'+
+   '</form><div id="admin-users-content" data-admin-users-content aria-live="polite">'+socialAdminUsersMarkup(page)+'</div></section></main>');
+ const search=document.getElementById('admin-users-query');
+ search?.closest('form')?.addEventListener('submit',e=>e.preventDefault());
+ search?.addEventListener('input',()=>{
+   if(adminUsersSearchTimer!==null)clearTimeout(adminUsersSearchTimer);
+   adminUsersSearchTimer=setTimeout(()=>{adminUsersSearchTimer=null;void socialLoadAdminUsers(0);},250);
+ });
+ search?.addEventListener('search',()=>{
+   if(adminUsersSearchTimer!==null)clearTimeout(adminUsersSearchTimer);
+   adminUsersSearchTimer=null;
+   void socialLoadAdminUsers(0);
  });
 }
 async function socialInviteFriendsModal(){
