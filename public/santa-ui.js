@@ -189,8 +189,8 @@ function santaRosterPerson(p,state){
   (mine?'<span class="chip">Ты</span>':'')+
   (organizer?'<span class="chip chip-peach organizer-label">Организатор</span>':'')+'</div><small>'+
   ruCount(p.wish_count,'желание','желания','желаний')+'</small></div>'+
-  (adminActions?'<div class="person-actions"><button class="btn btn-soft btn-small" title="Выдать новую личную ссылку" data-action="new-player-link" data-id="'+p.id+'">'+ico('link')+'</button>'+
-  '<button class="btn btn-soft btn-small" title="Убрать участника" data-action="remove-player" data-id="'+p.id+'">'+ico('trash')+'</button></div>':'')+
+  (adminActions?'<div class="person-actions"><button type="button" class="btn btn-soft btn-small" aria-label="Выдать новую личную ссылку" data-tooltip="Выдать новую личную ссылку" data-action="new-player-link" data-id="'+p.id+'">'+ico('link')+'</button>'+
+  '<button type="button" class="btn btn-soft btn-small" aria-label="Убрать участника" data-tooltip="Убрать участника" data-action="remove-player" data-id="'+p.id+'">'+ico('trash')+'</button></div>':'')+
   '</div>';
 }
 function setupSantaRoster(state){
