@@ -1129,3 +1129,96 @@ def test_shursh_ux_followup_finish_game_and_sticky_modal(browser_https):
             assert abs((pop['x']+pop['width'])-(bell['x']+bell['width']))<=16,(bell,pop)
         finally:
             browser.close()
+
+
+
+@pytest.mark.browser
+def test_cookie_notice_responsive_alignment_chromium_and_webkit(browser_https):
+    """Real app/CSS, no hosted credentials: visual alignment at breakpoint edges."""
+    from playwright.sync_api import sync_playwright, expect
+
+    widths=(320,360,375,390,400,401,430,600,767,768,1024,1440)
+    output=OUTPUT/"cookie-responsive"
+    output.mkdir(parents=True,exist_ok=True)
+    observations=[]
+    with sync_playwright() as play:
+        for engine in ("chromium","webkit"):
+            browser=getattr(play,engine).launch(headless=True)
+            try:
+                for width in widths:
+                    context=browser.new_context(
+                        viewport={"width":width,"height":780},
+                        device_scale_factor=1,
+                        reduced_motion="reduce",
+                        ignore_https_errors=True,
+                    )
+                    page=context.new_page()
+                    try:
+                        page.goto(browser_https+"/",wait_until="domcontentloaded")
+                        notice=page.locator(".cookie-notice")
+                        expect(notice).to_be_visible(timeout=12000)
+                        expect(notice.locator(".cookie-message > span")).to_have_count(2)
+                        expect(notice.locator("button")).to_have_text("Понятно")
+                        metrics=notice.evaluate("""(el) => {
+                            const r=el.getBoundingClientRect(), s=getComputedStyle(el);
+                            const msg=el.querySelector('.cookie-message');
+                            const m=msg.getBoundingClientRect();
+                            const btn=el.querySelector('button');
+                            const b=btn.getBoundingClientRect();
+                            const lines=[...msg.children].map(x=>{
+                                const rect=x.getBoundingClientRect(), css=getComputedStyle(x);
+                                return {width:rect.width,height:rect.height,
+                                  centerX:rect.x+rect.width/2,overflow:x.scrollWidth>x.clientWidth+1,
+                                  lineHeight:parseFloat(css.lineHeight)};
+                            });
+                            return {
+                              width:r.width,left:r.left,right:r.right,centerX:r.x+r.width/2,
+                              viewportWidth:innerWidth,docWidth:document.documentElement.scrollWidth,
+                              flexDirection:s.flexDirection,
+                              gap:parseFloat(s.gap)||0,
+                              contentWidth:r.width-parseFloat(s.paddingLeft)-parseFloat(s.paddingRight)-
+                                parseFloat(s.borderLeftWidth)-parseFloat(s.borderRightWidth),
+                              textWidth:m.width,textCenterX:m.x+m.width/2,
+                              textCenterY:m.y+m.height/2,
+                              buttonWidth:b.width,buttonHeight:b.height,
+                              buttonCenterX:b.x+b.width/2,buttonCenterY:b.y+b.height/2,
+                              buttonLeft:b.left,buttonRight:b.right,
+                              lines
+                            };
+                        }""")
+                        assert abs(metrics["centerX"]-width/2)<=1,(engine,width,metrics)
+                        assert metrics["left"]>=-1 and metrics["right"]<=width+1,(engine,width,metrics)
+                        assert metrics["docWidth"]<=width+2,("horizontal overflow",engine,width,metrics)
+                        assert metrics["buttonHeight"]>=44,("touch target",engine,width,metrics)
+                        assert all(not line["overflow"] for line in metrics["lines"]),(engine,width,metrics)
+                        assert all(abs(line["height"]-line["lineHeight"])<=2
+                                   for line in metrics["lines"]),(engine,width,metrics)
+                        assert all(abs(line["centerX"]-metrics["textCenterX"])<=1
+                                   for line in metrics["lines"]),(engine,width,metrics)
+                        if width<=400:
+                            assert metrics["flexDirection"]=="column",(engine,width,metrics)
+                            assert abs(metrics["buttonCenterX"]-metrics["centerX"])<=1,(engine,width,metrics)
+                            assert abs(metrics["textCenterX"]-metrics["centerX"])<=1,(engine,width,metrics)
+                            assert metrics["buttonCenterY"]>metrics["textCenterY"],(engine,width,metrics)
+                        else:
+                            assert metrics["flexDirection"]=="row",(engine,width,metrics)
+                            assert abs(metrics["textCenterY"]-metrics["buttonCenterY"])<=1,(engine,width,metrics)
+                            expected=metrics["textWidth"]+metrics["buttonWidth"]+metrics["gap"]
+                            assert abs(metrics["contentWidth"]-expected)<=2,(engine,width,metrics)
+                        notice.screenshot(path=str(output/f"{engine}-{width}-banner.png"),
+                                          animations="disabled")
+                        if width in (320,390,401,430,768):
+                            page.screenshot(path=str(output/f"{engine}-{width}-viewport.png"),
+                                            animations="disabled")
+                        observations.append({"engine":engine,"width":width,
+                                             "noticeWidth":round(metrics["width"],1),
+                                             "buttonHeight":round(metrics["buttonHeight"],1),
+                                             "direction":metrics["flexDirection"],
+                                             "offsetFromCenter":round(metrics["centerX"]-width/2,1)})
+                    finally:
+                        context.close()
+            finally:
+                browser.close()
+    (output/"metrics.json").write_text(
+        json.dumps(observations,ensure_ascii=False,indent=2),encoding="utf-8"
+    )
