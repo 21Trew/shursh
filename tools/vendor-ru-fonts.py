@@ -27,7 +27,7 @@ for filename, (blob_sha, expected_bytes) in FILES.items():
     with urllib.request.urlopen(urllib.request.Request(
         url, headers={"User-Agent":"Shursh-Font-Vendor/1.0"}), timeout=25) as response:
         data = response.read(expected_bytes + 1)
-    actual_sha = hashlib.sha1(f"blob {len(data)}\\0".encode().replace(b"\\0",b"\x00") + data).hexdigest()
+    actual_sha = hashlib.sha1(b"blob " + str(len(data)).encode() + bytes([0]) + data).hexdigest()
     if len(data) != expected_bytes or actual_sha != blob_sha or data[:4] != b"wOF2":
         raise RuntimeError(f"Invalid source content: {filename}")
     (folder / filename).write_bytes(data)
