@@ -1239,7 +1239,8 @@ function setupAuthFormValidation(form,register){
    node.hidden=true;field.append(node);
   }
   if(node){node.textContent=message;node.hidden=!message;}
-  input.toggleAttribute('aria-invalid',!!message);
+  if(message)input.setAttribute('aria-invalid','true');
+  else input.removeAttribute('aria-invalid');
   const hint=input.name==='password'&&register?'password-hint':'';
   const ids=[hint,message?id:''].filter(Boolean).join(' ');
   if(ids)input.setAttribute('aria-describedby',ids);
