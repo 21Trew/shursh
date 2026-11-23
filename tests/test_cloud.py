@@ -154,6 +154,90 @@ def test_auth_releases_db_connection_before_upstream(application, monkeypatch):
     assert client.post('/api/logout',base_url=BASE,json={}).status_code==200
 
 
+
+def test_auth_input_validation_rejects_bad_data_before_upstream(application, monkeypatch):
+    """Protect the auth boundary even when JavaScript validation is bypassed."""
+    from cloud import auth
+    from cloud.backend import valid_auth_email, valid_auth_password, valid_signup_name
+    from server import ApiError
+
+    assert valid_auth_email(' Name+tag@Example.COM ') == 'name+tag@example.com'
+    assert valid_signup_name('  Анна  ') == 'Анна'
+    assert valid_auth_password('secure-passphrase') == 'secure-passphrase'
+    for address in ('x', 'john..doe@example.com', 'a@-example.com',
+                    'a@example.c', 'a@domain..com', 'demo@shursh.local'):
+        with pytest.raises(ApiError):
+            valid_auth_email(address)
+    for name in ('', '    ', 'a' * 41, 'ok\nInjected'):
+        with pytest.raises(ApiError):
+            valid_signup_name(name)
+
+    def unexpected_upstream(*args, **kwargs):
+        raise AssertionError('Malformed credentials reached upstream Auth')
+    monkeypatch.setattr(auth, 'auth_request', unexpected_upstream)
+    client=application.test_client()
+    attempts=[
+        ('/api/register',{'name':'','email':'good@example.com','password':'valid-password'}),
+        ('/api/register',{'name':'Гость','email':'not-an-email','password':'valid-password'}),
+        ('/api/register',{'name':'Гость','email':'good@example.com','password':'short'}),
+        ('/api/register',{'name':'bad\nname','email':'good@example.com','password':'valid-password'}),
+        ('/api/login',{'email':'invalid','password':'valid-password'}),
+        ('/api/login',{'email':'good@example.com','password':'short'}),
+    ]
+    for path,payload in attempts:
+        response=client.post(path,base_url=BASE,json=payload)
+        assert response.status_code==400,(path,response.status_code)
+        assert 'Set-Cookie' not in response.headers
+        assert response.json.get('error')
+
+
+@pytest.mark.browser
+def test_browser_auth_inline_validation_and_password_confirmation(browser_http):
+    from playwright.sync_api import sync_playwright, expect
+
+    with sync_playwright() as play:
+        for engine in (play.chromium, play.webkit):
+            browser=engine.launch(headless=True)
+            try:
+                page=browser.new_page(viewport={'width':390,'height':844})
+                posts=[]
+                page.on('request',lambda req: posts.append(req.url.rsplit('/',1)[-1])
+                        if req.method=='POST' and req.url.endswith(('/api/login','/api/register')) else None)
+                page.goto(browser_http+'/')
+                page.locator('header [data-open="login"]').click()
+                page.locator('.modal-fixed-footer [data-open="register"]').click()
+                expect(page.locator('#fld-confirm_password')).to_be_visible()
+                page.locator('.modal-fixed-footer [type=submit]').click()
+                expect(page.locator('#auth-error-name')).to_have_text('Укажи имя')
+                expect(page.locator('#auth-error-email')).to_have_text('Укажи почту')
+                expect(page.locator('#auth-error-password')).to_have_text('Введи пароль')
+                expect(page.locator('#auth-error-confirm_password')).to_have_text('Повтори пароль')
+                assert page.locator('#fld-email').get_attribute('aria-invalid')=='true'
+                assert not posts, 'Invalid form must not call Auth API'
+
+                page.locator('#fld-name').fill('Анна')
+                page.locator('#fld-email').fill('not-email')
+                page.locator('#fld-password').fill('short')
+                page.locator('#fld-confirm_password').fill('different')
+                page.locator('.modal-fixed-footer [type=submit]').click()
+                expect(page.locator('#auth-error-email')).to_have_text('Проверь адрес электронной почты')
+                expect(page.locator('#auth-error-password')).to_have_text('Пароль должен содержать от 8 до 200 символов')
+                expect(page.locator('#auth-error-confirm_password')).to_have_text('Пароли не совпадают')
+                assert not posts
+
+                page.locator('#fld-email').fill('OWNER@EXAMPLE.TEST')
+                page.locator('#fld-password').fill('valid-password')
+                page.locator('#fld-confirm_password').fill('valid-password')
+                expect(page.locator('#auth-error-email')).to_be_hidden()
+                page.locator('.modal-fixed-footer [type=submit]').click()
+                expect(page.get_by_role('dialog')).to_contain_text('Проверь почту',timeout=10000)
+                assert posts==['register']
+                assert page.evaluate('document.documentElement.scrollWidth<=innerWidth+2')
+                page.close()
+            finally:
+                browser.close()
+
+
 def test_auth_and_session(application):
     c=application.test_client()
     assert call(c,'GET','/api/me').json == {'user':None,'demo':False}
@@ -635,6 +719,7 @@ def test_browser_register_wishlist_reservation_and_isolation(browser_http):
             assert page.locator('#fld-password').get_attribute('type')=='password'
             page.locator('[data-password-visibility]').click()
             page.locator('#fld-password').fill('valid-password')
+            page.locator('#fld-confirm_password').fill('valid-password')
             page.locator('#modal-form button[type="submit"], .modal-fixed-footer button[type="submit"]').click()
             expect(page.get_by_role('dialog')).to_contain_text('Проверь почту')
             expect(page.locator('.auth-confirm-card')).to_be_visible()
