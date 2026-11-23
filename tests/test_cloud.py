@@ -820,7 +820,7 @@ def test_browser_santa_invites_draw_and_private_reveals(browser_http):
                 expect(guest).to_have_url(re.compile(r'/p/[A-Za-z0-9_-]+$'))
 
                 expect(guest.locator('#game-chat [data-chat-room="general"]')).to_be_visible()
-                guest.locator('[data-action="edit-santa-preferences"]').click()
+                guest.locator('#santa-preferences-display > button[data-action="edit-santa-preferences"]').click()
                 expect(guest.locator('#santa-preferences-form')).to_be_visible()
                 guest.locator('#santa-preferences-form #fld-wanted').fill('Красный цвет, точная модель')
                 guest.locator('#santa-preferences-form #fld-unwanted').fill('Не нужен пластик')
@@ -1809,7 +1809,7 @@ def test_browser_santa_preferences_readonly_until_edit_and_mobile_density(browse
             expect(page.locator('#santa-preferences-form')).to_be_hidden()
             expect(page.locator('#santa-preferences-display')).to_contain_text('Что хотелось бы')
             expect(page.locator('#santa-preferences-display')).to_contain_text('Чего не хотелось бы')
-            page.locator('[data-action="edit-santa-preferences"]').click()
+            page.locator('#santa-preferences-display > button[data-action="edit-santa-preferences"]').click()
             expect(page.locator('#santa-preferences-form')).to_be_visible()
             expect(page.locator('#santa-preferences-display')).to_be_hidden()
             page.locator('#santa-preferences-form [name="wanted"]').fill('Настольные игры')
@@ -2347,7 +2347,7 @@ def test_browser_ux_fixes_avatar_gift_placeholder_and_admin_directory(browser_ht
             row=page.locator('.person-row[data-santa-profile]').first
             assert row.count()==1 and row.get_attribute('title') is None
             page.locator('header .header-avatar').click()
-            expect(page.locator('main h1')).to_contain_text('Мой профиль')
+            expect(page.locator('.social-page-heading h1')).to_contain_text('Мой профиль')
             page.locator('button.profile-avatar-edit').click()
             expect(page.get_by_role('dialog',name='Изменить аватарку')).to_be_visible()
             page.locator('[data-avatar-pick="🦊"]').click()

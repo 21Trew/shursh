@@ -20,7 +20,7 @@ from test_cloud import browser_http, browser_login, application, db_setup
 
 ROUTES = (
     ("/", "С возвращением", 'header .nav [data-nav="/"]'),
-    ("/lists", "Твои вишлисты", 'header .nav [data-nav="/lists"]'),
+    ("/lists", "Вишлисты", 'header .nav [data-nav="/lists"]'),
     ("/santas", "Тайный Санта", 'header .nav [data-nav="/santas"]'),
     ("/friends", "Друзья", 'header .nav [data-nav="/friends"]'),
     ("/profile", "Мой профиль", 'header .nav [data-nav="/profile"]'),
