@@ -1167,7 +1167,7 @@ def test_cookie_notice_responsive_alignment_chromium_and_webkit(browser_https):
                             const b=btn.getBoundingClientRect();
                             const lines=[...msg.children].map(x=>{
                                 const rect=x.getBoundingClientRect(), css=getComputedStyle(x);
-                                return {width:rect.width,height:rect.height,
+                                return {width:rect.width,height:rect.height,left:rect.left,
                                   centerX:rect.x+rect.width/2,overflow:x.scrollWidth>x.clientWidth+1,
                                   lineHeight:parseFloat(css.lineHeight)};
                             });
@@ -1178,7 +1178,9 @@ def test_cookie_notice_responsive_alignment_chromium_and_webkit(browser_https):
                               gap:parseFloat(s.gap)||0,
                               contentWidth:r.width-parseFloat(s.paddingLeft)-parseFloat(s.paddingRight)-
                                 parseFloat(s.borderLeftWidth)-parseFloat(s.borderRightWidth),
-                              textWidth:m.width,textCenterX:m.x+m.width/2,
+                              textWidth:m.width,textLeft:m.left,textCenterX:m.x+m.width/2,
+                              textAlign:getComputedStyle(msg).textAlign,
+                              justifyItems:getComputedStyle(msg).justifyItems,
                               textCenterY:m.y+m.height/2,
                               buttonWidth:b.width,buttonHeight:b.height,
                               buttonCenterX:b.x+b.width/2,buttonCenterY:b.y+b.height/2,
@@ -1193,7 +1195,8 @@ def test_cookie_notice_responsive_alignment_chromium_and_webkit(browser_https):
                         assert all(not line["overflow"] for line in metrics["lines"]),(engine,width,metrics)
                         assert all(abs(line["height"]-line["lineHeight"])<=2
                                    for line in metrics["lines"]),(engine,width,metrics)
-                        assert all(abs(line["centerX"]-metrics["textCenterX"])<=1
+                        assert metrics["textAlign"]=="left" and metrics["justifyItems"]=="start",(engine,width,metrics)
+                        assert all(abs(line["left"]-metrics["textLeft"])<=1
                                    for line in metrics["lines"]),(engine,width,metrics)
                         if width<=400:
                             assert metrics["flexDirection"]=="column",(engine,width,metrics)
