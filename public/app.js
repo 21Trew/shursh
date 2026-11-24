@@ -1323,7 +1323,7 @@ function otpStartModal(email='',recover=false){
   onSubmit:async form=>{
    clearAuthFormWarning(form);
    const value=form.elements.email.value.trim().toLowerCase();
-   await api('/api/auth/start',{method:'POST',body:{email:value}});
+   await api('/api/auth/start',{method:'POST',body:{email:value,purpose:'recover'}});
    if(form.isConnected)otpCodeModal(value,recover);
   },
   footer:'Уже есть аккаунт? <button type="button" data-open="login" data-email="'+attr(email)+'">Войти с паролем</button>'
@@ -1333,7 +1333,7 @@ function otpStartModal(email='',recover=false){
 function otpCodeModal(email,recover,registration=null){
  // Registration credentials remain only in this modal's ephemeral closure.
  // No localStorage, sessionStorage, URL, or server-side pending password.
- const startPayload=()=>registration?{email,name:registration.name,password:registration.password,confirm_password:registration.password,purpose:'register'}:{email};
+ const startPayload=()=>registration?{email,name:registration.name,password:registration.password,confirm_password:registration.password,purpose:'register'}:{email,purpose:'recover'};
  modal({title:'Проверь почту 💌',subtitle:'Введи шесть цифр из письма на '+email,
   content:field('Код из письма','code','000000','text','',true,'inputmode="numeric" autocomplete="one-time-code" pattern="[0-9]{6}" maxlength="6"')+
    '<p class="auth-confirm-help">Если письмо не пришло, проверь «Спам». Новый код можно запросить через минуту</p>'+authFormWarning(),
@@ -1405,7 +1405,7 @@ function otpPasswordModal(email,setup){
     if(form.isConnected)loginModal('login',email);
    }else await authSuccess(result,true);
   },
-  footer:'<button type="button" data-open="register" data-email="'+attr(email)+'">Запросить новый код</button>'
+  footer:'<button type="button" data-open="'+(setup?'register':'recover')+'" data-email="'+attr(email)+'">Запросить новый код</button>'
  });
  setupAuthFormValidation(modalRoot.querySelector('#modal-form'),true);
 }

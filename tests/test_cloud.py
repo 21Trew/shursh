@@ -2789,7 +2789,12 @@ def vnext_application(application,monkeypatch):
         seen.append(action)
         email=payload.get('email')
         if action=='otp':
-            assert payload['create_user'] is True
+            assert isinstance(payload['create_user'],bool)
+            seen.append(('otp-create',payload['create_user']))
+            if email not in ids and payload['create_user']:
+                ids[email]=uuid4()
+                with psycopg.connect(os.environ['SHURSH_DATABASE_URL']) as con:
+                    con.execute('INSERT INTO auth.users(id) VALUES(%s)',(ids[email],))
             return {}
         if action=='otp_verify':
             if payload['token']!='123456' or email not in ids or email in verified:
@@ -3060,3 +3065,31 @@ def test_vnext_registration_existing_email_does_not_replace_password(browser_htt
             assert page.evaluate("fetch('/api/me').then(r=>r.json()).then(r=>r.user===null)")
         finally:
             browser.close()
+
+def test_vnext_recovery_unknown_email_never_creates_identity(vnext_application):
+    app,seen,_=vnext_application
+    with psycopg.connect(os.environ['SHURSH_DATABASE_URL']) as con:
+        before=con.execute('SELECT count(*) FROM auth.users').fetchone()[0]
+    known=call(app.test_client(),'POST','/api/auth/start',{'email':'owner@example.test','purpose':'recover'},202)
+    missing=app.test_client()
+    unknown=call(missing,'POST','/api/auth/start',{'email':'absent-recovery@example.test','purpose':'recover'},202)
+    assert known.json==unknown.json
+    assert seen.count(('otp-create',False))==2
+    assert ('otp-create',True) not in seen
+    call(missing,'POST','/api/auth/verify',{'email':'absent-recovery@example.test','code':'123456'},400)
+    with psycopg.connect(os.environ['SHURSH_DATABASE_URL']) as con:
+        assert con.execute('SELECT count(*) FROM auth.users').fetchone()[0]==before
+
+
+def test_vnext_explicit_registration_can_provision_identity(vnext_application):
+    app,seen,_=vnext_application
+    c=app.test_client()
+    data={'email':'absent-register@example.test','purpose':'register','name':'New friend',
+          'password':'valid-new-password','confirm_password':'valid-new-password'}
+    with psycopg.connect(os.environ['SHURSH_DATABASE_URL']) as con:
+        before=con.execute('SELECT count(*) FROM auth.users').fetchone()[0]
+    call(c,'POST','/api/auth/start',data,202)
+    assert ('otp-create',True) in seen
+    with psycopg.connect(os.environ['SHURSH_DATABASE_URL']) as con:
+        assert con.execute('SELECT count(*) FROM auth.users').fetchone()[0]==before+1
+    assert call(c,'GET','/api/me').json['user'] is None

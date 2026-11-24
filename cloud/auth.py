@@ -61,7 +61,7 @@ def auth_request(action, **payload):
                     details={}
                 if isinstance(details,dict) and details.get('error_code') in (
                         'user_already_exists','email_exists','user_not_found',
-                        'signup_disabled','email_not_confirmed','user_banned'):
+                        'signup_disabled','otp_disabled','email_not_confirmed','user_banned'):
                     return {}
             raise ApiError(503, 'Не удалось запросить код. Попробуй позже') from None
         if action == 'resend':

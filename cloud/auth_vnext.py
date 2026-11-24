@@ -132,7 +132,10 @@ def start(handler):
     key=address_key(email)
     handler.throttled('otp-send-ip',8,600)
     handler.throttled('otp-send-email',3,600,identity=email)
-    if data.get('purpose')=='register':
+    purpose=data.get('purpose','recover')
+    if purpose not in ('register','recover'):
+        raise ApiError(400,'Неизвестный способ подтверждения')
+    if purpose=='register':
         # Validate before sending mail. Never persist a proposed password or
         # assign it to the provider until the same browser verifies the OTP.
         valid_signup_name(data.get('name'))
@@ -161,9 +164,9 @@ def start(handler):
            LIMIT 50 FOR UPDATE SKIP LOCKED)""",(now,))
     db.close_request_connection()
     try:
-        # Same native OTP request for new/existing/recovery addresses. A new
-        # provider identity may exist before proof, but never an app profile.
-        auth.auth_request('otp',email=email,create_user=True)
+        # Recovery must never provision a provider identity. A registration
+        # may create a provisional identity but never an app profile.
+        auth.auth_request('otp',email=email,create_user=(purpose=='register'))
     except ApiError:
         with db.transaction(write=True,rate_limit=True) as con:
             con.execute("UPDATE shursh_auth_private.challenge SET state='consumed' WHERE challenge_hash=? AND state='sending'",(digest,))
