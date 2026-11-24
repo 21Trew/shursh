@@ -1353,7 +1353,7 @@ function authEmailIssue(value){
  if(Array.from(email).length>200)return 'Адрес почты слишком длинный';
  if(/\s/.test(email))return 'Убери пробелы из адреса';
  if(/[\u0000-\u001f\u007f]/.test(email))return 'Убери управляющие символы из адреса';
- if(email.includes(','))return 'Убери запятую из адреса. Если это опечатка, замени её на точку';
+ if(email.includes(','))return 'Убери запятую из адреса';
  if(email.includes('"'))return 'Убери двойные кавычки из адреса';
  if(/[()[\]<>]/.test(email))return 'Убери скобки из адреса';
  if(email.includes(':'))return 'Убери двоеточие из адреса';

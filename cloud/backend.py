@@ -29,7 +29,7 @@ def valid_auth_email(raw):
     if len(email)>200: reject('Адрес почты слишком длинный')
     if any(ch.isspace() for ch in email): reject('Убери пробелы из адреса')
     if any(ord(ch)<32 or ord(ch)==127 for ch in email): reject('Убери управляющие символы из адреса')
-    if ',' in email: reject('Убери запятую из адреса. Если это опечатка, замени её на точку')
+    if ',' in email: reject('Убери запятую из адреса')
     if '"' in email: reject('Убери двойные кавычки из адреса')
     if any(ch in '()[]<>' for ch in email): reject('Убери скобки из адреса')
     if ':' in email: reject('Убери двоеточие из адреса')
