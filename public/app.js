@@ -1247,8 +1247,13 @@ function passwordLengthIssue(value){
 function passwordAdvice(value,score=null,reason=''){
  if(!value)return '';
  const issue=newPasswordIssue(value);
- // Required fixes take priority over optional strength tips.
- if(issue)return issue==='Убери русские буквы из пароля'?passwordLengthIssue(value):'';
+ // Mandatory errors block submission, never the help for replacing the password.
+ if(issue){
+  if(/[А-Яа-яЁё]/.test(value))return 'Варианты без русских букв';
+  if(new TextEncoder().encode(value).length>72)return 'Более короткие варианты';
+  if(Array.from(value).length<8)return 'Подходящие варианты от 8 символов';
+  return 'Варианты без недопустимых символов';
+ }
  const missing=[];
  if(!/[a-z]/.test(value))missing.push('1 строчную латинскую букву');
  if(!/[A-Z]/.test(value))missing.push('1 заглавную латинскую букву');
@@ -1301,6 +1306,14 @@ function renderPasswordSuggestions(input,show=false){
  const panel=input.closest('.password-field')?.querySelector('[data-password-suggestions]');
  if(!panel)return false;
  const previous=suggestionObservers.get(input);
+ const hint=input.closest('.password-field')?.querySelector('#password-hint');
+ const visibility=input.type==='text'?'visible':'masked';
+ if(show&&passwordSuggestions.has(input)&&!panel.hidden&&panel.dataset.visibility===visibility&&panel.firstChild){
+  const shown=!!panel.querySelector('button:not([hidden])');
+  const advice=hint?.textContent?.replace(/, например:$/,'')||'';
+  if(advice)setPasswordHint(hint,advice+(shown?', например:':''));
+  return shown;
+ }
  if(previous){previous.disconnect();suggestionObservers.delete(input);}
  if(!show||!window.crypto?.getRandomValues){
   passwordSuggestions.delete(input);panel.replaceChildren();panel.hidden=true;return false;
@@ -1316,8 +1329,7 @@ function renderPasswordSuggestions(input,show=false){
   button.textContent=input.type==='text'?value:'Вариант '+(index+1);
   return button;
  });
- panel.replaceChildren(...buttons);panel.hidden=false;
- const hint=input.closest('.password-field')?.querySelector('#password-hint');
+ panel.replaceChildren(...buttons);panel.dataset.visibility=visibility;panel.hidden=false;
  let lastWidth=-1;
  const fit=()=>{
   if(!input.isConnected){previous?.disconnect();suggestionObservers.get(input)?.disconnect();suggestionObservers.delete(input);return;}
@@ -1383,8 +1395,9 @@ function pumpStrengthWorker(){
      else if(Number.isInteger(score)&&score>=0&&score<=4){
       renderPasswordStrength(active.input,Math.max(1,score));
       const hint=active.input.closest('.password-field')?.querySelector('#password-hint');
-      if(hint&&hint.dataset.generated!=='true')setPasswordHint(hint,passwordAdvice(active.input.value,score,event.data.reason));
-      renderPasswordSuggestions(active.input,score<=1&&hint?.dataset.generated!=='true');
+      const advice=hint?.dataset.generated==='true'?'':passwordAdvice(active.input.value,score,event.data.reason);
+      if(hint&&hint.dataset.generated!=='true')setPasswordHint(hint,advice);
+      renderPasswordSuggestions(active.input,!!advice);
      }
      else strengthUnavailable(active);
     }
@@ -1408,9 +1421,13 @@ function updatePasswordStrength(input){
  // The server rejects passwords outside the bcrypt boundary. Do not score
  // an arbitrarily truncated prefix or retain long invalid input in the queue.
  if(!input.value){renderPasswordStrength(input,0);return;}
+ const advice=passwordAdvice(input.value);
  if(newPasswordIssue(input.value)){
-  renderPasswordStrength(input,0,'Не подходит');return;
+  renderPasswordStrength(input,0,'Не подходит');
+  renderPasswordSuggestions(input,!!advice);return;
  }
+ // Missing classes can be diagnosed immediately, even without the worker.
+ if(advice)renderPasswordSuggestions(input,true);
  const indicator=input.closest('.password-field')?.querySelector('[data-password-strength]');
  if(indicator?.querySelector('[data-password-strength-label]')?.textContent==='Не подходит')
   renderPasswordStrength(input,0,'Оценка…');
@@ -1693,7 +1710,9 @@ function setupAuthFormValidation(form,register){
   if(!node&&field){
    node=document.createElement('p');
    node.id=id;node.className='auth-field-error';node.setAttribute('aria-live','polite');
-   node.hidden=true;field.append(node);
+   node.hidden=true;
+   const passwordHint=field.querySelector('#password-hint');
+   if(passwordHint)field.insertBefore(node,passwordHint);else field.append(node);
   }
   if(node){node.textContent=message;node.hidden=!message;}
   if(message)input.setAttribute('aria-invalid','true');
@@ -1737,7 +1756,8 @@ function setupAuthFormValidation(form,register){
    // Auth fields use type=text + inputmode=email so the browser cannot
    // silently convert a Unicode domain to Punycode before this check.
    if(input.name==='email'&&input.value)touched.add(input.name);
-   if(touched.has(input.name)||(newPassword&&input.value))validate(input);
+   if(newPassword&&input.value)touched.add(input.name);
+   if(touched.has(input.name)||newPassword&&input.value)validate(input);
    if(register&&['password','new_password'].includes(input.name)&&touched.has('confirm_password')){
     validate(form.elements.confirm_password);
    }

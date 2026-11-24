@@ -274,6 +274,8 @@ def test_browser_auth_inline_validation_and_password_confirmation(browser_http):
                 page.locator('.modal-fixed-footer [type=submit]').click()
                 expect(page.locator('#auth-error-email')).to_have_text('Добавь знак @')
                 expect(page.locator('#auth-error-password')).to_have_text('Добавь ещё 3 символа')
+                expect(page.locator('#password-hint')).to_have_text('Подходящие варианты от 8 символов, например:')
+                expect(page.locator('[data-password-suggestions] button:visible').first).to_be_visible()
                 expect(page.locator('#auth-error-confirm_password')).to_have_text('Пароли не совпадают')
                 assert not posts
 

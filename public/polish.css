@@ -830,3 +830,13 @@ input[type="checkbox"]:not(.shursh-checkbox input):checked::after{content:"✓";
 @media(prefers-reduced-motion:reduce){
  #modal-form .password-strength,#modal-form .password-strength-bars i::after,#modal-form .password-strength p{transition:none!important}
 }
+
+/* Reduced motion is a discrete state, independent of custom-property transition
+   cancellation timing in either browser. */
+@media(prefers-reduced-motion:reduce){
+ #modal-form .password-strength-bars i::after{transform:scaleX(0)!important}
+ #modal-form .password-strength[data-level="1"] i:nth-child(1)::after,
+ #modal-form .password-strength[data-level="2"] i:nth-child(-n+2)::after,
+ #modal-form .password-strength[data-level="3"] i:nth-child(-n+3)::after,
+ #modal-form .password-strength[data-level="4"] i::after{transform:scaleX(1)!important}
+}

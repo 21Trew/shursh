@@ -7,7 +7,7 @@ The bundled license is retained; the unused source-map directive is removed.
 The static asset is self-hosted and loaded by a Web Worker only after input
 in a new-password field. No initial page or ordinary login bundle growth from
 the library. No CDN, runtime npm install, CSP relaxation or external password
-estimation service. Worker replies contain only request ID, score and a coarse reason code, never matched substrings. Weak valid passwords can display up to six cryptographically generated replacements; the number visible is maximized by selecting the shortest measured tag widths that fit the available row, including spacing. Candidate length and character-class mix depend on the typed input, with all required recommendation groups represented, but literal input fragments are never copied. They are stored only in a WeakMap, masked when the input is masked, and cleared on edits. Selecting one fills both password fields without changing the current visibility.
+estimation service. Worker replies contain only request ID, score and a coarse reason code, never matched substrings. Nonempty invalid passwords and valid passwords with missing groups or a weak score can display up to six cryptographically generated replacements; the number visible is maximized by selecting the shortest measured tag widths that fit the available row, including spacing. Candidate length and character-class mix depend on the typed input, with all required recommendation groups represented, but literal input fragments are never copied. They are stored only in a WeakMap, masked when the input is masked, and cleared on edits. Selecting one fills both password fields without changing the current visibility.
 Debounced, one in-flight estimate with latest-only queued input; obsolete
 results are ignored. Empty/overlong inputs clear the meter. Worker errors
 clear the estimate rather than guessing; an unresponsive worker is terminated
@@ -28,7 +28,7 @@ This is distinct from a weak but policy-compliant zxcvbn score. Character classe
 Mandatory shape checks still enforce eight characters and the existing bcrypt
 boundary, and reject Russian letters (А–Я, а–я, Ё, ё), controls and invalid
 Unicode. Existing passwords are unaffected by the new-letter restriction on login.
-Advice lists only missing character classes, never claims uniqueness and hides on valid passwords with all groups unless the estimator reports a weak pattern. Mandatory length feedback reports the exact remaining character count. Cyrillic and other mandatory errors take precedence over optional tips. Previously agreed HIBP
+Advice lists only missing character classes, never claims uniqueness and hides on valid passwords with all groups unless the estimator reports a weak pattern. Mandatory length feedback reports the exact remaining character count. Mandatory errors remain visible above replacement suggestions; a short or Cyrillic password must never suppress help. No suggestions are shown for an empty input. Previously agreed HIBP
 breach blocking is separate from strength advice and remains unchanged.
 Email-format feedback uses matching reason-specific checks in browser and
 hosted backend. The supported address format is unquoted ASCII local part

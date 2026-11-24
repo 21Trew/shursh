@@ -1485,8 +1485,29 @@ def test_auth_character_highlight_responsive(browser_https):
                         for count,word in ((7,'символов'),(6,'символов'),(5,'символов'),(4,'символа'),(3,'символа'),(2,'символа'),(1,'символ')):
                             password.fill('a'*(8-count))
                             expect(page.locator('#auth-error-password')).to_have_text(f'Добавь ещё {count} {word}')
-                            expect(hint).to_be_hidden()
+                            expect(hint).to_have_text('Подходящие варианты от 8 символов, например:')
+                            expect(page.locator('[data-password-suggestions] button:visible').first).to_be_visible()
+                            expect(page.locator('[data-password-strength-label]')).to_have_text('Не подходит')
+                        # Reproduce a six-character mixed password (synthetic fixture).
+                        password.fill('7u#nQZ')
+                        expect(page.locator('#auth-error-password')).to_have_text('Добавь ещё 2 символа')
+                        expect(hint).to_have_text('Подходящие варианты от 8 символов, например:')
+                        short_panel=page.locator('[data-password-suggestions]')
+                        toggle.click()
+                        short_option=short_panel.locator('button:visible').first
+                        candidate=short_option.inner_text()
+                        assert len(candidate)>=8 and candidate!='7u#nQZ'
+                        assert short_panel.evaluate('p=>p.scrollWidth<=p.clientWidth+1')
                         field.screenshot(path=str(output/f'{engine.name}-{width}-length.png'))
+                        short_option.click()
+                        expect(password).to_have_value(candidate)
+                        expect(page.locator('#fld-confirm_password')).to_have_value(candidate)
+                        expect(page.locator('#auth-error-password')).to_be_hidden()
+                        expect(short_panel).to_be_hidden()
+                        toggle.click()
+                        password.fill('')
+                        expect(short_panel).to_be_hidden()
+                        expect(hint).to_be_hidden()
                         for value,message in (
                             ('qvR!NtMkY@pLW','Добавь хотя бы 1 цифру, чтобы усилить пароль'),
                             ('qvr!ntmk9@plw','Добавь хотя бы 1 заглавную латинскую букву, чтобы усилить пароль'),
@@ -1495,6 +1516,8 @@ def test_auth_character_highlight_responsive(browser_https):
                             password.fill(value)
                             expect(hint).to_contain_text(message)
                             expect(hint).to_be_visible()
+                            expect(hint).to_contain_text(', например:')
+                            expect(page.locator('[data-password-suggestions] button:visible').first).to_be_visible()
                             expect(page.locator('#auth-error-password')).to_be_hidden()
                             assert hint.evaluate("h=>h.scrollWidth<=h.clientWidth+1")
                         password.fill('abcdefgh1')
@@ -1556,7 +1579,8 @@ def test_auth_character_highlight_responsive(browser_https):
                         expect(hint).to_be_hidden()
                         field.screenshot(path=str(output/f'{engine.name}-{width}-strong.png'))
                         password.fill('abЁcd123')
-                        expect(hint).to_be_hidden()
+                        expect(hint).to_have_text('Варианты без русских букв, например:')
+                        expect(page.locator('[data-password-suggestions] button:visible').first).to_be_visible()
                         expect(password).to_have_attribute('type','password')
                         expect(password).to_have_attribute('aria-invalid','true')
                         assert not password.evaluate(pixel_test)
