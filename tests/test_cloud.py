@@ -193,6 +193,7 @@ def test_auth_input_validation_rejects_bad_data_before_upstream(application, mon
         ("user\\name@example.com","Убери обратную косую черту из адреса"),
         ("почта@78.yy","Перед @ используй латинские буквы, цифры и допустимые знаки"),
         ("user@почта.ru","Используй латинские буквы после @"),
+        ("h@h.ю","Используй латинские буквы после @"),
         ("user@foo_bar.ru","Убери нижнее подчёркивание из домена"),
         ("user@example.123","Проверь окончание домена, например .ru или .com")):
         with pytest.raises(ApiError) as exc:
@@ -237,6 +238,17 @@ def test_browser_auth_inline_validation_and_password_confirmation(browser_http):
                 page.locator('header [data-open="login"]').click()
                 page.locator('.modal-fixed-footer [data-open="register"]').click()
                 expect(page.locator('#fld-confirm_password')).to_be_visible()
+                # Fresh modal, first edit: no blur or submit before error.
+                email=page.locator('#fld-email')
+                email.fill('h@h.ю')
+                expect(email).to_have_value('h@h.ю')
+                expect(email).to_be_focused()
+                expect(email).to_have_attribute('aria-invalid','true')
+                expect(page.locator('#auth-error-email')).to_have_text('Используй латинские буквы после @')
+                email.fill('user@example.test')
+                expect(page.locator('#auth-error-email')).to_be_hidden()
+                assert email.get_attribute('aria-invalid') is None
+                email.fill('')
                 page.locator('.modal-fixed-footer [type=submit]').click()
                 expect(page.locator('#auth-error-name')).to_have_text('Укажи имя')
                 expect(page.locator('#auth-error-email')).to_have_text('Укажи почту')

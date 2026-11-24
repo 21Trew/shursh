@@ -1332,7 +1332,7 @@ function confirmationModal(email){
 }
 function resendConfirmationModal(email=''){
  modal({title:'Повторить подтверждение',subtitle:'Если адрес ожидает подтверждения, отправим ещё одно письмо',
-  content:field('Почта','email','you@example.com','email',email,true,'autocomplete="email" maxlength="200"')+
+  content:field('Почта','email','you@example.com','text',email,true,'inputmode="email" autocomplete="email" autocapitalize="none" spellcheck="false" maxlength="200"')+
     '<p class="auth-confirm-help">Используй адрес, указанный при регистрации. Отправка нового письма может быть ограничена по частоте</p>'+authFormWarning(),
   onError:showAuthFormWarning,
   submitLabel:'Отправить письмо',
@@ -1431,6 +1431,7 @@ function setupAuthFormValidation(form,register){
   return message;
  };
  for(const input of inputs){
+  if(input.name==='email'&&input.value){touched.add(input.name);validate(input);}
   input.addEventListener('blur',event=>{
    // Modal footer controls are moved into a fixed rail. Creating an error while
    // pointer-down changes dialog height and can swallow a click on "Register".
@@ -1449,6 +1450,10 @@ function setupAuthFormValidation(form,register){
     }
    }
    if(newPassword)updatePasswordStrength(input);
+   // Check the raw email from the first nonempty input, before blur or submit.
+   // Auth fields use type=text + inputmode=email so the browser cannot
+   // silently convert a Unicode domain to Punycode before this check.
+   if(input.name==='email'&&input.value)touched.add(input.name);
    if(touched.has(input.name)||(newPassword&&input.value))validate(input);
    if(register&&['password','new_password'].includes(input.name)&&touched.has('confirm_password')){
     validate(form.elements.confirm_password);
@@ -1481,7 +1486,7 @@ async function authSuccess(result,register){
 function otpStartModal(email='',recover=false){
  modal({title:recover?'Восстановим доступ':'Давай знакомиться!',
   subtitle:'Сначала подтверди свою почту',
-  content:field('Почта','email','you@example.com','email',email,true,'autocomplete="email" maxlength="200"')+authFormWarning(),
+  content:field('Почта','email','you@example.com','text',email,true,'inputmode="email" autocomplete="email" autocapitalize="none" spellcheck="false" maxlength="200"')+authFormWarning(),
   onError:showAuthFormWarning,submitLabel:'Получить код',
   onSubmit:async form=>{
    clearAuthFormWarning(form);
@@ -1582,7 +1587,7 @@ function loginModal(mode='login',email=''){
  modal({title:register?'Давай знакомиться!':'С возвращением!',
   subtitle:pendingGameClaim?'После входа сохраним эту игру в твоём аккаунте':register?'Создай аккаунт, чтобы хранить свои списки и организовывать игры':'Твои желания уже соскучились',
   content:(register?field('Как тебя зовут?','name','Например, Саша','text','',true,'maxlength="40" autocomplete="name"'):'')+
-   field('Почта','email','you@example.com','email',email,true,'autocomplete="email" maxlength="200"')+passwordField(register)+
+   field('Почта','email','you@example.com','text',email,true,'inputmode="email" autocomplete="email" autocapitalize="none" spellcheck="false" maxlength="200"')+passwordField(register)+
    (register?confirmPasswordField():'')+authFormWarning(),
   onError:showAuthFormWarning,
   submitLabel:register?'Создать аккаунт':'Войти',

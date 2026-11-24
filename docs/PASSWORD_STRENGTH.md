@@ -33,3 +33,9 @@ hosted backend. The supported address format is unquoted ASCII local part
 and ASCII DNS domain (including punycode); commas, Cyrillic and other
 unsupported characters are rejected. The OTP, not syntax, verifies ownership.
 No DNS lookup or TLD allowlist is added to form validation.
+
+Auth email inputs preserve the raw typed address (`type=text`, `inputmode=email`,
+`autocomplete=email`), preventing browser IDN normalization from hiding Cyrillic
+from the app's ASCII validator. Nonempty email edits validate immediately;
+empty untouched fields stay neutral. Both browser regression tests exercise
+an invalid first edit while the field remains focused.

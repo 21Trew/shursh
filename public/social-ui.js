@@ -166,7 +166,7 @@ async function socialAccountModal(kind){
  if(authVnext&&!email){loginModal('recover',currentUser?.email||'');return;}
  modal({title:email?'Изменить почту':'Изменить пароль',subtitle:'Для защиты аккаунта сначала подтверди текущий пароль',
   content:field('Текущий пароль','current_password','Твой текущий пароль','password','',true,'autocomplete="current-password" minlength="8" maxlength="200"')+
-   (email?field('Новая почта','email','new@example.com','email','',true,'autocomplete="email" maxlength="200"'):
+   (email?field('Новая почта','email','new@example.com','text','',true,'inputmode="email" autocomplete="email" autocapitalize="none" spellcheck="false" maxlength="200"'):
     passwordField(true,'new_password','Новый пароль')+confirmPasswordField())+authFormWarning(),
   onError:showAuthFormWarning,
   submitLabel:email?'Отправить подтверждение':'Обновить пароль',onSubmit:async form=>{
