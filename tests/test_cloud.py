@@ -24,9 +24,10 @@ def db_setup():
     cfg = conninfo_to_dict(dsn)
     assert cfg.get('host') in ('localhost', '127.0.0.1') and cfg.get('dbname') == 'shursh_ci', 'Refusing non-CI database'
     with psycopg.connect(dsn, autocommit=True) as con:
-        con.execute('CREATE ROLE anon NOLOGIN; CREATE ROLE authenticated NOLOGIN; CREATE ROLE service_role NOLOGIN BYPASSRLS; CREATE SCHEMA auth; CREATE TABLE auth.users(id uuid PRIMARY KEY, encrypted_password text, email_confirmed_at timestamptz)')
+        con.execute('CREATE ROLE anon NOLOGIN; CREATE ROLE authenticated NOLOGIN; CREATE ROLE service_role NOLOGIN BYPASSRLS; CREATE SCHEMA auth; CREATE TABLE auth.users(id uuid PRIMARY KEY, encrypted_password text, email_confirmed_at timestamptz, confirmed_at timestamptz, created_at timestamptz, updated_at timestamptz, confirmation_sent_at timestamptz, recovery_sent_at timestamptz, email_change_sent_at timestamptz, reauthentication_sent_at timestamptz, phone_confirmed_at timestamptz, last_sign_in_at timestamptz, invited_at timestamptz, deleted_at timestamptz, banned_until timestamptz, is_anonymous boolean, is_sso_user boolean, is_super_admin boolean, phone text, email_change text, email text, raw_app_meta_data jsonb); CREATE TABLE auth.identities(user_id uuid REFERENCES auth.users(id) ON DELETE CASCADE, provider text, identity_data jsonb, created_at timestamptz, updated_at timestamptz); CREATE TABLE auth.one_time_tokens(user_id uuid REFERENCES auth.users(id) ON DELETE CASCADE, created_at timestamptz, updated_at timestamptz); CREATE TABLE auth.sessions(user_id uuid REFERENCES auth.users(id) ON DELETE CASCADE); CREATE TABLE auth.refresh_tokens(user_id text); CREATE SCHEMA storage; CREATE TABLE storage.objects(owner uuid, owner_id text)')
         for migration in sorted((ROOT/'supabase/migrations').glob('*.sql')):
             con.execute(migration.read_text())
+        con.execute((ROOT/'supabase/auth_cleanup_candidate.sql').read_text())
         for uid in IDS.values():
             con.execute('INSERT INTO auth.users(id) VALUES(%s)', (uid,))
     yield
@@ -3093,3 +3094,52 @@ def test_vnext_explicit_registration_can_provision_identity(vnext_application):
     with psycopg.connect(os.environ['SHURSH_DATABASE_URL']) as con:
         assert con.execute('SELECT count(*) FROM auth.users').fetchone()[0]==before+1
     assert call(c,'GET','/api/me').json['user'] is None
+
+def test_cleanup_only_abandoned_unconfirmed_signups(application):
+    from uuid import uuid4
+    with psycopg.connect(os.environ['SHURSH_DATABASE_URL']) as con:
+        ids={k:uuid4() for k in ('stale','fresh','confirmed','recent','profile','session','storage','other_provider','refresh','invited','token','future_fk')}
+        for k,uid in ids.items():
+            con.execute("""INSERT INTO auth.users(id,email,created_at,updated_at,confirmation_sent_at,raw_app_meta_data)
+                VALUES(%s,%s,now()-interval '26 hours',now()-interval '26 hours',now()-interval '26 hours',
+                '{"provider":"email","providers":["email"]}')""",(uid,k+'@example.test'))
+        con.execute("UPDATE auth.users SET created_at=now() WHERE id=%s",(ids['fresh'],))
+        con.execute("UPDATE auth.users SET email_confirmed_at=now(),confirmed_at=now() WHERE id=%s",(ids['confirmed'],))
+        con.execute("UPDATE auth.users SET confirmation_sent_at=now() WHERE id=%s",(ids['recent'],))
+        con.execute("UPDATE auth.users SET invited_at=now()-interval '26 hours' WHERE id=%s",(ids['invited'],))
+        con.execute("INSERT INTO public.profiles(id,name) VALUES(%s,'Protected')",(ids['profile'],))
+        con.execute("INSERT INTO auth.sessions(user_id) VALUES(%s)",(ids['session'],))
+        con.execute("INSERT INTO storage.objects(owner_id) VALUES(%s)",(str(ids['storage']),))
+        con.execute("INSERT INTO auth.refresh_tokens(user_id) VALUES(%s)",(str(ids['refresh']),))
+        con.execute("INSERT INTO auth.identities(user_id,provider,created_at) VALUES(%s,'google',now()-interval '26 hours')",(ids['other_provider'],))
+        con.execute("INSERT INTO auth.identities(user_id,provider,created_at,updated_at) VALUES(%s,'email',now()-interval '26 hours',now()-interval '26 hours')",(ids['stale'],))
+        con.execute("INSERT INTO auth.one_time_tokens(user_id,created_at) VALUES(%s,now())",(ids['token'],))
+        con.execute("CREATE TABLE public.cleanup_future_ref(uid uuid REFERENCES auth.users(id) ON DELETE CASCADE)")
+        con.execute("INSERT INTO public.cleanup_future_ref VALUES(%s)",(ids['future_fk'],))
+        assert con.execute("SELECT shursh_auth_private.cleanup_expired_signups(true)").fetchone()[0]==1
+        assert con.execute("SELECT count(*) FROM auth.users WHERE id=%s",(ids['stale'],)).fetchone()[0]==1
+        assert con.execute("SELECT shursh_auth_private.cleanup_expired_signups(false)").fetchone()[0]==1
+        remaining={row[0] for row in con.execute("SELECT id FROM auth.users WHERE id=ANY(%s)",(list(ids.values()),)).fetchall()}
+        assert remaining==set(ids.values())-{ids['stale']}
+        for role in ('anon','authenticated','shursh_backend'):
+            assert not con.execute("SELECT has_function_privilege(%s,'shursh_auth_private.cleanup_expired_signups(boolean)','EXECUTE')",(role,)).fetchone()[0]
+        con.rollback()
+
+
+def test_cleanup_skips_concurrent_confirmation(application):
+    from uuid import uuid4
+    uid=uuid4()
+    dsn=os.environ['SHURSH_DATABASE_URL']
+    with psycopg.connect(dsn) as con:
+        con.execute("""INSERT INTO auth.users(id,email,created_at,updated_at,raw_app_meta_data)
+            VALUES(%s,'race@example.test',now()-interval '26 hours',now()-interval '26 hours','{"provider":"email"}')""",(uid,))
+    try:
+        with psycopg.connect(dsn) as confirming, psycopg.connect(dsn) as cleanup:
+            confirming.execute("UPDATE auth.users SET email_confirmed_at=now(),confirmed_at=now() WHERE id=%s",(uid,))
+            assert cleanup.execute("SELECT shursh_auth_private.cleanup_expired_signups(false)").fetchone()[0]==0
+            confirming.commit()
+            assert cleanup.execute("SELECT shursh_auth_private.cleanup_expired_signups(false)").fetchone()[0]==0
+            assert cleanup.execute("SELECT email_confirmed_at IS NOT NULL FROM auth.users WHERE id=%s",(uid,)).fetchone()[0]
+    finally:
+        with psycopg.connect(dsn) as con:
+            con.execute("DELETE FROM auth.users WHERE id=%s",(uid,))
