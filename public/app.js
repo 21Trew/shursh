@@ -1307,8 +1307,8 @@ function updatePasswordStrength(input){
   strengthPending={id,input};pumpStrengthWorker();
  },60);
 }
-// One transition at a time. Input changes replace the target, not the
-// in-flight step, so rapid typing/backspace cannot start parallel fills.
+// One CSS progress value drives every segment. Retargeting starts from the
+// current interpolated value; no per-segment timers or queued animations.
 const passwordMeterMotion=new WeakMap();
 function renderPasswordStrength(input,target,status=''){
  const indicator=input.closest('.password-field')?.querySelector('[data-password-strength]');
@@ -1316,32 +1316,25 @@ function renderPasswordStrength(input,target,status=''){
  const node=indicator.querySelector('[data-password-strength-label]');
  const label=status||['','Слабый','Средний','Хороший','Надёжный'][target];
  if(node.textContent!==label)node.textContent=label;
- let motion=passwordMeterMotion.get(indicator);
- if(!motion){motion={target:0,timer:0,status:''};passwordMeterMotion.set(indicator,motion);}
- motion.target=target;motion.status=status;
- if(status)indicator.hidden=false;
- indicator.dataset.targetLevel=String(target);
+ const pending=passwordMeterMotion.get(indicator);
+ if(pending)clearTimeout(pending);
+ passwordMeterMotion.delete(indicator);
  const reduced=window.matchMedia('(prefers-reduced-motion: reduce)').matches;
- if(reduced){
-  if(motion.timer)clearTimeout(motion.timer);
-  motion.timer=0;indicator.dataset.level=String(target);indicator.hidden=target===0&&!status;
-  return;
+ const show=target>0||!!status;
+ if(show&&indicator.hidden){
+  indicator.hidden=false;
+  // Establish the empty state before assigning the next CSS target.
+  void indicator.offsetWidth;
  }
- if(motion.timer)return;
- const advance=()=>{
-  motion.timer=0;
-  if(!indicator.isConnected)return;
-  const current=Number(indicator.dataset.level)||0;
-  if(current===motion.target){indicator.hidden=current===0&&!motion.status;return;}
-  if(indicator.hidden){
-   indicator.hidden=false;
-   // Establish the empty visual state before the first CSS transition.
-   void indicator.offsetWidth;
-  }
-  indicator.dataset.level=String(current+Math.sign(motion.target-current));
-  motion.timer=setTimeout(advance,240);
- };
- advance();
+ indicator.dataset.targetLevel=String(target);
+ indicator.dataset.level=String(target);
+ if(show)return;
+ if(reduced||indicator.hidden||!(parseFloat(getComputedStyle(indicator).getPropertyValue('--shursh-strength-progress'))>0)){indicator.hidden=true;return;}
+ const timer=setTimeout(()=>{
+  passwordMeterMotion.delete(indicator);
+  if(indicator.dataset.targetLevel==='0'&&!node.textContent)indicator.hidden=true;
+ },460);
+ passwordMeterMotion.set(indicator,timer);
 }
 function securePassword(length=20){
  if(!window.crypto || !crypto.getRandomValues)throw new Error('Для генерации пароля нужно защищённое HTTPS-соединение');

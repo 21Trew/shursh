@@ -18,7 +18,7 @@ Russian-language dictionary. Levels map zxcvbn scores 0/1 → Weak, 2 → Medium
 
 CI checks the exact original blob hash, compressed size and CPU times on
 synthetic fixtures (Node runner, not a mobile-device benchmark), plus
-Chromium/WebKit meter layout and sequential animations. The worker isolates
+Chromium/WebKit meter layout and frame-by-frame continuous fill/reversal checks. A single interpolated CSS scalar drives all four clipped tracks without per-segment timers; reduced-motion mode disables the animation. The worker isolates
 computation from the UI thread. No password fixtures copied from users.
 
 The quality estimator is displayed only for passwords that pass mandatory

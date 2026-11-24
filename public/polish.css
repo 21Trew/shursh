@@ -799,3 +799,30 @@ input[type="checkbox"]:not(.shursh-checkbox input):checked::after{content:"✓";
 #modal-form .password-suggestions button{background:#f5effa;background-clip:padding-box;border:6px solid transparent;padding:0 10px}
 #modal-form .password-suggestions button:hover{background-color:#e9def5}
 #modal-form .password-suggestions button:focus-visible{outline:2px solid #8056b4;outline-offset:-3px}
+
+/* A single interpolated scalar spans the four clipped tracks. Each track
+   displays its own slice; there are no pauses between segment boundaries. */
+@property --shursh-strength-progress{
+ syntax:"<number>";
+ inherits:true;
+ initial-value:0;
+}
+#modal-form .password-strength{
+ --shursh-strength-progress:0;
+ transition:--shursh-strength-progress 420ms cubic-bezier(.25,.65,.35,1);
+}
+#modal-form .password-strength[data-level="1"]{--shursh-strength-progress:1}
+#modal-form .password-strength[data-level="2"]{--shursh-strength-progress:2}
+#modal-form .password-strength[data-level="3"]{--shursh-strength-progress:3}
+#modal-form .password-strength[data-level="4"]{--shursh-strength-progress:4}
+#modal-form .password-strength-bars i{--strength-segment-start:0}
+#modal-form .password-strength-bars i:nth-child(2){--strength-segment-start:1}
+#modal-form .password-strength-bars i:nth-child(3){--strength-segment-start:2}
+#modal-form .password-strength-bars i:nth-child(4){--strength-segment-start:3}
+#modal-form .password-strength-bars i::after{
+ transform:scaleX(clamp(0,calc(var(--shursh-strength-progress) - var(--strength-segment-start)),1));
+ transition:background-color 240ms ease;
+}
+@media(prefers-reduced-motion:reduce){
+ #modal-form .password-strength,#modal-form .password-strength-bars i::after{transition:none}
+}

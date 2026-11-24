@@ -1359,26 +1359,16 @@ def test_mobile_webkit_signup_inline_validation(browser_https):
             page.locator('#fld-email').fill('not-email')
             expect(page.locator('#auth-error-email')).to_have_text('Добавь знак @')
             page.locator('#fld-email').fill('owner@example.test')
-            # Check actual level transitions in both engines, including
-            # reversal and no parallel multi-segment updates.
+            # Check the actual interpolated fills, not integer DOM updates.
             meter=page.locator('[data-password-strength]')
             page.locator('#fld-password').fill('')
             expect(meter).to_be_hidden(timeout=3000)
-            page.evaluate("""() => {
-                const m=document.querySelector('[data-password-strength]');
-                window.strengthSteps=[];
-                new MutationObserver(records=>{
-                    for(const record of records)if(record.attributeName==='data-level')
-                        window.strengthSteps.push(Number(m.dataset.level));
-                }).observe(m,{attributes:true,attributeFilter:['data-level']});
-            }""")
             page.locator('[data-password-generate]').click()
             expect(label).to_have_text('Надёжный')
             expect(meter).to_have_attribute('data-level','4',timeout=3000)
-            assert page.evaluate('window.strengthSteps')==[1,2,3,4]
             page.locator('#fld-password').fill('Password1')
+            expect(label).to_have_text('Слабый')
             expect(meter).to_have_attribute('data-level','1',timeout=3000)
-            assert page.evaluate('window.strengthSteps')==[1,2,3,4,3,2,1]
             page.locator('[data-password-generate]').click()
             expect(label).to_have_text('Надёжный')
             page.locator('.password-field:has(#fld-confirm_password) [data-password-visibility]').click()
@@ -1573,6 +1563,70 @@ def test_auth_character_highlight_responsive(browser_https):
                         assert not email.evaluate(pixel_test)
                         assert not posts
                         assert page.evaluate('document.documentElement.scrollWidth<=innerWidth+2')
+                    finally:
+                        context.close()
+            finally:
+                browser.close()
+
+
+@pytest.mark.browser
+def test_password_meter_continuous_motion(browser_https):
+    """Sample real computed transforms on each animation frame in both engines."""
+    with sync_playwright() as play:
+        for engine in (play.chromium,play.webkit):
+            browser=engine.launch(headless=True)
+            try:
+                for width in (375,1440):
+                    context=browser.new_context(viewport={"width":width,"height":844},
+                        reduced_motion="no-preference",ignore_https_errors=True)
+                    try:
+                        page=context.new_page()
+                        page.goto(browser_https+'/',wait_until='domcontentloaded')
+                        page.locator('header [data-open="login"]').click()
+                        page.locator('.modal-foot [data-open="register"]').click()
+                        samples=page.evaluate("""async () => {
+                          const input=document.querySelector('#fld-password');
+                          const meter=document.querySelector('[data-password-strength]');
+                          const bars=[...meter.querySelectorAll('i')];
+                          const values=()=>bars.map(b=>new DOMMatrixReadOnly(getComputedStyle(b,'::after').transform).a);
+                          const frame=()=>new Promise(requestAnimationFrame);
+                          const read=async (target,duration=550)=>{
+                            if(target!==null)renderPasswordStrength(input,target);
+                            const result=[], start=performance.now();
+                            do{await frame();result.push(values());}while(performance.now()-start<duration);
+                            return result;
+                          };
+                          const up=await read(4);
+                          const down=await read(1);
+                          // Reverse direction mid-flight without jumping to a boundary.
+                          renderPasswordStrength(input,4);
+                          const start=performance.now();
+                          while(performance.now()-start<120)await frame();
+                          const before=values();
+                          renderPasswordStrength(input,0,'Не подходит');
+                          const immediate=values();
+                          const reversed=await read(null);
+                          return {up,down,before,immediate,reversed};
+                        }""")
+                        def total(frame): return sum(frame)
+                        for key,direction,target in (('up',1,4),('down',-1,1),('reversed',-1,0)):
+                            frames=samples[key]
+                            assert len(frames)>=5
+                            assert abs(total(frames[-1])-target)<.03
+                            for frame in frames:
+                                assert all(-.01<=v<=1.01 for v in frame)
+                                assert sum(.02<v<.98 for v in frame)<=1
+                                assert all(a+.02>=b for a,b in zip(frame,frame[1:]))
+                            sums=[total(f) for f in frames]
+                            assert all(direction*(b-a)>=-.03 for a,b in zip(sums,sums[1:]))
+                            assert any(.02<v<.98 for f in frames for v in f)
+                        assert abs(total(samples['before'])-total(samples['immediate']))<.25
+                        page.emulate_media(reduced_motion='reduce')
+                        assert page.evaluate("""() => {
+                          const i=document.querySelector('#fld-password');
+                          renderPasswordStrength(i,4);
+                          return [...document.querySelectorAll('.password-strength-bars i')].every(b=>new DOMMatrixReadOnly(getComputedStyle(b,'::after').transform).a===1);
+                        }""")
                     finally:
                         context.close()
             finally:
