@@ -36,9 +36,7 @@ enabling Staging. No existing account IDs or business tables are changed.
   upgrades/hash rehash behavior and real OTP/session semantics in Staging.
   Existing app cookies remain valid after out-of-band provider changes until
   expiry or an app recovery. Do not claim provider-wide enforcement.
-- Recovery uses the same create_user OTP path for all addresses, so a
-  nonexistent address can leave a provisional provider identity; no Shursh
-  profile or session until proof and new password.
+- Recovery explicitly disables provider user creation; unknown recovery addresses receive the neutral response without an Auth record. Registration alone permits provisional identities; no Shursh profile or session until proof and a screened password.
 - Same response/status for valid new/existing start; timing and provider
   throttles not yet empirically equalized. Test real enumeration resistance.
 - Password change through old app endpoint disabled in vNext; use OTP.
@@ -63,3 +61,7 @@ https://cheatsheetseries.owasp.org/cheatsheets/Forgot_Password_Cheat_Sheet.html
 Registration collects email, name and matching password fields before requesting the native email OTP. The proposed password is validated and screened before mail is sent, remains only in the live modal closure, and is screened again at the authoritative finish step. No proposed password is stored in the challenge, browser storage or provider before verification. An existing profile is offered login or explicit recovery after proof; the registration form never automatically overwrites its password. Recovery remains email → OTP → new password. Closing/reloading the form discards the proposed password. Hosted OTP templates and real delivery are still release gates.
 
 Recovery defaults to `create_user=false`, including omitted purpose; only explicit, fully validated registration enables provider user creation. Unknown recovery addresses retain the same neutral response. Stale signup cleanup is an independent database-owner-only cron candidate; no service-role key in the application.
+
+## Guarded signup retention
+
+Staging migrations `20261124095352_guarded_expired_signup_cleanup` and `20261124095444_schedule_guarded_signup_cleanup` install an invoker-rights, owner-only cleanup function and schedule it every 15 minutes with pg_cron. No new services or application privileges. The function requires at least 24 hours since creation and last recorded auth activity; it skips confirmed/previously signed-in/invited/phone/SSO/anonymous identities, live tokens, locked rows, all actual foreign-key dependents except native unverified email identity and expired verification tokens, and known non-FK Auth/Storage references. Unknown composite/non-id FKs, custom triggers, or foreign keys to the allowed cascade children fail closed. An unexpected dependency can defer cleanup indefinitely by design. Dry run is the default. Never schedule on Production before release approval and migration/role checks. Rollback: `SELECT cron.unschedule('shursh-expired-signups');` in the target database; do not restore deleted expired provisional identities. Staging dry run found zero eligible records; the job was configured active as postgres; a scheduled invocation has not yet been observed. HIBP is screened at the application boundary; the provider's paid native leaked-password protection remains off.
