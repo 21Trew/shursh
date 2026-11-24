@@ -1330,7 +1330,10 @@ function otpStartModal(email='',recover=false){
  });
  setupAuthFormValidation(modalRoot.querySelector('#modal-form'),false);
 }
-function otpCodeModal(email,recover){
+function otpCodeModal(email,recover,registration=null){
+ // Registration credentials remain only in this modal's ephemeral closure.
+ // No localStorage, sessionStorage, URL, or server-side pending password.
+ const startPayload=()=>registration?{email,name:registration.name,password:registration.password,confirm_password:registration.password,purpose:'register'}:{email};
  modal({title:'Проверь почту 💌',subtitle:'Введи шесть цифр из письма на '+email,
   content:field('Код из письма','code','000000','text','',true,'inputmode="numeric" autocomplete="one-time-code" pattern="[0-9]{6}" maxlength="6"')+
    '<p class="auth-confirm-help">Если письмо не пришло, проверь «Спам». Новый код можно запросить через минуту</p>'+authFormWarning(),
@@ -1340,8 +1343,21 @@ function otpCodeModal(email,recover){
    const code=form.elements.code.value.trim();
    const result=await api('/api/auth/verify',{method:'POST',body:{email,code}});
    if(!form.isConnected)return;
-   if(result.next==='existing'&&!recover)otpExistingModal(email);
-   else otpPasswordModal(email,result.next==='setup');
+   if(result.next==='existing'&&!recover){
+    registration=null;
+    otpExistingModal(email);
+   }else if(result.next==='setup'&&registration){
+    const payload={email,name:registration.name,password:registration.password};
+    registration=null;
+    try{
+     const created=await api('/api/auth/finish',{method:'POST',body:payload});
+     await authSuccess(created,true);
+    }catch(error){
+     // Proof may already be consumed on an ambiguous upstream failure.
+     // Never repeat verification or silently retry the password mutation.
+     if(form.isConnected){otpPasswordModal(email,true);showAuthFormWarning(error,modalRoot.querySelector('#modal-form'));}
+    }finally{payload.password='';}
+   }else otpPasswordModal(email,result.next==='setup');
   },
   footer:'<button type="button" data-open="'+(recover?'recover':'register')+'" data-email="'+attr(email)+'">Изменить почту</button> · <button type="button" data-otp-resend disabled>Новый код через 60 с</button>'
  });
@@ -1359,8 +1375,8 @@ function otpCodeModal(email,recover){
   if(resend.disabled)return;
   resend.disabled=true;clearAuthFormWarning(form);
   try{
-   await api('/api/auth/start',{method:'POST',body:{email}});
-   if(form.isConnected)otpCodeModal(email,recover);
+   await api('/api/auth/start',{method:'POST',body:startPayload()});
+   if(form.isConnected)otpCodeModal(email,recover,registration);
   }catch(error){if(form.isConnected){showAuthFormWarning(error,form);resend.disabled=false;}}
  });
 }
@@ -1399,7 +1415,7 @@ function loginModal(mode='login',email=''){
  // is an explicit membership recovery action, even via the header.
  const pageToken=!currentUser&&currentPath().match(/^\/p\/([A-Za-z0-9_-]{43})$/)?.[1];
  if(pageToken&&!pendingGameClaim)savePendingGameClaim(pageToken);
- if(authVnext&&(register||mode==='recover')){otpStartModal(email,mode==='recover');return;}
+ if(authVnext&&mode==='recover'){otpStartModal(email,true);return;}
  modal({title:register?'Давай знакомиться!':'С возвращением!',
   subtitle:pendingGameClaim?'После входа сохраним эту игру в твоём аккаунте':register?'Создай аккаунт, чтобы хранить свои списки и организовывать игры':'Твои желания уже соскучились',
   content:(register?field('Как тебя зовут?','name','Например, Саша','text','',true,'maxlength="40" autocomplete="name"'):'')+
@@ -1410,6 +1426,12 @@ function loginModal(mode='login',email=''){
   onSubmit:async form=>{
    clearAuthFormWarning(form);
    const payload=readForm(form);
+   if(authVnext&&register){
+    await api('/api/auth/start',{method:'POST',body:{...payload,purpose:'register'}});
+    if(form.isConnected)otpCodeModal(payload.email,false,{name:payload.name,password:payload.password});
+    payload.password='';payload.confirm_password='';
+    return;
+   }
    delete payload.confirm_password;
    const result=await api(register?'/api/register':'/api/login',{method:'POST',body:payload});
    if(result.pending_confirmation){if(register)persistSignupClaim();if(form.isConnected)confirmationModal(payload.email);return;}

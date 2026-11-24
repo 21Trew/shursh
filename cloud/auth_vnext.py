@@ -127,10 +127,19 @@ def login(handler):
 
 
 def start(handler):
-    email=valid_auth_email(handler.body().get('email'))
+    data=handler.body()
+    email=valid_auth_email(data.get('email'))
     key=address_key(email)
     handler.throttled('otp-send-ip',8,600)
     handler.throttled('otp-send-email',3,600,identity=email)
+    if data.get('purpose')=='register':
+        # Validate before sending mail. Never persist a proposed password or
+        # assign it to the provider until the same browser verifies the OTP.
+        valid_signup_name(data.get('name'))
+        if data.get('password')!=data.get('confirm_password'):
+            raise ApiError(400,'Пароли не совпадают')
+        db.close_request_connection()
+        password_policy.screen_new_password(data.get('password'))
     raw=token()
     digest=token_hash(raw)
     now=int(time.time())

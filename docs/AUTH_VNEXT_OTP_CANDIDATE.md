@@ -57,3 +57,7 @@ https://supabase.com/docs/guides/auth/auth-email-passwordless
 https://supabase.com/docs/reference/javascript/auth-verifyotp
 https://supabase.com/docs/reference/javascript/auth-signout
 https://cheatsheetseries.owasp.org/cheatsheets/Forgot_Password_Cheat_Sheet.html
+
+## Registration UX revision
+
+Registration collects email, name and matching password fields before requesting the native email OTP. The proposed password is validated and screened before mail is sent, remains only in the live modal closure, and is screened again at the authoritative finish step. No proposed password is stored in the challenge, browser storage or provider before verification. An existing profile is offered login or explicit recovery after proof; the registration form never automatically overwrites its password. Recovery remains email → OTP → new password. Closing/reloading the form discards the proposed password. Hosted OTP templates and real delivery are still release gates.

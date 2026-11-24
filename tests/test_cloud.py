@@ -2893,15 +2893,15 @@ def test_vnext_chromium_otp_registration(browser_http,vnext_application):
             page.goto(browser_http+'/')
             page.locator('header [data-open="login"]').click()
             page.locator('.modal-foot [data-open="register"]').click()
-            expect(page.locator('#fld-password')).to_have_count(0)
+            expect(page.locator('#fld-password')).to_be_visible()
+            expect(page.locator('#fld-code')).to_have_count(0)
             page.locator('#fld-email').fill('new@example.test')
-            page.locator('.modal-fixed-footer [type=submit]').click()
-            expect(page.locator('#fld-code')).to_be_visible()
-            page.locator('#fld-code').fill('123456')
-            page.locator('.modal-fixed-footer [type=submit]').click()
-            expect(page.locator('#fld-name')).to_be_visible()
             page.locator('#fld-name').fill('Новый друг')
             page.locator('[data-password-generate]').click()
+            page.locator('.modal-fixed-footer [type=submit]').click()
+            expect(page.locator('#fld-code')).to_be_visible()
+            expect(page.locator('#fld-password')).to_have_count(0)
+            page.locator('#fld-code').fill('123456')
             page.locator('.modal-fixed-footer [type=submit]').click()
             expect(page.locator('.site-header .header-avatar')).to_be_visible(timeout=10000)
             assert page.evaluate('document.documentElement.scrollWidth<=innerWidth+2')
@@ -3019,3 +3019,44 @@ def test_vnext_bootstrap_advertises_auth_mode(vnext_application):
             result=call(client,'GET',path)
             assert result.json['auth_vnext'] is True
             assert 'no-store' in result.headers['Cache-Control']
+
+def test_vnext_registration_validates_before_sending_email(vnext_application):
+    app,seen,_=vnext_application
+    c=app.test_client()
+    data={'email':'new@example.test','name':'New friend','purpose':'register',
+          'password':'valid-new-password','confirm_password':'different-password'}
+    call(c,'POST','/api/auth/start',data,400)
+    assert 'otp' not in seen
+    data['confirm_password']=data['password']='short'
+    call(c,'POST','/api/auth/start',data,400)
+    assert 'otp' not in seen
+    data['confirm_password']=data['password']='valid-new-password'
+    call(c,'POST','/api/auth/start',data,202)
+    assert seen.count('otp')==1
+    assert call(c,'GET','/api/me').json['user'] is None
+
+
+@pytest.mark.browser
+def test_vnext_registration_existing_email_does_not_replace_password(browser_http,vnext_application):
+    from playwright.sync_api import sync_playwright,expect
+    app,seen,passwords=vnext_application
+    with sync_playwright() as play:
+        browser=play.chromium.launch(headless=True)
+        try:
+            page=browser.new_page(viewport={'width':390,'height':844})
+            page.goto(browser_http+'/')
+            page.locator('header [data-open="login"]').click()
+            page.locator('.modal-foot [data-open="register"]').click()
+            page.locator('#fld-email').fill('owner@example.test')
+            page.locator('#fld-name').fill('Other name')
+            page.locator('[data-password-generate]').click()
+            page.locator('.modal-fixed-footer [type=submit]').click()
+            expect(page.locator('#fld-code')).to_be_visible()
+            page.locator('#fld-code').fill('123456')
+            page.locator('.modal-fixed-footer [type=submit]').click()
+            expect(page.get_by_text('Почта подтверждена. У тебя уже есть аккаунт')).to_be_visible()
+            assert passwords['owner@example.test']=='valid-password'
+            assert 'global-logout' not in seen
+            assert page.evaluate("fetch('/api/me').then(r=>r.json()).then(r=>r.user===null)")
+        finally:
+            browser.close()
