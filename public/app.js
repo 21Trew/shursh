@@ -1174,24 +1174,51 @@ function newPasswordIssue(value){
  if(!/[a-z]/.test(value)||!/[A-Z]/.test(value)||!/[0-9]/.test(value))return 'Добавь строчные и заглавные латинские буквы и цифры';
  return '';
 }
+// Keep the quality estimate separate from mandatory signup validation.
+function passwordStrengthLevel(value){
+ if(!value)return 0;
+ const n=Array.from(value).length,special=/[^A-Za-z0-9\s]/.test(value);
+ const common=/(?:password|qwerty|12345|abcdef|letmein|admin|пароль)/i.test(value)||/(.)\1{3,}|^(.{1,5})\2+$/.test(value)||new Set(value.toLowerCase()).size<5;
+ if(n<8||common)return 1;
+ const classes=[/[a-z]/,/[A-Z]/,/[0-9]/,/[^A-Za-z0-9\s]/].filter(re=>re.test(value)).length;
+ if(classes<2)return n>=16?2:1;
+ return n>=(special?16:18)?4:n>=12?3:2;
+}
+// One transition at a time. Input changes replace the target, not the
+// in-flight step, so rapid typing/backspace cannot start parallel fills.
+const passwordMeterMotion=new WeakMap();
 function updatePasswordStrength(input){
  const indicator=input.closest('.password-field')?.querySelector('[data-password-strength]');
  if(!indicator)return;
- const value=input.value;
- if(!value){indicator.hidden=true;indicator.dataset.level='0';return;}
- const n=Array.from(value).length,special=/[^A-Za-z0-9\s]/.test(value);
- // Heuristic feedback, not a guarantee of entropy or breach screening.
- const common=/(?:password|qwerty|12345|abcdef|letmein|admin|пароль)/i.test(value)||/(.)\1{3,}|^(.{1,5})\2+$/.test(value)||new Set(value.toLowerCase()).size<5;
- let level=1;
- if(!newPasswordIssue(value)&&!common){
-  // Every compliant short password starts at medium, even with symbols.
-  // Symbols help longer passwords, but never skip the medium length band.
-  level=n>=(special?16:18)?4:n>=12?3:2;
- }
- const label=['','Слабый','Средний','Хороший','Надёжный'][level];
- indicator.hidden=false;indicator.dataset.level=String(level);
+ const target=passwordStrengthLevel(input.value);
  const node=indicator.querySelector('[data-password-strength-label]');
+ const label=['','Слабый','Средний','Хороший','Надёжный'][target];
  if(node.textContent!==label)node.textContent=label;
+ let motion=passwordMeterMotion.get(indicator);
+ if(!motion){motion={target:0,timer:0};passwordMeterMotion.set(indicator,motion);}
+ motion.target=target;
+ indicator.dataset.targetLevel=String(target);
+ const reduced=window.matchMedia('(prefers-reduced-motion: reduce)').matches;
+ if(reduced){
+  if(motion.timer)clearTimeout(motion.timer);
+  motion.timer=0;indicator.dataset.level=String(target);indicator.hidden=target===0;
+  return;
+ }
+ if(motion.timer)return;
+ const advance=()=>{
+  motion.timer=0;
+  if(!indicator.isConnected)return;
+  const current=Number(indicator.dataset.level)||0;
+  if(current===motion.target){indicator.hidden=current===0;return;}
+  if(indicator.hidden){
+   indicator.hidden=false;
+   // Establish the empty visual state before the first CSS transition.
+   void indicator.offsetWidth;
+  }
+  indicator.dataset.level=String(current+Math.sign(motion.target-current));
+  motion.timer=setTimeout(advance,240);
+ };
+ advance();
 }
 function securePassword(){
  if(!window.crypto || !crypto.getRandomValues)throw new Error('Для генерации пароля нужно защищённое HTTPS-соединение');

@@ -1315,6 +1315,26 @@ def test_mobile_webkit_signup_inline_validation(browser_https):
             expect(label).to_have_text('Хороший')
             page.locator('#fld-password').fill('Ab3xy!90')
             expect(label).to_have_text('Средний')
+            # Check actual level transitions in both engines, including
+            # reversal and no parallel multi-segment updates.
+            meter=page.locator('[data-password-strength]')
+            page.locator('#fld-password').fill('')
+            expect(meter).to_be_hidden(timeout=3000)
+            page.evaluate("""() => {
+                const m=document.querySelector('[data-password-strength]');
+                window.strengthSteps=[];
+                new MutationObserver(records=>{
+                    for(const record of records)if(record.attributeName==='data-level')
+                        window.strengthSteps.push(Number(m.dataset.level));
+                }).observe(m,{attributes:true,attributeFilter:['data-level']});
+            }""")
+            page.locator('[data-password-generate]').click()
+            expect(label).to_have_text('Надёжный')
+            expect(meter).to_have_attribute('data-level','4',timeout=3000)
+            assert page.evaluate('window.strengthSteps')==[1,2,3,4]
+            page.locator('#fld-password').fill('short')
+            expect(meter).to_have_attribute('data-level','1',timeout=3000)
+            assert page.evaluate('window.strengthSteps')==[1,2,3,4,3,2,1]
             page.locator('[data-password-generate]').click()
             expect(label).to_have_text('Надёжный')
             page.locator('.password-field:has(#fld-confirm_password) [data-password-visibility]').click()
