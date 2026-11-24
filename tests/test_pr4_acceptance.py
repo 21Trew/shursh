@@ -1493,12 +1493,12 @@ def test_auth_character_highlight_responsive(browser_https):
                             ('QVR!NTMK9@PLW','Добавь хотя бы 1 строчную латинскую букву, чтобы усилить пароль'),
                             ('qvR7NtMkY9pLW','Добавь хотя бы 1 спецсимвол, чтобы усилить пароль')):
                             password.fill(value)
-                            expect(hint).to_have_text(message)
+                            expect(hint).to_contain_text(message)
                             expect(hint).to_be_visible()
                             expect(page.locator('#auth-error-password')).to_be_hidden()
                             assert hint.evaluate("h=>h.scrollWidth<=h.clientWidth+1")
                         password.fill('abcdefgh1')
-                        expect(hint).to_have_text('Добавь хотя бы 1 заглавную латинскую букву и 1 спецсимвол, чтобы усилить пароль')
+                        expect(hint).to_contain_text('Добавь хотя бы 1 заглавную латинскую букву и 1 спецсимвол, чтобы усилить пароль')
                         expect(hint).to_be_visible()
                         expect(page.locator('[data-password-strength-label]')).to_have_text('Слабый')
                         field.screenshot(path=str(output/f'{engine.name}-{width}-advice.png'))
@@ -1506,22 +1506,20 @@ def test_auth_character_highlight_responsive(browser_https):
                         expect(page.locator('[data-password-strength-label]')).to_have_text('Слабый')
                         expect(hint).to_contain_text('последовательности')
                         panel=page.locator('[data-password-suggestions]')
-                        options=panel.locator('button')
+                        options=panel.locator('button:visible')
                         expect(panel).to_be_visible()
-                        expect(options).to_have_count(2)
+                        expect(hint).to_contain_text(', например:')
                         expect(panel).to_have_attribute('aria-label','Более надёжные варианты пароля')
                         assert panel.evaluate("p=>getComputedStyle(p).display==='flex' && getComputedStyle(p).flexWrap==='nowrap'")
-                        assert panel.evaluate("p=>{const [a,b]=p.querySelectorAll('button');const x=a.getBoundingClientRect(),y=b.getBoundingClientRect();return Math.abs(x.top-y.top)<1&&x.height>=44&&y.height>=44&&p.clientWidth<=p.parentElement.clientWidth;}")
+                        assert options.count()>=1
+                        assert panel.evaluate("p=>{const r=p.getBoundingClientRect(),buttons=[...p.querySelectorAll('button:not([hidden])')];return buttons.every(b=>{const x=b.getBoundingClientRect();return Math.abs(x.top-buttons[0].getBoundingClientRect().top)<1&&x.height>=44&&x.right<=r.right+.5;});}")
                         expect(options.first).to_contain_text('Вариант 1')
                         toggle.click()
                         expect(password).to_have_attribute('type','text')
                         candidate=options.first.inner_text()
-                        assert len(candidate)>=20 and '12345678' not in candidate
-                        assert candidate!=options.nth(1).inner_text()
-                        assert panel.evaluate("p=>{const [a,b]=p.querySelectorAll('button');return Math.abs(a.getBoundingClientRect().top-b.getBoundingClientRect().top)<1&&getComputedStyle(a).whiteSpace==='nowrap';}")
-                        options.nth(1).scroll_into_view_if_needed()
-                        assert panel.evaluate("p=>p.scrollWidth<=p.clientWidth+1||p.scrollLeft>0")
-                        options.first.scroll_into_view_if_needed()
+                        assert 12<=len(candidate)<=32 and '12345678' not in candidate
+                        assert re.search('[a-z]',candidate) and re.search('[A-Z]',candidate) and re.search('[0-9]',candidate) and re.search('[!@#$%&*]',candidate)
+                        assert panel.evaluate("p=>p.scrollWidth<=p.clientWidth+1")
                         field.screenshot(path=str(output/f'{engine.name}-{width}-suggestions.png'))
                         toggle.click()
                         expect(options.first).to_contain_text('Вариант 1')
@@ -1627,6 +1625,40 @@ def test_password_meter_continuous_motion(browser_https):
                           renderPasswordStrength(i,4);
                           return [...document.querySelectorAll('.password-strength-bars i')].every(b=>new DOMMatrixReadOnly(getComputedStyle(b,'::after').transform).a===1);
                         }""")
+                    finally:
+                        context.close()
+            finally:
+                browser.close()
+
+
+@pytest.mark.browser
+def test_auth_modal_shared_shell(browser_https):
+    """The backdrop and dialog survive mode changes; only one height animation."""
+    with sync_playwright() as play:
+        for engine in (play.chromium,play.webkit):
+            browser=engine.launch(headless=True)
+            try:
+                for width in (375,390,1440):
+                    context=browser.new_context(viewport={'width':width,'height':844},ignore_https_errors=True)
+                    try:
+                        page=context.new_page()
+                        page.goto(browser_https+'/',wait_until='domcontentloaded')
+                        page.locator('header [data-open="login"]').click()
+                        page.locator('#fld-email').fill('owner@example.test')
+                        page.locator('#fld-password').fill('synthetic-secret')
+                        page.evaluate("""()=>{window.authShell=document.querySelector('.modal');window.authBackdrop=document.querySelector('[data-backdrop]');}""")
+                        for mode in ('register','login','register','login'):
+                            page.locator('.modal-foot [data-open="'+mode+'"]').click()
+                            expect(page.locator('.modal')).to_have_attribute('data-auth-screen',mode)
+                            expect(page.locator('#fld-email')).to_have_value('owner@example.test')
+                            expect(page.locator('#fld-password')).to_have_value('')
+                            assert page.evaluate("document.querySelector('.modal')===window.authShell && document.querySelector('[data-backdrop]')===window.authBackdrop")
+                            assert page.evaluate("window.authShell.getAnimations().length<=1")
+                        page.wait_for_function("!document.querySelector('.modal').classList.contains('auth-height-motion')")
+                        assert page.evaluate('document.documentElement.scrollWidth<=innerWidth+2')
+                        page.emulate_media(reduced_motion='reduce')
+                        page.locator('.modal-foot [data-open="register"]').click()
+                        assert page.evaluate("!document.querySelector('.modal').classList.contains('auth-height-motion')")
                     finally:
                         context.close()
             finally:

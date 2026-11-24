@@ -303,7 +303,7 @@ def test_browser_auth_inline_validation_and_password_confirmation(browser_http):
                 page.locator('#fld-password').fill('abcdefgh1')
                 expect(page.locator('#auth-error-password')).to_be_hidden()
                 expect(page.locator('[data-password-strength-label]')).to_have_text('Слабый')
-                expect(page.locator('#password-hint')).to_have_text('Добавь хотя бы 1 заглавную латинскую букву и 1 спецсимвол, чтобы усилить пароль')
+                expect(page.locator('#password-hint')).to_contain_text('Добавь хотя бы 1 заглавную латинскую букву и 1 спецсимвол, чтобы усилить пароль')
                 for invalid in ('abcdefgя','abcdefgЁ','я'):
                     page.locator('#fld-password').fill(invalid)
                     expect(page.locator('#auth-error-password')).to_have_text('Убери русские буквы из пароля')

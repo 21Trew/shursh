@@ -791,14 +791,18 @@ input[type="checkbox"]:not(.shursh-checkbox input):checked::after{content:"✓";
 #modal-form .password-hint{color:#716963}
 #modal-form .password-hint[hidden]{display:none}
 
-/* Password alternatives are a single compact horizontal chip rail. */
-#modal-form .password-suggestions{display:flex;flex-wrap:nowrap;align-items:center;gap:6px;min-width:0;max-width:100%;overflow-x:auto;overflow-y:hidden;scrollbar-width:thin;scrollbar-color:#c8b4df transparent;padding:2px}
-#modal-form .password-suggestions[hidden]{display:none}
-#modal-form .password-suggestions button{flex:0 0 auto;display:inline-flex;align-items:center;justify-content:center;white-space:nowrap;border:0;border-radius:999px;background:transparent;color:#63458b;padding:0;min-height:44px;min-width:44px;font-size:12px;line-height:1.3;cursor:pointer}
-#modal-form .password-suggestions button::before{content:none}
-#modal-form .password-suggestions button{background:#f5effa;background-clip:padding-box;border:6px solid transparent;padding:0 10px}
+/* Password alternatives: left-aligned, one row, only complete tags. */
+#modal-form .password-suggestions{display:flex;flex-wrap:nowrap;align-items:center;justify-content:flex-start;gap:6px;min-width:0;max-width:100%;overflow:hidden;padding:0}
+#modal-form .password-suggestions[hidden],#modal-form .password-suggestions button[hidden]{display:none}
+#modal-form .password-suggestions button{flex:0 0 auto;display:inline-flex;align-items:center;justify-content:center;white-space:nowrap;border:0;border-radius:999px;background:#f5effa;color:#63458b;padding:0 11px;min-height:44px;min-width:44px;font-size:12px;line-height:1.3;cursor:pointer}
 #modal-form .password-suggestions button:hover{background-color:#e9def5}
 #modal-form .password-suggestions button:focus-visible{outline:2px solid #8056b4;outline-offset:-3px}
+/* The shared auth shell interpolates height even on mobile, where the general
+   modal rule forces auto height. Other dialog types remain unchanged. */
+@property --auth-dialog-height{syntax:"<length>";inherits:false;initial-value:0px}
+.modal-backdrop .modal[data-auth-screen].auth-height-motion{height:var(--auth-dialog-height)!important;flex:0 0 auto}
+.modal[data-auth-screen]:focus{outline:none}
+@media(prefers-reduced-motion:reduce){.modal-backdrop .modal[data-auth-screen].auth-height-motion{height:auto!important}}
 
 /* A single interpolated scalar spans the four clipped tracks. Each track
    displays its own slice; there are no pauses between segment boundaries. */

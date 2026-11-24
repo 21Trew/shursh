@@ -244,14 +244,54 @@ async function startupApi(path){
 }
 function notice(message,error=false){const n=document.createElement('div');n.className='toast'+(error?' error':'');n.textContent=message;document.getElementById('toast-root').replaceChildren(n);clearTimeout(toastTimeout);toastTimeout=setTimeout(()=>n.remove(),4500);}
 async function clipboard(value){try{await navigator.clipboard.writeText(value);notice('Ссылка скопирована!');}catch{modal({title:'Скопируй ссылку',content:`<div class="field"><label>Ссылка</label><input class="input" autofocus readonly value="${attr(value)}" onclick="this.select()"></div>`});}}
-let modalContentObserver=null;
-function modal({title,subtitle='',content='',onSubmit=null,onError=null,submitLabel='Сохранить',size='normal',footer=''}){
- const oldHeight=modalRoot.querySelector('.modal')?.getBoundingClientRect().height||0;
+let modalContentObserver=null,authModalMotion=null,authModalFrame=0;
+function stopAuthModalMotion(){
+ if(authModalFrame)cancelAnimationFrame(authModalFrame);
+ authModalFrame=0;
+ if(authModalMotion){
+  const {dialog,animation}=authModalMotion;authModalMotion=null;
+  animation.cancel();dialog.classList.remove('auth-height-motion');
+  dialog.style.removeProperty('--auth-dialog-height');
+ }
+}
+function animateAuthModalHeight(dialog,from){
+ if(!dialog.isConnected)return;
+ const current=authModalMotion?.dialog===dialog?authModalMotion:null;
+ if(current)dialog.classList.remove('auth-height-motion');
+ const target=dialog.getBoundingClientRect().height;
+ if(current)dialog.classList.add('auth-height-motion');
+ if(current&&Math.abs(target-current.target)<1)return;
+ stopAuthModalMotion();
+ if(!from||Math.abs(target-from)<1||matchMedia('(prefers-reduced-motion: reduce)').matches||!dialog.animate)return;
+ dialog.style.setProperty('--auth-dialog-height',from+'px');
+ dialog.classList.add('auth-height-motion');
+ const animation=dialog.animate(
+  [{'--auth-dialog-height':from+'px'},{'--auth-dialog-height':target+'px'}],
+  {duration:280,easing:'cubic-bezier(.22,.68,.28,1)',fill:'both'});
+ const motion={dialog,animation,target};authModalMotion=motion;
+ animation.onfinish=()=>{if(authModalMotion===motion)stopAuthModalMotion();};
+}
+function modal({title,subtitle='',content='',onSubmit=null,onError=null,submitLabel='Сохранить',size='normal',footer='',authScreen='' }){
+ const priorDialog=modalRoot.querySelector('.modal');
+ const reuseAuth=!!(authScreen&&priorDialog?.dataset.authScreen);
+ const oldHeight=priorDialog?.getBoundingClientRect().height||0;
+ const restoreDialogFocus=reuseAuth&&priorDialog.contains(document.activeElement);
+ stopAuthModalMotion();
+ for(const input of modalRoot.querySelectorAll('input'))suggestionObservers.get(input)?.disconnect();
+
  modalContentObserver?.disconnect();modalContentObserver=null;
  closeCalendar();closeUiSelect();
- modalRoot.innerHTML=`<div class="modal-backdrop" data-backdrop><div class="modal" role="dialog" aria-modal="true" aria-label="${attr(title)}"><button class="modal-close" type="button" data-close aria-label="Закрыть">×</button><div class="modal-scroll-area"><h2>${esc(title)}</h2>${subtitle?`<p class="modal-subtitle">${esc(subtitle)}</p>`:''}<form class="form" id="modal-form">${content}${onSubmit?`<div class="form-actions"><button type="button" class="btn btn-soft" data-close>Отмена</button><button type="submit" class="btn btn-dark">${esc(submitLabel)} ${ico('arrow')}</button></div>`:''}</form>${footer?`<div class="modal-foot">${footer}</div>`:''}</div></div></div>`;
+ const markup=`<div class="modal-backdrop" data-backdrop><div class="modal" role="dialog" aria-modal="true" aria-label="${attr(title)}"><button class="modal-close" type="button" data-close aria-label="Закрыть">×</button><div class="modal-scroll-area"><h2>${esc(title)}</h2>${subtitle?`<p class="modal-subtitle">${esc(subtitle)}</p>`:''}<form class="form" id="modal-form">${content}${onSubmit?`<div class="form-actions"><button type="button" class="btn btn-soft" data-close>Отмена</button><button type="submit" class="btn btn-dark">${esc(submitLabel)} ${ico('arrow')}</button></div>`:''}</form>${footer?`<div class="modal-foot">${footer}</div>`:''}</div></div></div>`;
+ if(reuseAuth){
+  const template=document.createElement('template');template.innerHTML=markup;
+  const fresh=template.content.querySelector('.modal');
+  priorDialog.replaceChildren(...fresh.childNodes);
+  priorDialog.setAttribute('aria-label',title);
+ }else modalRoot.innerHTML=markup;
  const scroller=modalRoot.querySelector('.modal-scroll-area');
  const dialog=modalRoot.querySelector('.modal');
+ if(authScreen){dialog.dataset.authScreen=authScreen;dialog.tabIndex=-1;}
+
  const titleNode=scroller.querySelector(':scope > h2');
  if(titleNode){
   const headerRail=document.createElement('div');headerRail.className='modal-fixed-header';
@@ -267,7 +307,31 @@ function modal({title,subtitle='',content='',onSubmit=null,onError=null,submitLa
  }
  enhanceSelects(modalRoot);enhanceCalendars(modalRoot);
  // Animate actual content-height changes instead of repeatedly forcing a layout on scroll.
- if(!matchMedia('(prefers-reduced-motion: reduce)').matches&&typeof dialog.animate==='function'){
+ if(authScreen){
+  // Keep the backdrop and dialog identity; never keep old credential fields.
+  if(reuseAuth){
+   animateAuthModalHeight(dialog,oldHeight);
+   if(!matchMedia('(prefers-reduced-motion: reduce)').matches&&dialog.animate){
+    for(const region of dialog.querySelectorAll('.modal-fixed-header,.modal-scroll-area,.modal-fixed-footer'))
+     region.animate([{opacity:.55,transform:'translateY(4px)'},{opacity:1,transform:'translateY(0)'}],
+      {duration:200,easing:'ease-out'});
+   }
+   if(restoreDialogFocus)dialog.focus({preventScroll:true});
+  }
+  let lastNatural=dialog.getBoundingClientRect().height;
+  if(authModalMotion?.dialog===dialog)lastNatural=authModalMotion.target;
+  modalContentObserver=new ResizeObserver(()=>{
+   if(authModalFrame)return;
+   authModalFrame=requestAnimationFrame(()=>{
+    authModalFrame=0;if(!dialog.isConnected)return;
+    const from=authModalMotion?.dialog===dialog?dialog.getBoundingClientRect().height:lastNatural;
+    animateAuthModalHeight(dialog,from);
+    lastNatural=authModalMotion?.dialog===dialog?authModalMotion.target:dialog.getBoundingClientRect().height;
+   });
+  });
+  for(const region of dialog.querySelectorAll('.modal-fixed-header,.modal-fixed-footer,.modal-subtitle,#modal-form'))
+   modalContentObserver.observe(region);
+ }else if(!matchMedia('(prefers-reduced-motion: reduce)').matches&&typeof dialog.animate==='function'){
   let priorHeight=oldHeight||dialog.getBoundingClientRect().height;
   const animateTo=current=>{
    if(!dialog.isConnected)return;
@@ -285,7 +349,7 @@ function modal({title,subtitle='',content='',onSubmit=null,onError=null,submitLa
   });
   modalContentObserver.observe(scroller,{childList:true,characterData:true,subtree:true});
  }
- document.body.style.overflow='hidden';const bd=modalRoot.querySelector('[data-backdrop]');bd.addEventListener('click',e=>{if(e.target===bd)closeModal()});modalRoot.querySelectorAll('[data-close]').forEach(b=>b.addEventListener('click',closeModal));
+ document.body.style.overflow='hidden';const bd=modalRoot.querySelector('[data-backdrop]');if(!reuseAuth)bd.addEventListener('click',e=>{if(e.target===bd)closeModal()});modalRoot.querySelectorAll('[data-close]').forEach(b=>b.addEventListener('click',closeModal));
  if(onSubmit){modalRoot.querySelector('form').addEventListener('submit',async e=>{e.preventDefault();const btn=e.currentTarget.querySelector('[type=submit]')||modalRoot.querySelector('.modal-fixed-footer [type=submit]');if(btn.disabled)return;btn.disabled=true;const submitted=e.currentTarget;try{await onSubmit(submitted);if(modalRoot.querySelector('form')===submitted)closeModal();}catch(err){if(onError){if(submitted.isConnected)onError(err,submitted);}else notice(err.message,true)}finally{if(btn.isConnected)btn.disabled=false;}});}
  // No delayed autofocus: it can steal focus while the user types in the
  // password field, silently redirecting keystrokes to email after 10 ms.
@@ -304,7 +368,7 @@ function contactDeveloperModal(){
   }});
  const message=modalRoot.querySelector('#fld-message');if(message){message.required=true;message.minLength=5;message.maxLength=3000;}
 }
-function closeModal(){modalContentObserver?.disconnect();modalContentObserver=null;closeCalendar();closeUiSelect();modalRoot.replaceChildren();document.body.style.overflow='';}
+function closeModal(){stopAuthModalMotion();for(const input of modalRoot.querySelectorAll('input'))suggestionObservers.get(input)?.disconnect();modalContentObserver?.disconnect();modalContentObserver=null;closeCalendar();closeUiSelect();modalRoot.replaceChildren();document.body.style.overflow='';}
 document.addEventListener('keydown',e=>{if(e.key==='Escape'){if(activeCalendar){e.preventDefault();closeCalendar(true);}else if(uiSelectOpen){e.preventDefault();closeUiSelect(true);}else closeModal();}});
 document.addEventListener('click',e=>{
  const picker=e.target.closest('input[type="date"]');
@@ -1210,27 +1274,73 @@ function setPasswordHint(hint,message){
  if(hint.textContent!==message)hint.textContent=message;
  hint.hidden=!message;
 }
-// Suggestions are independent random replacements, not mutations of a guessable secret.
+// Use the input's length and missing classes to shape independent examples.
+// Never retain its literal characters, dictionary fragments or numeric patterns.
 const passwordSuggestions=new WeakMap();
+const suggestionObservers=new WeakMap();
+function suggestedPassword(value,index){
+ const groups=['abcdefghijkmnopqrstuvwxyz','ABCDEFGHJKLMNPQRSTUVWXYZ','23456789','!@#$%&*'];
+ const tests=[/[a-z]/,/[A-Z]/,/[0-9]/,/[^\p{L}\p{N}\s]/u];
+ const source=Array.from(value);
+ const counts=tests.map(test=>source.filter(c=>test.test(c)).length);
+ const missing=counts.filter(n=>n===0).length;
+ const length=Math.max(12,Math.min(32,source.length+Math.max(2,missing)+(index%3)));
+ const random=new Uint32Array(1);
+ const number=max=>{const limit=Math.floor(4294967296/max)*max;let n;do{crypto.getRandomValues(random);n=random[0];}while(n>=limit);return n%max;};
+ const pick=group=>group[number(group.length)];
+ const chars=groups.map(pick);
+ // Keep a modest bias toward the user's character mix while ensuring at
+ // least one of every class, and enough diversity for numeric-only input.
+ const weights=counts.map(n=>1+Math.min(3,Math.floor(4*n/Math.max(1,source.length))));
+ const weighted=groups.flatMap((group,i)=>Array(weights[i]).fill(group));
+ while(chars.length<length)chars.push(pick(weighted[number(weighted.length)]));
+ for(let i=chars.length-1;i>0;i--){const j=number(i+1);[chars[i],chars[j]]=[chars[j],chars[i]];}
+ return chars.join('');
+}
 function renderPasswordSuggestions(input,show=false){
  const panel=input.closest('.password-field')?.querySelector('[data-password-suggestions]');
- if(!panel)return;
+ if(!panel)return false;
+ const previous=suggestionObservers.get(input);
+ if(previous){previous.disconnect();suggestionObservers.delete(input);}
  if(!show||!window.crypto?.getRandomValues){
-  passwordSuggestions.delete(input);panel.replaceChildren();panel.hidden=true;return;
+  passwordSuggestions.delete(input);panel.replaceChildren();panel.hidden=true;return false;
  }
  let values=passwordSuggestions.get(input);
  if(!values){
-  const length=Math.max(20,Math.min(32,Array.from(input.value).length+4));
-  values=[securePassword(length),securePassword(length)];
+  values=Array.from({length:6},(_,i)=>suggestedPassword(input.value,i));
   passwordSuggestions.set(input,values);
  }
  const buttons=values.map((value,index)=>{
   const button=document.createElement('button');button.type='button';
   button.dataset.passwordSuggestion=String(index);
-  button.textContent=input.type==='text'?value:'Вариант '+(index+1)+' · '+value.length+' символов';
+  button.textContent=input.type==='text'?value:'Вариант '+(index+1);
   return button;
  });
  panel.replaceChildren(...buttons);panel.hidden=false;
+ const hint=input.closest('.password-field')?.querySelector('#password-hint');
+ let lastWidth=-1;
+ const fit=()=>{
+  if(!input.isConnected){previous?.disconnect();suggestionObservers.get(input)?.disconnect();suggestionObservers.delete(input);return;}
+  const width=panel.clientWidth;
+  if(width===lastWidth)return;
+  lastWidth=width;
+  for(const button of buttons)button.hidden=false;
+  const gap=parseFloat(getComputedStyle(panel).columnGap)||0;
+  let used=0,shown=0;
+  for(const button of buttons){
+   const next=button.getBoundingClientRect().width+(shown?gap:0);
+   if(used+next<=width+.1){used+=next;shown++;}
+   else button.hidden=true;
+  }
+  const advice=hint?.textContent?.replace(/, например:$/,'')||'';
+  if(advice)setPasswordHint(hint,advice+(shown?', например:':''));
+ };
+ fit();
+ if(typeof ResizeObserver==='function'){
+  const observer=new ResizeObserver(fit);observer.observe(panel);suggestionObservers.set(input,observer);
+ }
+ document.fonts?.ready.then(()=>{if(input.isConnected&&passwordSuggestions.get(input)===values&&panel.firstChild===buttons[0]){lastWidth=-1;fit();}});
+ return buttons.some(button=>!button.hidden);
 }
 // zxcvbn runs in a same-origin worker, loaded only on new-password input.
 let strengthWorker=null,strengthBusy=null,strengthPending=null,strengthDebounce=0,strengthRequestId=0,strengthRetryAt=0,strengthTimeout=0;
@@ -1751,7 +1861,7 @@ function loginModal(mode='login',email=''){
  const pageToken=!currentUser&&currentPath().match(/^\/p\/([A-Za-z0-9_-]{43})$/)?.[1];
  if(pageToken&&!pendingGameClaim)savePendingGameClaim(pageToken);
  if(authVnext&&mode==='recover'){otpStartModal(email,true);return;}
- modal({title:register?'Давай знакомиться!':'С возвращением!',
+ modal({authScreen:register?'register':'login',title:register?'Давай знакомиться!':'С возвращением!',
   subtitle:pendingGameClaim?'После входа сохраним эту игру в твоём аккаунте':register?'Создай аккаунт, чтобы хранить свои списки и организовывать игры':'Твои желания уже соскучились',
   content:(register?field('Как тебя зовут?','name','Например, Саша','text','',true,'maxlength="40" autocomplete="name"'):'')+
    field('Почта','email','you@example.com','text',email,true,'inputmode="email" autocomplete="email" autocapitalize="none" spellcheck="false" maxlength="200"')+passwordField(register)+
