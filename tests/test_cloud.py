@@ -3010,3 +3010,12 @@ def test_vnext_production_flag_fails_closed(monkeypatch):
     monkeypatch.setenv('VERCEL_ENV','production')
     with pytest.raises(RuntimeError,match='isolated Staging'):
         auth_vnext.enabled()
+
+
+def test_vnext_bootstrap_advertises_auth_mode(vnext_application):
+    app,_,_=vnext_application
+    for client in (app.test_client(),login(app)):
+        for path in ('/api/me','/api/dashboard'):
+            result=call(client,'GET',path)
+            assert result.json['auth_vnext'] is True
+            assert 'no-store' in result.headers['Cache-Control']

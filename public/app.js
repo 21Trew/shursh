@@ -6,7 +6,7 @@ let currentUser = null;
 let isDemo = false;
 let lastRenderToken = 0;
 let toastTimeout;
-const authVnext = document.documentElement.dataset.authVnext==='1';
+let authVnext = document.documentElement.dataset.authVnext==='1';
 const isPreview = window.location.protocol === 'file:' || window.location.pathname.endsWith('/shursh-preview.html');
 const ico = (name, size=20) => `<svg class="icon" width="${size}" height="${size}" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">${({
   plus:'<path d="M12 5v14M5 12h14"/>', arrow:'<path d="M5 12h14m-6-6 6 6-6 6"/>',
@@ -1714,6 +1714,7 @@ async function render(){const marker=++lastRenderToken;try{
  if(!renderStarted&&path==='/'&&!isPreview){
   const data=await startupApi('/api/dashboard');
   if(marker!==lastRenderToken)return;
+  authVnext=data.auth_vnext===true;
   currentUser=data.user;isDemo=data.demo;renderStarted=true;
   if(currentUser){seedOwnerCache('/api/dashboard',data);dashboardContent(data);}else home();
   return;
@@ -1721,6 +1722,7 @@ async function render(){const marker=++lastRenderToken;try{
  if(!renderStarted){
   const r=await startupApi('/api/me');
   if(marker!==lastRenderToken)return;
+  authVnext=r.auth_vnext===true;
   currentUser=r.user;isDemo=r.demo;renderStarted=true;
  }
  if(path==='/'){

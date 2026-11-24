@@ -95,14 +95,15 @@ def api(route):
     # These read-only bootstrap endpoints are safe without a database when no
     # session cookie exists. Avoid a Supavisor round-trip for every anonymous
     # landing-page visit (and every browser refresh).
-    if request.method == 'GET' and not request.cookies.get('shursh_sid'):
-        if path == '/api/me':
-            return response({'user': None, 'demo': False})
-        if path == '/api/dashboard':
-            return response({'user': None, 'demo': False, 'lists': [], 'events': []})
     handler = CloudRequest(request)
     try:
         vnext=auth_vnext.enabled()
+        bootstrap=path in ('/api/me','/api/dashboard') and request.method=='GET'
+        auth_config={'auth_vnext':True} if vnext and bootstrap else {}
+        if bootstrap and not request.cookies.get('shursh_sid'):
+            if path == '/api/me':
+                return response({'user': None, 'demo': False, **auth_config})
+            return response({'user': None, 'demo': False, 'lists': [], 'events': [], **auth_config})
         if path in ('/api/auth/start','/api/auth/verify','/api/auth/finish') and request.method=='POST':
             if not vnext:
                 raise ApiError(404,'Этот способ входа пока недоступен')
@@ -192,7 +193,10 @@ def api(route):
         separate = path in ('/api/register','/api/login','/api/logout')
         with db.transaction(write=write,rate_limit=separate) as con:
             result = handler.handle_api('GET' if request.method=='HEAD' else request.method,path,con)
-        return response(result[1],result[0],result[2])
+        payload=result[1]
+        if auth_config and isinstance(payload,dict):
+            payload={**payload,**auth_config}
+        return response(payload,result[0],result[2])
     except ApiError:
         raise
     except sqlite3.IntegrityError:
