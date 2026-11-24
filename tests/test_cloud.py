@@ -170,6 +170,7 @@ def test_auth_input_validation_rejects_bad_data_before_upstream(application, mon
         assert valid_auth_email(address)==address
     assert valid_signup_name('  Анна  ') == 'Анна'
     assert valid_auth_password('secure-passphrase') == 'secure-passphrase'
+    assert valid_auth_password('legacy-Ёж') == 'legacy-Ёж'
     for address in ('x', 'john..doe@example.com', 'a@-example.com',
                     'a@example.c', 'a@domain..com', 'demo@shursh.local'):
         with pytest.raises(ApiError):
@@ -211,6 +212,7 @@ def test_auth_input_validation_rejects_bad_data_before_upstream(application, mon
         ('/api/register',{'name':'','email':'good@example.com','password':'valid-password'}),
         ('/api/register',{'name':'Гость','email':'not-an-email','password':'valid-password'}),
         ('/api/register',{'name':'Гость','email':'good@example.com','password':'short'}),
+        ('/api/register',{'name':'Гость','email':'good@example.com','password':'abcdefgЁ'}),
         ('/api/register',{'name':'bad\nname','email':'good@example.com','password':'valid-password'}),
         ('/api/login',{'email':'invalid','password':'valid-password'}),
         ('/api/login',{'email':'good@example.com','password':'short'}),
@@ -293,7 +295,12 @@ def test_browser_auth_inline_validation_and_password_confirmation(browser_http):
                 page.locator('#fld-password').fill('abcdefgh1')
                 expect(page.locator('#auth-error-password')).to_be_hidden()
                 expect(page.locator('[data-password-strength-label]')).to_have_text('Слабый')
-                expect(page.locator('#password-hint')).to_contain_text('Для надёжности')
+                expect(page.locator('#password-hint')).to_contain_text('пароль было сложнее взломать')
+                for invalid in ('abcdefgя','abcdefgЁ','я'):
+                    page.locator('#fld-password').fill(invalid)
+                    expect(page.locator('#auth-error-password')).to_have_text('Убери русские буквы из пароля')
+                    expect(page.locator('[data-password-strength-label]')).to_have_text('Не подходит')
+                    assert not posts
                 page.locator('#fld-password').fill('qvR!NtMkY@pLW')
                 expect(page.locator('[data-password-strength-label]')).to_have_text(__import__('re').compile('^(Хороший|Надёжный)$'))
                 expect(page.locator('#auth-error-password')).to_be_hidden()

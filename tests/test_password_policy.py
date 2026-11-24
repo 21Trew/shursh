@@ -82,7 +82,7 @@ def test_approved_password_shape(value):
     password_policy.validate_new_password(value)
 
 
-@pytest.mark.parametrize('value',['abcdefgh1','ABCDEFGH1','Abcdefgh','abcdefgh','12345678','Абвгдеёж1','abcdefghijk','9!x'+'7'*35])
+@pytest.mark.parametrize('value',['abcdefgh1','ABCDEFGH1','Abcdefgh','abcdefgh','12345678','abcdefghijk','9!x'+'7'*35])
 def test_character_classes_are_advisory(value):
     password_policy.validate_new_password(value)
 
@@ -94,3 +94,12 @@ def test_low_complexity_unbreached_password_is_accepted(monkeypatch):
     monkeypatch.setattr(password_policy,'urlopen',
         lambda request,timeout: RangeResponse(request,(digest[5:]+':0\r\n').encode()))
     password_policy.screen_new_password(value)
+
+
+@pytest.mark.parametrize('value',['abcdefgя','abcdefgЯ','abcdefgё','abcdefgЁ','я','Abc123!Ю'])
+def test_russian_letters_rejected_before_network(monkeypatch, value):
+    monkeypatch.setattr(password_policy, 'urlopen', lambda *args, **kwargs: pytest.fail('Invalid password reached HIBP'))
+    with pytest.raises(ApiError) as caught:
+        password_policy.screen_new_password(value)
+    assert caught.value.status == 400
+    assert caught.value.message == 'Убери русские буквы из пароля'

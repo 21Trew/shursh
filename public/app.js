@@ -1159,7 +1159,7 @@ function passwordField(register,name='password',label='Пароль'){
  return '<div class="field password-field"><div class="password-label-row"><label for="fld-'+attr(name)+'">'+esc(label)+'</label>'+generator+'</div>'+
   '<div class="password-input-row"><input id="fld-'+attr(name)+'" name="'+attr(name)+'" type="password" placeholder="'+(register?'От 8 символов':'Твой пароль')+'" required minlength="8" maxlength="200" autocomplete="'+(register?'new-password':'current-password')+'"'+(register?' aria-describedby="password-hint"':'')+'>'+
   '<button type="button" class="password-visibility" data-password-visibility aria-label="Показать пароль" aria-pressed="false">'+ico('eye')+'</button></div>'+
-  (register?'<div class="password-strength" data-password-strength data-level="0" hidden><p data-password-strength-label role="status" aria-live="polite" aria-label="Надёжность пароля"></p><div class="password-strength-bars" aria-hidden="true"><i></i><i></i><i></i><i></i></div></div><p class="password-hint" id="password-hint">От 8 символов. Лучше использовать длинный уникальный пароль</p>':'')+'</div>';
+  (register?'<div class="password-strength" data-password-strength data-level="0" hidden><p data-password-strength-label role="status" aria-live="polite" aria-label="Надёжность пароля"></p><div class="password-strength-bars" aria-hidden="true"><i></i><i></i><i></i><i></i></div></div><p class="password-hint" id="password-hint">Длинный уникальный пароль сложнее взломать</p>':'')+'</div>';
 }
 function confirmPasswordField(){
  return '<div class="field password-field"><label for="fld-confirm_password">Повтори пароль</label>'+
@@ -1168,21 +1168,18 @@ function confirmPasswordField(){
 }
 function newPasswordIssue(value){
  if(!value)return 'Введи пароль';
+ if(/[А-Яа-яЁё]/.test(value))return 'Убери русские буквы из пароля';
  if(Array.from(value).length<8)return 'Минимум 8 символов';
  if(/[\u0000-\u001f\u007f]/.test(value)||Array.from(value).some(c=>c.length===1&&/[\ud800-\udfff]/.test(c)))return 'В пароле есть недопустимые символы';
  if(new TextEncoder().encode(value).length>72)return 'Пароль слишком длинный. Сократи его';
  return '';
 }
 function passwordAdvice(value){
- const base='От 8 символов. Лучше использовать длинный уникальный пароль';
+ const base='Длинный уникальный пароль сложнее взломать';
  if(!value||newPasswordIssue(value))return base;
- const missing=[];
- if(!/[a-z]/.test(value))missing.push('строчные буквы');
- if(!/[A-Z]/.test(value))missing.push('заглавные буквы');
- if(!/[0-9]/.test(value))missing.push('цифры');
- if(!/[^A-Za-z0-9\s]/.test(value))missing.push('спецсимволы');
- if(!missing.length)return base;
- return 'Можно добавить '+(missing.length===1?missing[0]:missing.slice(0,-1).join(', ')+' и '+missing.at(-1))+' или увеличить длину пароля';
+ if(!/[a-z]/.test(value)||!/[A-Z]/.test(value)||!/[0-9]/.test(value)||!/[^\p{L}\p{N}\s]/u.test(value))
+  return 'Чтобы пароль было сложнее взломать, добавь разные символы или увеличь длину';
+ return base;
 }
 // zxcvbn runs in a same-origin worker, loaded only on new-password input.
 let strengthWorker=null,strengthBusy=null,strengthPending=null,strengthDebounce=0,strengthRequestId=0,strengthRetryAt=0,strengthTimeout=0;
@@ -1224,7 +1221,7 @@ function pumpStrengthWorker(){
       renderPasswordStrength(active.input,Math.max(1,score));
       const hint=active.input.closest('.password-field')?.querySelector('#password-hint');
       if(hint&&score<=1&&hint.dataset.generated!=='true')
-       hint.textContent='Для надёжности увеличь длину и избегай повторов и знакомых слов';
+       hint.textContent='Чтобы пароль было сложнее взломать, увеличь длину и избегай повторов';
      }
      else strengthUnavailable(active);
     }
