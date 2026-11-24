@@ -40,6 +40,16 @@ def auth_request(action, **payload):
             raise ApiError(429, 'Слишком много попыток. Повтори позже.') from None
         if exc.code >= 500:
             raise ApiError(503, 'Сервис входа временно недоступен') from None
+        # Normalize typed duplicate-signup errors to the same response as
+        # confirmation-required signup. Never reveal account existence.
+        if action == 'register' and exc.code in (400, 422):
+            try:
+                details = json.loads(exc.read(2048))
+            except (ValueError, TypeError):
+                details = {}
+            if isinstance(details, dict) and details.get('error_code') in (
+                    'user_already_exists', 'email_exists'):
+                return {}
         if action == 'resend':
             # Never claim an email was sent when GoTrue rejected the request,
             # including invalid redirect URL configuration.
