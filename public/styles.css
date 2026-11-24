@@ -566,16 +566,14 @@ input[type="file"]::file-selector-button:hover{background:#f2e9dc}
 }
 
 .password-strength[hidden]{display:none}
-.password-strength{display:grid;gap:5px;margin-top:2px;color:#625b57}
+.password-strength{display:grid;grid-template-columns:76px minmax(0,1fr);align-items:center;gap:8px;margin-top:2px;--strength-fill:#b65140;--strength-label:#9b3c2e}
 .password-strength-bars{display:grid;grid-template-columns:repeat(4,minmax(0,1fr));gap:5px}
-.password-strength-bars i{display:block;height:5px;border-radius:6px;background:#e9e3dd}
-.password-strength p{font-size:12px;line-height:1.45;font-weight:700;margin:0}
-.password-strength[data-level="1"] p{color:#9b3c2e}
-.password-strength[data-level="1"] i:nth-child(1){background:#b65140}
-.password-strength[data-level="2"] p{color:#805a17}
-.password-strength[data-level="2"] i:nth-child(-n+2){background:#bc8b32}
-.password-strength[data-level="3"] p{color:#4d6c3c}
-.password-strength[data-level="3"] i:nth-child(-n+3){background:#819e65}
-.password-strength[data-level="4"] p{color:#32664c}
-.password-strength[data-level="4"] i{background:#4f9670}
+.password-strength-bars i{position:relative;display:block;height:5px;border-radius:6px;background:#e9e3dd;overflow:hidden}
+.password-strength-bars i::after{content:"";position:absolute;inset:0;border-radius:inherit;background-color:var(--strength-fill);transform:scaleX(0);transform-origin:left center;transition:transform 220ms ease,background-color 240ms ease}
+.password-strength p{font-size:12px;line-height:1.45;font-weight:700;margin:0;color:var(--strength-label);transition:color 240ms ease}
+.password-strength[data-level="2"]{--strength-fill:#bc8b32;--strength-label:#805a17}
+.password-strength[data-level="3"]{--strength-fill:#819e65;--strength-label:#4d6c3c}
+.password-strength[data-level="4"]{--strength-fill:#4f9670;--strength-label:#32664c}
+.password-strength[data-level="1"] i:nth-child(1)::after,.password-strength[data-level="2"] i:nth-child(-n+2)::after,.password-strength[data-level="3"] i:nth-child(-n+3)::after,.password-strength[data-level="4"] i::after{transform:scaleX(1)}
 .password-field .password-visibility{width:44px;height:44px}
+@media(prefers-reduced-motion:reduce){.password-strength-bars i::after,.password-strength p{transition:none}}

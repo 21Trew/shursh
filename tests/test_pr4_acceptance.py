@@ -1304,7 +1304,19 @@ def test_mobile_webkit_signup_inline_validation(browser_https):
             page.locator('[data-password-generate]').click()
             password=page.locator('#fld-password').input_value()
             assert password and page.locator('#fld-confirm_password').input_value()==password
-            expect(page.locator('[data-password-strength-label]')).to_have_text('Надёжность: Надёжный')
+            expect(page.locator('[data-password-strength-label]')).to_have_text('Надёжный')
+            label=page.locator('[data-password-strength-label]')
+            bars=page.locator('.password-strength-bars')
+            assert label.bounding_box()['x'] < bars.bounding_box()['x']
+            assert abs(label.bounding_box()['y']+label.bounding_box()['height']/2 - bars.bounding_box()['y']-bars.bounding_box()['height']/2)<2
+            page.locator('#fld-password').fill('Ab3xy!90')
+            expect(label).to_have_text('Средний')
+            page.locator('#fld-password').fill('Ab3xy!90Kp6n')
+            expect(label).to_have_text('Хороший')
+            page.locator('#fld-password').fill('Ab3xy!90')
+            expect(label).to_have_text('Средний')
+            page.locator('[data-password-generate]').click()
+            expect(label).to_have_text('Надёжный')
             page.locator('.password-field:has(#fld-confirm_password) [data-password-visibility]').click()
             expect(page.locator('#fld-confirm_password')).to_have_attribute('type','text')
             page.locator('.password-field:has(#fld-confirm_password) [data-password-visibility]').click()

@@ -1159,7 +1159,7 @@ function passwordField(register,name='password',label='Пароль'){
  return '<div class="field password-field"><div class="password-label-row"><label for="fld-'+attr(name)+'">'+esc(label)+'</label>'+generator+'</div>'+
   '<div class="password-input-row"><input id="fld-'+attr(name)+'" name="'+attr(name)+'" type="password" placeholder="'+(register?'От 8 символов':'Твой пароль')+'" required minlength="8" maxlength="200" autocomplete="'+(register?'new-password':'current-password')+'"'+(register?' aria-describedby="password-hint"':'')+'>'+
   '<button type="button" class="password-visibility" data-password-visibility aria-label="Показать пароль" aria-pressed="false">'+ico('eye')+'</button></div>'+
-  (register?'<div class="password-strength" data-password-strength data-level="0" hidden><div class="password-strength-bars" aria-hidden="true"><i></i><i></i><i></i><i></i></div><p data-password-strength-label role="status" aria-live="polite"></p></div><p class="password-hint" id="password-hint">От 8 символов, A-Z, a-z и 0-9. Спецсимволы желательны</p>':'')+'</div>';
+  (register?'<div class="password-strength" data-password-strength data-level="0" hidden><p data-password-strength-label role="status" aria-live="polite" aria-label="Надёжность пароля"></p><div class="password-strength-bars" aria-hidden="true"><i></i><i></i><i></i><i></i></div></div><p class="password-hint" id="password-hint">От 8 символов, A-Z, a-z и 0-9. Спецсимволы желательны</p>':'')+'</div>';
 }
 function confirmPasswordField(){
  return '<div class="field password-field"><label for="fld-confirm_password">Повтори пароль</label>'+
@@ -1183,12 +1183,15 @@ function updatePasswordStrength(input){
  // Heuristic feedback, not a guarantee of entropy or breach screening.
  const common=/(?:password|qwerty|12345|abcdef|letmein|admin|пароль)/i.test(value)||/(.)\1{3,}|^(.{1,5})\2+$/.test(value)||new Set(value.toLowerCase()).size<5;
  let level=1;
- if(!newPasswordIssue(value)&&!common)level=n>=16?4:n>=12?(special?4:3):special?3:2;
+ if(!newPasswordIssue(value)&&!common){
+  // Every compliant short password starts at medium, even with symbols.
+  // Symbols help longer passwords, but never skip the medium length band.
+  level=n>=(special?16:18)?4:n>=12?3:2;
+ }
  const label=['','Слабый','Средний','Хороший','Надёжный'][level];
  indicator.hidden=false;indicator.dataset.level=String(level);
  const node=indicator.querySelector('[data-password-strength-label]');
- const message='Надёжность: '+label;
- if(node.textContent!==message)node.textContent=message;
+ if(node.textContent!==label)node.textContent=label;
 }
 function securePassword(){
  if(!window.crypto || !crypto.getRandomValues)throw new Error('Для генерации пароля нужно защищённое HTTPS-соединение');
