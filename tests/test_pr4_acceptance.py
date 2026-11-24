@@ -1513,18 +1513,40 @@ def test_auth_character_highlight_responsive(browser_https):
                         assert panel.evaluate("p=>getComputedStyle(p).display==='flex' && getComputedStyle(p).flexWrap==='nowrap'")
                         assert options.count()>=1
                         assert panel.evaluate("p=>{const r=p.getBoundingClientRect(),buttons=[...p.querySelectorAll('button:not([hidden])')];return buttons.every(b=>{const x=b.getBoundingClientRect();return Math.abs(x.top-buttons[0].getBoundingClientRect().top)<1&&x.height>=44&&x.right<=r.right+.5;});}")
-                        expect(options.first).to_contain_text('Вариант 1')
+                        expect(options.first).to_contain_text('Вариант')
                         toggle.click()
                         expect(password).to_have_attribute('type','text')
                         candidate=options.first.inner_text()
+                        candidate_index=options.first.get_attribute('data-password-suggestion')
                         assert 12<=len(candidate)<=32 and '12345678' not in candidate
                         assert re.search('[a-z]',candidate) and re.search('[A-Z]',candidate) and re.search('[0-9]',candidate) and re.search('[!@#$%&*]',candidate)
                         assert panel.evaluate("p=>p.scrollWidth<=p.clientWidth+1")
+                        # Compare the actual visible count against the optimal packing
+                        # of measured widths, not merely absence of overflow.
+                        assert panel.evaluate("""p=>{
+                          const buttons=[...p.querySelectorAll('button')],count=buttons.filter(b=>!b.hidden).length;
+                          const hidden=buttons.map(b=>b.hidden);
+                          buttons.forEach(b=>b.hidden=false);
+                          const sizes=buttons.map(b=>b.getBoundingClientRect().width).sort((a,b)=>a-b);
+                          buttons.forEach((b,i)=>b.hidden=hidden[i]);
+                          const gap=parseFloat(getComputedStyle(p).columnGap)||0;
+                          let sum=0,n=0;
+                          for(const width of sizes){const next=width+(n?gap:0);if(sum+next<=p.clientWidth+.1){sum+=next;n++;}else break;}
+                          return n===count;
+                        }""")
                         field.screenshot(path=str(output/f'{engine.name}-{width}-suggestions.png'))
                         toggle.click()
-                        expect(options.first).to_contain_text('Вариант 1')
+                        expect(options.first).to_contain_text('Вариант')
                         assert candidate not in panel.inner_text()
-                        options.first.click()
+                        option=panel.locator('button[data-password-suggestion="'+candidate_index+'"]')
+                        # Masked labels may pack differently; reveal if the selected
+                        # option is not currently in the masked row.
+                        if not option.is_visible():
+                            toggle.click()
+                            option.click()
+                            toggle.click()
+                        else:
+                            option.click()
                         expect(password).to_have_value(candidate)
                         expect(password).to_have_attribute('type','password')
                         expect(page.locator('#fld-confirm_password')).to_have_value(candidate)
@@ -1620,9 +1642,11 @@ def test_password_meter_continuous_motion(browser_https):
                             assert any(.02<v<.98 for f in frames for v in f)
                         assert abs(total(samples['before'])-total(samples['immediate']))<.25
                         page.emulate_media(reduced_motion='reduce')
-                        assert page.evaluate("""() => {
+                        page.wait_for_function("()=>matchMedia('(prefers-reduced-motion: reduce)').matches")
+                        assert page.evaluate("""async () => {
                           const i=document.querySelector('#fld-password');
                           renderPasswordStrength(i,4);
+                          await new Promise(requestAnimationFrame);
                           return [...document.querySelectorAll('.password-strength-bars i')].every(b=>new DOMMatrixReadOnly(getComputedStyle(b,'::after').transform).a===1);
                         }""")
                     finally:
@@ -1654,9 +1678,28 @@ def test_auth_modal_shared_shell(browser_https):
                             expect(page.locator('#fld-password')).to_have_value('')
                             assert page.evaluate("document.querySelector('.modal')===window.authShell && document.querySelector('[data-backdrop]')===window.authBackdrop")
                             assert page.evaluate("window.authShell.getAnimations().length<=1")
-                        page.wait_for_function("!document.querySelector('.modal').classList.contains('auth-height-motion')")
+                        page.wait_for_function("()=>!document.querySelector('.modal').classList.contains('auth-height-motion')",timeout=3000)
+                        # Retarget while the previous transition is still running.
+                        motion=page.evaluate("""async ()=>{
+                          const shell=window.authShell,frame=()=>new Promise(requestAnimationFrame);
+                          const height=()=>shell.getBoundingClientRect().height;
+                          const initial=height();
+                          shell.querySelector('[data-open="register"]').click();
+                          const start=performance.now(),samples=[];
+                          while(performance.now()-start<110){await frame();samples.push(height());}
+                          const before=height();
+                          shell.querySelector('[data-open="login"]').click();
+                          const after=height(),reverse=[],end=performance.now();
+                          while(performance.now()-end<400){await frame();reverse.push(height());}
+                          return {initial,before,after,samples,reverse,final:height()};
+                        }""")
+                        assert abs(motion['before']-motion['after'])<3, motion
+                        assert abs(motion['initial']-motion['final'])<3, motion
+                        assert max(motion['samples'])>motion['initial']+2, motion
+                        assert all(b<=a+3 for a,b in zip(motion['reverse'],motion['reverse'][1:])), motion
                         assert page.evaluate('document.documentElement.scrollWidth<=innerWidth+2')
                         page.emulate_media(reduced_motion='reduce')
+                        page.wait_for_function("()=>matchMedia('(prefers-reduced-motion: reduce)').matches")
                         page.locator('.modal-foot [data-open="register"]').click()
                         assert page.evaluate("!document.querySelector('.modal').classList.contains('auth-height-motion')")
                     finally:

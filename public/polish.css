@@ -828,5 +828,5 @@ input[type="checkbox"]:not(.shursh-checkbox input):checked::after{content:"✓";
  transition:background-color 240ms ease;
 }
 @media(prefers-reduced-motion:reduce){
- #modal-form .password-strength,#modal-form .password-strength-bars i::after{transition:none}
+ #modal-form .password-strength,#modal-form .password-strength-bars i::after,#modal-form .password-strength p{transition:none!important}
 }

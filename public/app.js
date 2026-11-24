@@ -321,9 +321,9 @@ function modal({title,subtitle='',content='',onSubmit=null,onError=null,submitLa
   let lastNatural=dialog.getBoundingClientRect().height;
   if(authModalMotion?.dialog===dialog)lastNatural=authModalMotion.target;
   modalContentObserver=new ResizeObserver(()=>{
-   if(authModalFrame)return;
+   if(!scroller.isConnected||authModalFrame)return;
    authModalFrame=requestAnimationFrame(()=>{
-    authModalFrame=0;if(!dialog.isConnected)return;
+    authModalFrame=0;if(!dialog.isConnected||!scroller.isConnected)return;
     const from=authModalMotion?.dialog===dialog?dialog.getBoundingClientRect().height:lastNatural;
     animateAuthModalHeight(dialog,from);
     lastNatural=authModalMotion?.dialog===dialog?authModalMotion.target:dialog.getBoundingClientRect().height;
@@ -1327,10 +1327,12 @@ function renderPasswordSuggestions(input,show=false){
   for(const button of buttons)button.hidden=false;
   const gap=parseFloat(getComputedStyle(panel).columnGap)||0;
   let used=0,shown=0;
-  for(const button of buttons){
-   const next=button.getBoundingClientRect().width+(shown?gap:0);
+  const measured=buttons.map(button=>({button,width:button.getBoundingClientRect().width}));
+  measured.sort((a,b)=>a.width-b.width);
+  for(const item of measured){
+   const next=item.width+(shown?gap:0);
    if(used+next<=width+.1){used+=next;shown++;}
-   else button.hidden=true;
+   else item.button.hidden=true;
   }
   const advice=hint?.textContent?.replace(/, например:$/,'')||'';
   if(advice)setPasswordHint(hint,advice+(shown?', например:':''));
@@ -1438,6 +1440,10 @@ function renderPasswordStrength(input,target,status=''){
  }
  indicator.dataset.targetLevel=String(target);
  indicator.dataset.level=String(target);
+ if(reduced){
+  indicator.getAnimations().forEach(animation=>animation.cancel());
+  indicator.style.setProperty('--shursh-strength-progress',String(target));
+ }else indicator.style.removeProperty('--shursh-strength-progress');
  if(show)return;
  if(reduced||indicator.hidden||!(parseFloat(getComputedStyle(indicator).getPropertyValue('--shursh-strength-progress'))>0)){indicator.hidden=true;return;}
  const timer=setTimeout(()=>{
