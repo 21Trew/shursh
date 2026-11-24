@@ -1159,7 +1159,7 @@ function passwordField(register,name='password',label='Пароль'){
  return '<div class="field password-field"><div class="password-label-row"><label for="fld-'+attr(name)+'">'+esc(label)+'</label>'+generator+'</div>'+
   '<div class="password-input-row"><input id="fld-'+attr(name)+'" name="'+attr(name)+'" type="password" placeholder="'+(register?'От 8 символов':'Твой пароль')+'" required minlength="8" maxlength="200" autocomplete="'+(register?'new-password':'current-password')+'"'+(register?' aria-describedby="password-hint"':'')+'>'+
   '<button type="button" class="password-visibility" data-password-visibility aria-label="Показать пароль" aria-pressed="false">'+ico('eye')+'</button></div>'+
-  (register?'<div class="password-strength" data-password-strength data-level="0" hidden><p data-password-strength-label role="status" aria-live="polite" aria-label="Надёжность пароля"></p><div class="password-strength-bars" aria-hidden="true"><i></i><i></i><i></i><i></i></div></div><p class="password-hint" id="password-hint" hidden aria-live="polite"></p><div class="password-suggestions" data-password-suggestions hidden></div>':'')+'</div>';
+  (register?'<div class="password-strength" data-password-strength data-level="0" hidden><p data-password-strength-label role="status" aria-live="polite" aria-label="Надёжность пароля"></p><div class="password-strength-bars" aria-hidden="true"><i></i><i></i><i></i><i></i></div></div><p class="password-hint" id="password-hint" hidden aria-live="polite"></p><div class="password-suggestions" data-password-suggestions role="group" aria-label="Более надёжные варианты пароля" hidden></div>':'')+'</div>';
 }
 function confirmPasswordField(){
  return '<div class="field password-field"><label for="fld-confirm_password">Повтори пароль</label>'+
@@ -1224,15 +1224,13 @@ function renderPasswordSuggestions(input,show=false){
   values=[securePassword(length),securePassword(length)];
   passwordSuggestions.set(input,values);
  }
- const title=document.createElement('p');
- title.textContent='Более надёжные варианты';
  const buttons=values.map((value,index)=>{
   const button=document.createElement('button');button.type='button';
   button.dataset.passwordSuggestion=String(index);
   button.textContent=input.type==='text'?value:'Вариант '+(index+1)+' · '+value.length+' символов';
   return button;
  });
- panel.replaceChildren(title,...buttons);panel.hidden=false;
+ panel.replaceChildren(...buttons);panel.hidden=false;
 }
 // zxcvbn runs in a same-origin worker, loaded only on new-password input.
 let strengthWorker=null,strengthBusy=null,strengthPending=null,strengthDebounce=0,strengthRequestId=0,strengthRetryAt=0,strengthTimeout=0;
