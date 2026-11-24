@@ -244,7 +244,7 @@ async function startupApi(path){
 function notice(message,error=false){const n=document.createElement('div');n.className='toast'+(error?' error':'');n.textContent=message;document.getElementById('toast-root').replaceChildren(n);clearTimeout(toastTimeout);toastTimeout=setTimeout(()=>n.remove(),4500);}
 async function clipboard(value){try{await navigator.clipboard.writeText(value);notice('Ссылка скопирована!');}catch{modal({title:'Скопируй ссылку',content:`<div class="field"><label>Ссылка</label><input class="input" autofocus readonly value="${attr(value)}" onclick="this.select()"></div>`});}}
 let modalContentObserver=null;
-function modal({title,subtitle='',content='',onSubmit=null,submitLabel='Сохранить',size='normal',footer=''}){
+function modal({title,subtitle='',content='',onSubmit=null,onError=null,submitLabel='Сохранить',size='normal',footer=''}){
  const oldHeight=modalRoot.querySelector('.modal')?.getBoundingClientRect().height||0;
  modalContentObserver?.disconnect();modalContentObserver=null;
  closeCalendar();closeUiSelect();
@@ -285,7 +285,7 @@ function modal({title,subtitle='',content='',onSubmit=null,submitLabel='Сохр
   modalContentObserver.observe(scroller,{childList:true,characterData:true,subtree:true});
  }
  document.body.style.overflow='hidden';const bd=modalRoot.querySelector('[data-backdrop]');bd.addEventListener('click',e=>{if(e.target===bd)closeModal()});modalRoot.querySelectorAll('[data-close]').forEach(b=>b.addEventListener('click',closeModal));
- if(onSubmit){modalRoot.querySelector('form').addEventListener('submit',async e=>{e.preventDefault();const btn=e.currentTarget.querySelector('[type=submit]')||modalRoot.querySelector('.modal-fixed-footer [type=submit]');btn.disabled=true;try{const submitted=e.currentTarget;await onSubmit(submitted);if(modalRoot.querySelector('form')===submitted)closeModal();}catch(err){notice(err.message,true)}finally{if(btn.isConnected)btn.disabled=false;}});}
+ if(onSubmit){modalRoot.querySelector('form').addEventListener('submit',async e=>{e.preventDefault();const btn=e.currentTarget.querySelector('[type=submit]')||modalRoot.querySelector('.modal-fixed-footer [type=submit]');if(btn.disabled)return;btn.disabled=true;const submitted=e.currentTarget;try{await onSubmit(submitted);if(modalRoot.querySelector('form')===submitted)closeModal();}catch(err){if(onError){if(submitted.isConnected)onError(err,submitted);}else notice(err.message,true)}finally{if(btn.isConnected)btn.disabled=false;}});}
  // No delayed autofocus: it can steal focus while the user types in the
  // password field, silently redirecting keystrokes to email after 10 ms.
  // Fields focus on the first intentional click; avoid noisy autofocus rings.
@@ -1170,23 +1170,48 @@ function securePassword(){
  for(let i=chars.length-1;i>0;i--){const j=Math.floor(crypto.getRandomValues(new Uint32Array(1))[0]*(i+1)/4294967296);[chars[i],chars[j]]=[chars[j],chars[i]];}
  return chars.join('');
 }
+function authFormWarning(){
+ return '<p class="auth-form-warning" role="alert" tabindex="-1" hidden></p>';
+}
+function clearAuthFormWarning(form){
+ const warning=form.querySelector('.auth-form-warning');
+ if(warning){warning.hidden=true;warning.textContent='';}
+}
+function showAuthFormWarning(error,form){
+ const warning=form.querySelector('.auth-form-warning');
+ if(!warning)return;
+ const status=error?.status;
+ let message;
+ if(!status)message='Не удалось связаться с сервером. Попробуй ещё раз';
+ else if(status===429)message='Слишком много попыток. Попробуй позже';
+ else if(status>=500)message='Сервис входа временно недоступен. Попробуй позже';
+ else message=error.message||'Проверь данные и попробуй ещё раз';
+ warning.textContent=message.replace(/\.+$/,'');
+ warning.hidden=false;
+ warning.focus();
+}
 function confirmationModal(email){
  modal({title:'Проверь почту 💌',subtitle:'Ещё один маленький шаг - и все желания будут под рукой',
-  content:'<div class="auth-confirm-card" role="status"><span class="auth-confirm-symbol" aria-hidden="true">'+ico('mail',28)+'</span><div class="auth-confirm-message"><strong>Письмо с подтверждением отправлено!</strong><p>Загляни в <b>'+esc(email)+'</b> и перейди по ссылке из письма</p></div></div>'+
-   '<p class="auth-confirm-help">Не видишь письмо? Проверь «Спам» и подожди немного, прежде чем запрашивать новое</p>',
-  footer:'<button type="button" data-open="resend" data-email="'+attr(email)+'">Отправить письмо ещё раз</button> · <button type="button" data-open="login">Войти</button>'});
+  content:'<div class="auth-confirm-card" role="status"><span class="auth-confirm-symbol" aria-hidden="true">'+ico('mail',28)+'</span><div class="auth-confirm-message"><strong>Запрос принят</strong><p>Если адрес <b>'+esc(email)+'</b> ожидает подтверждения, письмо должно прийти на эту почту</p></div></div>'+
+   '<p class="auth-confirm-help">Если аккаунт уже есть, новое письмо может не прийти - войди с прежним паролем. Проверь адрес и «Спам», прежде чем запрашивать новое письмо</p>',
+  footer:'<button type="button" data-open="resend" data-email="'+attr(email)+'">Отправить письмо ещё раз</button> · <button type="button" data-open="login" data-email="'+attr(email)+'">Войти</button>'});
 }
 function resendConfirmationModal(email=''){
  modal({title:'Повторить подтверждение',subtitle:'Если адрес ожидает подтверждения, отправим ещё одно письмо',
-  content:field('Почта','email','you@example.com','email',email,true,'autocomplete="email"')+
-    '<p class="auth-confirm-help">Используй адрес, указанный при регистрации. Отправка нового письма может быть ограничена по частоте</p>',
+  content:field('Почта','email','you@example.com','email',email,true,'autocomplete="email" maxlength="200"')+
+    '<p class="auth-confirm-help">Используй адрес, указанный при регистрации. Отправка нового письма может быть ограничена по частоте</p>'+authFormWarning(),
+  onError:showAuthFormWarning,
   submitLabel:'Отправить письмо',
   onSubmit:async form=>{
-   await api('/api/auth/resend',{method:'POST',body:readForm(form)});
-   modal({title:'Проверь почту 💌',content:'<p>Если адрес ожидает подтверждения, новое письмо отправлено. Проверь входящие и «Спам»</p>',
-     footer:'<button type="button" data-open="login">Войти в аккаунт</button>'});
+   clearAuthFormWarning(form);
+   const payload=readForm(form);
+   await api('/api/auth/resend',{method:'POST',body:payload});
+   if(!form.isConnected)return;
+   modal({title:'Проверь почту 💌',content:'<p>Запрос принят. Если адрес ещё не подтверждён, проверь входящие и «Спам». Если аккаунт уже подтверждён, войди с паролем</p>',
+     footer:'<button type="button" data-open="login" data-email="'+attr(payload.email)+'">Войти в аккаунт</button>'});
   },
-  footer:'Уже подтвердил адрес? <button type="button" data-open="login">Войти</button>'});
+  footer:'Уже подтвердил адрес? <button type="button" data-open="login" data-email="'+attr(email)+'">Войти</button>'});
+ setupAuthFormValidation(modalRoot.querySelector('#modal-form'),false);
 }
 function authFieldIssue(input, form, register){
  const value=input.value, kind=input.name;
@@ -1273,7 +1298,7 @@ function setupAuthFormValidation(form,register){
   if(register)form.elements.name.value=form.elements.name.value.trim();
  },true);
 }
-function loginModal(mode='login'){
+function loginModal(mode='login',email=''){
  const register=mode==='register';
  // Registering or logging in directly from a private participant page
  // is an explicit membership recovery action, even via the header.
@@ -1282,14 +1307,16 @@ function loginModal(mode='login'){
  modal({title:register?'Давай знакомиться!':'С возвращением!',
   subtitle:pendingGameClaim?'После входа сохраним эту игру в твоём аккаунте':register?'Создай аккаунт, чтобы хранить свои списки и организовывать игры':'Твои желания уже соскучились',
   content:(register?field('Как тебя зовут?','name','Например, Саша','text','',true,'maxlength="40" autocomplete="name"'):'')+
-   field('Почта','email','you@example.com','email','',true,'autocomplete="email" maxlength="200"')+passwordField(register)+
-   (register?field('Повтори пароль','confirm_password','Тот же пароль','password','',true,'autocomplete="new-password" minlength="8" maxlength="200"'):''),
+   field('Почта','email','you@example.com','email',email,true,'autocomplete="email" maxlength="200"')+passwordField(register)+
+   (register?field('Повтори пароль','confirm_password','Тот же пароль','password','',true,'autocomplete="new-password" minlength="8" maxlength="200"'):'')+authFormWarning(),
+  onError:showAuthFormWarning,
   submitLabel:register?'Создать аккаунт':'Войти',
   onSubmit:async form=>{
+   clearAuthFormWarning(form);
    const payload=readForm(form);
    delete payload.confirm_password;
    const result=await api(register?'/api/register':'/api/login',{method:'POST',body:payload});
-   if(result.pending_confirmation){if(register)persistSignupClaim();confirmationModal(payload.email);return;}
+   if(result.pending_confirmation){if(register)persistSignupClaim();if(form.isConnected)confirmationModal(payload.email);return;}
    currentUser=result.user;broadcastSessionChange();
     if(pendingGameClaim){
      const claim=pendingGameClaim;
@@ -1657,7 +1684,7 @@ document.addEventListener('click',async ev=>{
   }catch(err){notice(err.message,true)}
   return;
  }
- const n=ev.target.closest('[data-nav]');if(n){ev.preventDefault();nav(n.dataset.nav);return;}const op=ev.target.closest('[data-open]');if(op){ev.preventDefault();const key=op.dataset.open;if(key==='login'||key==='register')loginModal(key);if(key==='resend')resendConfirmationModal(op.dataset.email||'');if(key==='list')listModal();if(key==='wish')wishModal();if(key==='santa')santaModal();return;}const a=ev.target.closest('[data-action]');if(a){ev.preventDefault();await dispatch(a.dataset.action,a);}});
+ const n=ev.target.closest('[data-nav]');if(n){ev.preventDefault();nav(n.dataset.nav);return;}const op=ev.target.closest('[data-open]');if(op){ev.preventDefault();const key=op.dataset.open;if(key==='login'||key==='register'||key==='resend'){const email=op.closest('.modal')?.querySelector('#fld-email')?.value||op.dataset.email||'';if(key==='resend')resendConfirmationModal(email);else loginModal(key,email);}if(key==='list')listModal();if(key==='wish')wishModal();if(key==='santa')santaModal();return;}const a=ev.target.closest('[data-action]');if(a){ev.preventDefault();await dispatch(a.dataset.action,a);}});
 window.addEventListener('popstate',()=>{rememberOwnerTab();if(restoreOwnerTab(currentPath()))lastRenderToken++;else render();});window.addEventListener('hashchange',()=>{if(isPreview)render();});
 if(!isPreview)(async()=>{
  if(confirmationToken&&!authReturnError){
