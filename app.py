@@ -12,6 +12,7 @@ from werkzeug.exceptions import RequestEntityTooLarge
 
 from cloud import db, auth, password_policy, auth_vnext
 from cloud.backend import CloudRequest, serialize
+from cloud.environment import EnvironmentError
 from server import ApiError, LIMIT_BYTES
 
 ROOT = Path(__file__).resolve().parent
@@ -199,6 +200,10 @@ def api(route):
         return response(payload,result[0],result[2])
     except ApiError:
         raise
+    except EnvironmentError as exc:
+        # A static code identifies the failed guard without logging credentials.
+        app.logger.error('Cloud environment guard: %s',exc.code)
+        return response({'error':'Сервис временно недоступен. Повтори позже'},503)
     except sqlite3.IntegrityError:
         return response({'error':'Конфликт данных. Обнови страницу и повтори'},409)
     except RequestEntityTooLarge:

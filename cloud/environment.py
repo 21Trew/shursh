@@ -13,19 +13,26 @@ STAGING_REF = 'vwhzhbsaspbelkvnjjho'
 PRODUCTION_REF = 'rqnbhjhwmubsjwzontnu'
 
 
+class EnvironmentError(RuntimeError):
+    """Only static, non-secret diagnostic codes; never include configuration."""
+    def __init__(self, code, message):
+        self.code=code
+        super().__init__(message)
+
+
 def _needs_staging_guard():
     vercel_env = os.environ.get('VERCEL_ENV', '')
     app_env = os.environ.get('SHURSH_ENV', '')
     if vercel_env == 'production':
         if app_env == 'staging':
-            raise RuntimeError('Staging configuration is forbidden in Production')
+            raise EnvironmentError('staging_in_production', 'Staging configuration is forbidden in Production')
         return False
     if vercel_env == 'preview' or app_env == 'staging':
         return True
     # Hosted functions with a missing/unknown VERCEL_ENV must not silently
     # fall back to local mode and connect to any configured database.
     if os.environ.get('VERCEL') == '1':
-        raise RuntimeError('Unrecognized hosted environment')
+        raise EnvironmentError('unknown_hosted_environment', 'Unrecognized hosted environment')
     return False
 
 
@@ -38,24 +45,24 @@ def assert_staging_target(*, require_database=True):
     if not _needs_staging_guard():
         return
     if os.environ.get('SHURSH_ENV') != 'staging':
-        raise RuntimeError('Preview environment identity is missing')
+        raise EnvironmentError('missing_staging_identity', 'Preview environment identity is missing')
     expected = os.environ.get('SHURSH_EXPECTED_SUPABASE_REF', '')
     if expected != STAGING_REF or expected == PRODUCTION_REF:
-        raise RuntimeError('Unapproved Preview Supabase project')
+        raise EnvironmentError('unapproved_project', 'Unapproved Preview Supabase project')
     auth = urlsplit(os.environ.get('SUPABASE_URL', ''))
     if (auth.scheme != 'https' or auth.hostname != f'{expected}.supabase.co'
             or auth.username or auth.password or auth.port not in (None, 443)
             or auth.path not in ('', '/') or auth.query or auth.fragment):
-        raise RuntimeError('Preview Auth URL does not match Staging')
+        raise EnvironmentError('auth_url_mismatch', 'Preview Auth URL does not match Staging')
     if not require_database:
         return
     dsn = os.environ.get('SHURSH_DATABASE_URL', '')
     if not dsn:
-        raise RuntimeError('Preview PostgreSQL connection is not configured')
+        raise EnvironmentError('missing_database_config', 'Preview PostgreSQL connection is not configured')
     try:
         config = conninfo_to_dict(dsn)
     except (ValueError, TypeError) as exc:
-        raise RuntimeError('Invalid Preview PostgreSQL configuration') from exc
+        raise EnvironmentError('invalid_database_config', 'Invalid Preview PostgreSQL configuration') from exc
     host = config.get('host', '')
     username = config.get('user', '')
     # Only the dedicated, non-superuser login is accepted for serverless
@@ -66,6 +73,6 @@ def assert_staging_target(*, require_database=True):
             config.get('dbname') != 'postgres' or
             not config.get('password') or
             config.get('hostaddr') or config.get('service') or config.get('options')):
-        raise RuntimeError('Preview PostgreSQL project is not Staging')
+        raise EnvironmentError('database_identity_mismatch', 'Preview PostgreSQL project is not Staging')
     if config.get('sslmode') not in ('require', 'verify-ca', 'verify-full'):
-        raise RuntimeError('Preview PostgreSQL TLS is mandatory')
+        raise EnvironmentError('database_tls_required', 'Preview PostgreSQL TLS is mandatory')

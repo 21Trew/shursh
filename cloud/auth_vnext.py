@@ -16,7 +16,7 @@ from psycopg.conninfo import conninfo_to_dict
 
 from cloud import auth, db, password_policy
 from cloud.backend import valid_auth_email, valid_signup_name
-from cloud.environment import assert_staging_target
+from cloud.environment import assert_staging_target, EnvironmentError
 from server import ApiError, token, token_hash
 
 COOKIE='__Host-shursh_auth'
@@ -29,7 +29,7 @@ def enabled():
         return False
     if os.environ.get('VERCEL_ENV')=='production' or (
             os.environ.get('VERCEL')=='1' and os.environ.get('SHURSH_ENV')!='staging'):
-        raise RuntimeError('Auth vNext is restricted to isolated Staging')
+        raise EnvironmentError('vnext_not_staging', 'Auth vNext is restricted to isolated Staging')
     assert_staging_target()
     if os.environ.get('SHURSH_ENV')!='staging':
         # Never allow this experiment against a hosted DSN from a local shell.
@@ -37,7 +37,7 @@ def enabled():
         if (cfg.get('host') not in ('localhost','127.0.0.1')
                 or cfg.get('dbname')!='shursh_ci' or cfg.get('hostaddr')
                 or cfg.get('service') or cfg.get('options')):
-            raise RuntimeError('Auth vNext requires isolated Staging or disposable CI')
+            raise EnvironmentError('vnext_database_not_isolated', 'Auth vNext requires isolated Staging or disposable CI')
     return True
 
 
