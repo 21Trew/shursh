@@ -1418,7 +1418,10 @@ function authInvalidCharRanges(input,register,message){
  const email=value.trim(),offset=value.length-value.trimStart().length;
  add(email,/[\s\u0000-\u001f\u007f,"()[\]<>:;\\]+/gu,offset);
  const at=email.indexOf('@');
- if(at<0)return ranges;
+ if(at<0){
+  add(email,/[^A-Za-z0-9.!#$%&'*+/=?^_\x60{|}~-]+/gu,offset);
+  return ranges;
+ }
  const local=email.slice(0,at),domain=email.slice(at+1),domainOffset=offset+at+1;
  add(domain,/@/g,domainOffset);
  add(local,/[^A-Za-z0-9.!#$%&'*+/=?^_\x60{|}~-]+/gu,offset);
@@ -1433,6 +1436,12 @@ function authInvalidCharRanges(input,register,message){
   if(label.length>1&&label.endsWith('-'))ranges.push([start+label.length-1,start+label.length]);
   start+=label.length+1;
  }
+ const lastDot=domain.lastIndexOf('.');
+ if(lastDot>=0){
+  const tld=domain.slice(lastDot+1);
+  if(tld&&!/^(?:[a-z]{2,63}|xn--[a-z0-9-]{1,59})$/i.test(tld))
+   ranges.push([domainOffset+lastDot+1,domainOffset+domain.length]);
+ }
  return ranges;
 }
 function installAuthCharacterHighlights(input,register){
@@ -1442,7 +1451,7 @@ function installAuthCharacterHighlights(input,register){
   wrapper=document.createElement('div');wrapper.className='auth-character-input-row';
   input.before(wrapper);wrapper.append(input);
  }
- let canvas=null,message='';
+ let canvas=null,message='',frame=0;
  const clear=()=>{if(canvas){canvas.hidden=true;canvas.width=0;canvas.height=0;}};
  const paint=()=>{
   if(!input.isConnected||input.type==='password'||!message){clear();return;}
@@ -1487,11 +1496,23 @@ function installAuthCharacterHighlights(input,register){
   }
   canvas.hidden=false;
  };
- const update=next=>{if(typeof next==='string')message=next;paint();};
+ const schedule=()=>{
+  if(!message||input.type==='password'||frame)return;
+  frame=requestAnimationFrame(()=>{frame=0;paint();});
+ };
+ const update=next=>{
+  if(typeof next==='string')message=next;
+  if(!message||input.type==='password'){
+   if(frame){cancelAnimationFrame(frame);frame=0;}
+   clear();return;
+  }
+  paint();schedule();
+ };
  authCharacterHighlights.set(input,update);
- for(const event of ['scroll','focus','blur','keyup','click'])input.addEventListener(event,()=>{
-  if(message)requestAnimationFrame(paint);
- });
+ // Insertion/paste and selection changes can move the native scroll offset
+ // after the input handler. Coalesce a post-layout repaint into one frame.
+ for(const event of ['input','scroll','focus','blur','keyup','click','select','compositionend'])
+  input.addEventListener(event,schedule);
  document.fonts?.ready.then(()=>{if(message&&input.isConnected)paint();});
 }
 window.addEventListener('resize',()=>{
