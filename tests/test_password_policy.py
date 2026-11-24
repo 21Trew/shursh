@@ -77,6 +77,6 @@ def test_unavailable_range_fails_closed(monkeypatch):
         password_policy.screen_new_password(CANDIDATE)
     assert caught.value.status == 503
 
-@pytest.mark.parametrize('value',['Ab3xyz90','Ab3xy!90','A1'+'x'*70'])
+@pytest.mark.parametrize('value',['Ab3xyz90','Ab3xy!90','A1'+'x'*70])
 def test_approved_password_shape(value):
     password_policy.validate_new_password(value)
