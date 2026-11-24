@@ -27,7 +27,6 @@ def db_setup():
         con.execute('CREATE ROLE anon NOLOGIN; CREATE ROLE authenticated NOLOGIN; CREATE ROLE service_role NOLOGIN BYPASSRLS; CREATE SCHEMA auth; CREATE TABLE auth.users(id uuid PRIMARY KEY, encrypted_password text, email_confirmed_at timestamptz)')
         for migration in sorted((ROOT/'supabase/migrations').glob('*.sql')):
             con.execute(migration.read_text())
-        con.execute((ROOT/'supabase/auth_vnext_candidate.sql').read_text())
         for uid in IDS.values():
             con.execute('INSERT INTO auth.users(id) VALUES(%s)', (uid,))
     yield
