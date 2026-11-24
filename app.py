@@ -10,7 +10,7 @@ from pathlib import Path
 from flask import Flask, Response, request, send_from_directory
 from werkzeug.exceptions import RequestEntityTooLarge
 
-from cloud import db, auth
+from cloud import db, auth, password_policy
 from cloud.backend import CloudRequest, serialize
 from server import ApiError, LIMIT_BYTES
 
@@ -128,11 +128,20 @@ def api(route):
                 change={'email':value.strip()}
             else:
                 value=data.get('new_password')
-                if not isinstance(value,str) or not (8<=len(value)<=200) or value==current_password:
-                    raise ApiError(400,'Новый пароль должен отличаться и содержать от 8 до 200 символов')
+                if not isinstance(value,str) or value==current_password:
+                    raise ApiError(400,'Новый пароль должен отличаться от текущего')
+                password_policy.screen_new_password(value)
                 change={'password':value}
             auth.update_verified_account(owner_id,owner_email,current_password,change)
-            return response({'ok':True,'pending_confirmation':'email' in change},200)
+            if 'password' in change:
+                # Revoke existing app cookies and rotate the current cookie.
+                # A separate release gate must cover provider/DB partial failure
+                # and overlapping login/reset operations before Auth vNext ships.
+                with db.transaction(write=True,rate_limit=True) as con:
+                    con.execute('DELETE FROM app_sessions WHERE user_id=?',(owner_id,))
+                    status, session, cookie = handler.finish_auth(con,(owner_id,owner['name'],owner_email))
+                return response({'ok':True,'pending_confirmation':False},status,cookie)
+            return response({'ok':True,'pending_confirmation':True},200)
         if path == '/api/auth/complete' and request.method == 'POST':
             prepared=handler.prepare_confirmation()
             with db.transaction(write=True,rate_limit=True) as con:

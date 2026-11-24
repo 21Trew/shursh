@@ -45,6 +45,16 @@ def application(monkeypatch):
                 'email': data['email'], 'email_confirmed_at':'2026-01-01T00:00:00Z',
                 'user_metadata': {'name': 'Owner' if data['email'].startswith('owner') else 'Other'}}}
     monkeypatch.setattr(auth,'auth_request',provider)
+    # Keep network screening deterministic in CI; the separate policy suite
+    # checks the real parser, request and error behavior.
+    from cloud import password_policy
+    original_screen=password_policy.screen_new_password
+    def screen_shape_only(password):
+        if (not isinstance(password,str) or len(password)<15 or
+                '\x00' in password or any(0xD800<=ord(ch)<=0xDFFF for ch in password)
+                or len(password.encode('utf-8'))>72):
+            original_screen(password)  # rejects before outbound transport
+    monkeypatch.setattr(password_policy,'screen_new_password',screen_shape_only)
     # Remove only ephemeral test rate records; never touch hosted Supabase.
     with psycopg.connect(os.environ['SHURSH_DATABASE_URL']) as con:
         con.execute('DELETE FROM public.app_rate_limits')
@@ -221,13 +231,13 @@ def test_browser_auth_inline_validation_and_password_confirmation(browser_http):
                 page.locator('#fld-confirm_password').fill('different')
                 page.locator('.modal-fixed-footer [type=submit]').click()
                 expect(page.locator('#auth-error-email')).to_have_text('Проверь адрес электронной почты')
-                expect(page.locator('#auth-error-password')).to_have_text('Пароль должен содержать от 8 до 200 символов')
+                expect(page.locator('#auth-error-password')).to_have_text('Новый пароль должен содержать не менее 15 символов и не более 72 байт')
                 expect(page.locator('#auth-error-confirm_password')).to_have_text('Пароли не совпадают')
                 assert not posts
 
                 page.locator('#fld-email').fill('OWNER@EXAMPLE.TEST')
-                page.locator('#fld-password').fill('valid-password')
-                page.locator('#fld-confirm_password').fill('valid-password')
+                page.locator('#fld-password').fill('valid-new-password')
+                page.locator('#fld-confirm_password').fill('valid-new-password')
                 expect(page.locator('#auth-error-email')).to_be_hidden()
                 page.locator('.modal-fixed-footer [type=submit]').click()
                 expect(page.get_by_role('dialog')).to_contain_text('Проверь почту',timeout=10000)
@@ -260,7 +270,7 @@ def test_auth_and_session(application):
     assert 'sql-exec;dur=0.0;desc="0 statement(s)"' in guest_dashboard.headers['Server-Timing']
     call(c,'GET','/api/lists',status=401)
     call(c,'POST','/api/login',{'email':'owner@example.test','password':'bad-password'},401)
-    r=call(c,'POST','/api/register',{'email':'owner@example.test','name':'Owner','password':'valid-password'},202)
+    r=call(c,'POST','/api/register',{'email':'owner@example.test','name':'Owner','password':'valid-new-password'},202)
     assert r.json['pending_confirmation'] and 'Set-Cookie' not in r.headers
     r=call(c,'POST','/api/login',{'email':'owner@example.test','password':'valid-password'})
     cookie=r.headers['Set-Cookie']; assert all(s in cookie for s in ('HttpOnly','Secure','SameSite=Lax'))
@@ -1846,6 +1856,7 @@ def test_account_changes_require_password_and_exact_authenticated_identity(appli
     """Never permit credentials changes with just a persistent app cookie."""
     from cloud import auth
     client=login(application)
+    another_session=login(application)
     seen=[]
     def provider(user_id,email,current_password,change):
         assert str(user_id)==str(IDS['owner@example.test'])
@@ -1867,6 +1878,8 @@ def test_account_changes_require_password_and_exact_authenticated_identity(appli
         'current_password':'valid-password','new_password':'another-strong-password'},200).json
     assert other['pending_confirmation'] is False
     assert seen==[{'email':'new@example.test'},{'password':'another-strong-password'}]
+    assert call(another_session,'GET','/api/me').json['user'] is None
+    assert call(client,'GET','/api/me').json['user']['email']=='owner@example.test'
     call(application.test_client(),'POST','/api/account/password',
          {'current_password':'valid-password','new_password':'another-strong-password'},401)
 
@@ -2723,7 +2736,7 @@ def test_duplicate_signup_provider_outcomes_are_indistinguishable(application,mo
         monkeypatch.setattr(auth,'auth_request',lambda action, **data: provider)
         client=application.test_client()
         res=call(client,'POST','/api/register',
-                 {'name':'Tester','email':'owner@example.test','password':'valid-password'},202)
+                 {'name':'Tester','email':'owner@example.test','password':'valid-new-password'},202)
         assert res.json=={'user':None,'pending_confirmation':True}
         assert 'Set-Cookie' not in res.headers
 

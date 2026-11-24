@@ -10,7 +10,7 @@ from uuid import UUID
 from flask import g
 
 from server import Handler, ApiError, req, token, token_hash, decode_image, LIMIT_BYTES
-from cloud import auth, db, social
+from cloud import auth, db, social, password_policy
 
 SESSION_SECONDS = 24 * 60 * 60
 IMAGE_USER_LIMIT = 12_000_000
@@ -103,7 +103,7 @@ class CloudRequest(Handler):
             raise ApiError(403,'Недостаточно прав')
         return user
 
-    def throttled(self, action, limit=25, window=60):
+    def throttled(self, action, limit=25, window=60, *, identity=None):
         # Vercel sets this header itself; outside Vercel trust only the peer.
         source = self.request.remote_addr or 'unknown'
         if os.environ.get('VERCEL') == '1':
@@ -111,7 +111,8 @@ class CloudRequest(Handler):
         secret = os.environ.get('SHURSH_RATE_SECRET')
         if not secret:
             raise RuntimeError('Rate limiting is not configured')
-        key = hmac.new(secret.encode(), f'{source}:{action}'.encode(), sha256).hexdigest()
+        scope = f'ip:{source}' if identity is None else f'account:{identity}'
+        key = hmac.new(secret.encode(), f'{scope}:{action}'.encode(), sha256).hexdigest()
         bucket = int(time.time()) // window
         # Independent transaction so failed API requests also count.
         with db.transaction(write=True, rate_limit=True) as con:
@@ -129,6 +130,7 @@ class CloudRequest(Handler):
         data = self.body()
         email = valid_auth_email(data.get('email'))
         self.throttled('auth-resend', 3, 600)
+        self.throttled('auth-resend-address', 3, 600, identity=email)
         db.close_request_connection()
         started_auth = time.perf_counter()
         try:
@@ -172,6 +174,10 @@ class CloudRequest(Handler):
         payload = {'email': email, 'password': password}
         if action == 'register':
             payload['data'] = {'name': valid_signup_name(data.get('name'))}
+        self.throttled('auth-address', 20, 600, identity=email)
+        db.close_request_connection()
+        if action == 'register':
+            password_policy.screen_new_password(password)
         started_auth = time.perf_counter()
         try:
             result = auth.auth_request(action, **payload)

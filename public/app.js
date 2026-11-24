@@ -1155,8 +1155,8 @@ async function participantPage(key,marker=lastRenderToken){
 
 function passwordField(register){
  const generator=register?'<button type="button" class="password-generate" data-password-generate>'+ico('spark')+' Сгенерировать пароль</button>':'';
- return '<div class="field password-field"><div class="password-label-row"><label for="fld-password">Пароль (минимум 8 символов)</label>'+generator+'</div>'+
-  '<div class="password-input-row"><input id="fld-password" name="password" type="password" placeholder="Не менее 8 символов" required minlength="8" maxlength="200" autocomplete="'+(register?'new-password':'current-password')+'">'+
+ return '<div class="field password-field"><div class="password-label-row"><label for="fld-password">'+(register?'Пароль (от 15 символов)':'Пароль')+'</label>'+generator+'</div>'+
+  '<div class="password-input-row"><input id="fld-password" name="password" type="password" placeholder="'+(register?'Не менее 15 символов':'Твой пароль')+'" required minlength="'+(register?15:8)+'" maxlength="200" autocomplete="'+(register?'new-password':'current-password')+'">'+
   '<button type="button" class="password-visibility" data-password-visibility aria-label="Показать пароль" aria-pressed="false">'+ico('eye')+'</button></div>'+
   (register?'<p class="password-hint" id="password-hint">Используй уникальный пароль и сохрани его в менеджере паролей</p>':'')+'</div>';
 }
@@ -1184,7 +1184,7 @@ function showAuthFormWarning(error,form){
  let message;
  if(!status)message='Не удалось связаться с сервером. Попробуй ещё раз';
  else if(status===429)message='Слишком много попыток. Попробуй позже';
- else if(status>=500)message='Сервис входа временно недоступен. Попробуй позже';
+ else if(status>=500)message=error.message==='Сейчас не удалось проверить безопасность пароля. Попробуй ещё раз'?error.message:'Сервис входа временно недоступен. Попробуй позже';
  else message=error.message||'Проверь данные и попробуй ещё раз';
  warning.textContent=message.replace(/\.+$/,'');
  warning.hidden=false;
@@ -1237,7 +1237,10 @@ function authFieldIssue(input, form, register){
  if(kind==='password'){
   if(!value)return 'Введи пароль';
   const len=Array.from(value).length;
-  if(len<8||len>200||value.includes('\u0000')){
+  if(register&&(len<15||new TextEncoder().encode(value).length>72||value.includes('\u0000'))){
+   return 'Новый пароль должен содержать не менее 15 символов и не более 72 байт';
+  }
+  if(!register&&(len<8||len>200||value.includes('\u0000'))){
    return 'Пароль должен содержать от 8 до 200 символов';
   }
  }
