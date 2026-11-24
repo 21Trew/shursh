@@ -221,8 +221,8 @@ necessarily the winner if specificity, importance or cascading conditions differ
 | `base > @media (max-width:480px)` | 14 |
 | `base > @media (max-width:1100px)` | 13 |
 | `base > @media (min-width:761px) and (max-width:980px)` | 12 |
-| `base > @media (max-width:760px),(pointer:coarse)` | 11 |
 | `base > @media (prefers-reduced-motion:reduce)` | 11 |
+| `base > @media (max-width:760px),(pointer:coarse)` | 11 |
 | `base > @media (min-width:761px) and (max-width:920px)` | 5 |
 | `base > @media (max-width:920px)` | 5 |
 | `base > @media (max-width:580px)` | 4 |
