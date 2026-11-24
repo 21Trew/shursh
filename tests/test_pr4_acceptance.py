@@ -1324,8 +1324,93 @@ def test_mobile_webkit_signup_inline_validation(browser_https):
             expect(label).to_have_text('Слабый')
             expect(page.locator('[data-password-strength]')).to_have_attribute('data-target-level','1')
             page.locator('#fld-password').fill('qvR!NtMkY@pLW')
-            expect(label).to_have_text('Не подходит')
-            expect(page.locator('#auth-error-password')).to_have_text('Добавь цифру')
+            expect(label).to_have_text(__import__('re').compile('^(Хороший|Надёжный)
+            page.locator('#fld-email').fill('not-email')
+            expect(page.locator('#auth-error-email')).to_have_text('Добавь знак @')
+            page.locator('#fld-email').fill('owner@example.test')
+            # Check actual level transitions in both engines, including
+            # reversal and no parallel multi-segment updates.
+            meter=page.locator('[data-password-strength]')
+            page.locator('#fld-password').fill('')
+            expect(meter).to_be_hidden(timeout=3000)
+            page.evaluate("""() => {
+                const m=document.querySelector('[data-password-strength]');
+                window.strengthSteps=[];
+                new MutationObserver(records=>{
+                    for(const record of records)if(record.attributeName==='data-level')
+                        window.strengthSteps.push(Number(m.dataset.level));
+                }).observe(m,{attributes:true,attributeFilter:['data-level']});
+            }""")
+            page.locator('[data-password-generate]').click()
+            expect(label).to_have_text('Надёжный')
+            expect(meter).to_have_attribute('data-level','4',timeout=3000)
+            assert page.evaluate('window.strengthSteps')==[1,2,3,4]
+            page.locator('#fld-password').fill('Password1')
+            expect(meter).to_have_attribute('data-level','1',timeout=3000)
+            assert page.evaluate('window.strengthSteps')==[1,2,3,4,3,2,1]
+            page.locator('[data-password-generate]').click()
+            expect(label).to_have_text('Надёжный')
+            page.locator('.password-field:has(#fld-confirm_password) [data-password-visibility]').click()
+            expect(page.locator('#fld-confirm_password')).to_have_attribute('type','text')
+            page.locator('.password-field:has(#fld-confirm_password) [data-password-visibility]').click()
+            expect(page.locator('#fld-confirm_password')).to_have_attribute('type','password')
+            page.locator('.modal-fixed-footer [type=submit]').click()
+            expect(page.get_by_role('dialog')).to_contain_text('Проверь почту',timeout=10000)
+            assert requests==['signup']
+            dialog=page.get_by_role('dialog')
+            expect(dialog).to_contain_text('Если аккаунт уже есть')
+            expect(dialog).not_to_contain_text('Письмо с подтверждением отправлено!')
+            dialog.locator('[data-open="login"]').click()
+            expect(page.locator('#fld-email')).to_have_value('owner@example.test')
+            page.locator('#fld-password').fill('valid-password')
+            page.route('**/api/login', lambda route: route.fulfill(
+                status=429, json={'error':'Rate limit'}))
+            page.locator('.modal-fixed-footer [type=submit]').click()
+            expect(dialog.locator('.auth-form-warning')).to_have_text('Слишком много попыток. Попробуй позже')
+            expect(dialog).to_be_visible()
+            assert page.locator('.toast').count()==0
+            page.unroute('**/api/login')
+            assert page.evaluate('document.documentElement.scrollWidth<=innerWidth+2')
+        finally:
+            browser.close()
+
+@pytest.mark.browser
+def test_vnext_webkit_recovery(browser_https,vnext_application):
+    with sync_playwright() as play:
+        browser=play.webkit.launch(headless=True)
+        try:
+            context=browser.new_context(viewport={'width':390,'height':844},
+                                        is_mobile=True,ignore_https_errors=True)
+            page=context.new_page()
+            page.goto(browser_https+'/')
+            page.locator('header [data-open="login"]').click()
+            page.locator('#fld-email').fill('owner@example.test')
+            page.locator('.modal-foot [data-open="recover"]').click()
+            expect(page.locator('#fld-email')).to_have_value('owner@example.test')
+            page.locator('.modal-fixed-footer [type=submit]').click()
+            expect(page.locator('#fld-code')).to_be_visible()
+            page.locator('#fld-code').fill('999999')
+            page.locator('.modal-fixed-footer [type=submit]').click()
+            expect(page.locator('.auth-form-warning')).to_be_visible()
+            page.locator('#fld-code').fill('123456')
+            page.locator('.modal-fixed-footer [type=submit]').click()
+            expect(page.locator('#fld-password')).to_be_visible()
+            page.locator('[data-password-generate]').click()
+            password=page.locator('#fld-password').input_value()
+            page.locator('.modal-fixed-footer [type=submit]').click()
+            expect(page.locator('#fld-email')).to_have_value('owner@example.test')
+            page.locator('#fld-password').fill(password)
+            page.locator('.modal-fixed-footer [type=submit]').click()
+            expect(page.locator('.site-header .header-avatar')).to_be_visible(timeout=10000)
+            assert page.evaluate('document.documentElement.scrollWidth<=innerWidth+2')
+        finally:
+            browser.close()
+))
+            expect(page.locator('#auth-error-password')).to_be_hidden()
+            page.locator('#fld-email').fill('почта@78.yy')
+            expect(page.locator('#auth-error-email')).to_have_text('Перед @ используй латинские буквы, цифры и допустимые знаки')
+            page.locator('#fld-email').fill('user,name@example.test')
+            expect(page.locator('#auth-error-email')).to_contain_text('Убери запятую из адреса')
             page.locator('#fld-email').fill('not-email')
             expect(page.locator('#auth-error-email')).to_have_text('Добавь знак @')
             page.locator('#fld-email').fill('owner@example.test')

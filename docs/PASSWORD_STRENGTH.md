@@ -24,6 +24,12 @@ computation from the UI thread. No password fixtures copied from users.
 The quality estimator is displayed only for passwords that pass mandatory
 local shape validation. Non-empty invalid input shows “Не подходит”, with an
 explicit field error; obsolete worker responses cannot override this state.
-This is distinct from a weak but policy-compliant zxcvbn score. The server
-reports the actual missing character classes. Email-format feedback uses
-matching reason-specific checks in browser and hosted backend.
+This is distinct from a weak but policy-compliant zxcvbn score. Character classes are advisory, not mandatory; weak scores never block submit.
+Mandatory shape checks still enforce eight characters, the existing bcrypt
+boundary, and reject controls and invalid Unicode. Previously agreed HIBP
+breach blocking is separate from strength advice and remains unchanged.
+Email-format feedback uses matching reason-specific checks in browser and
+hosted backend. The supported address format is unquoted ASCII local part
+and ASCII DNS domain (including punycode); commas, Cyrillic and other
+unsupported characters are rejected. The OTP, not syntax, verifies ownership.
+No DNS lookup or TLD allowlist is added to form validation.

@@ -50,7 +50,7 @@ def test_pwned_password_range(monkeypatch, count):
         password_policy.screen_new_password(CANDIDATE)
 
 
-@pytest.mark.parametrize('value', ['short', 'Ab1'+'x'*70, 'Ab1'+'я'*36, 'Ab1aaaaa'+'\x00', 'Ab1aaaaa'+'\ud800', 'abcdefgh1', 'ABCDEFGH1', 'Abcdefgh', 'Абвгдеёж1', 'Abc1xyz'])
+@pytest.mark.parametrize('value', ['short', 'Ab1'+'x'*70, 'Ab1'+'я'*36, 'Ab1aaaaa'+'\x00', 'Ab1aaaaa'+'\ud800', 'Abc1xyz'])
 def test_invalid_new_password_no_network(monkeypatch, value):
     def no_network(*args, **kwargs):
         pytest.fail('Malformed password reached HIBP')
@@ -82,14 +82,15 @@ def test_approved_password_shape(value):
     password_policy.validate_new_password(value)
 
 
-@pytest.mark.parametrize('value,message',[
-    ('abcdefgh1','Добавь заглавную латинскую букву'),
-    ('ABCDEFGH1','Добавь строчную латинскую букву'),
-    ('Abcdefgh','Добавь цифру'),
-    ('abcdefgh','Добавь заглавную латинскую букву и цифру'),
-    ('12345678','Добавь строчную латинскую букву и заглавную латинскую букву'),
-])
-def test_specific_missing_password_requirements(value,message):
-    with pytest.raises(ApiError) as caught:
-        password_policy.validate_new_password(value)
-    assert caught.value.message==message
+@pytest.mark.parametrize('value',['abcdefgh1','ABCDEFGH1','Abcdefgh','abcdefgh','12345678','Абвгдеёж1','abcdefghijk','9!x'+'7'*35])
+def test_character_classes_are_advisory(value):
+    password_policy.validate_new_password(value)
+
+
+def test_low_complexity_unbreached_password_is_accepted(monkeypatch):
+    # Synthetic weak-shaped password, mocked HIBP response, no external traffic.
+    value='nqvmpzxt'
+    digest=hashlib.sha1(value.encode(),usedforsecurity=False).hexdigest().upper()
+    monkeypatch.setattr(password_policy,'urlopen',
+        lambda request,timeout: RangeResponse(request,(digest[5:]+':0\r\n').encode()))
+    password_policy.screen_new_password(value)

@@ -1159,7 +1159,7 @@ function passwordField(register,name='password',label='Пароль'){
  return '<div class="field password-field"><div class="password-label-row"><label for="fld-'+attr(name)+'">'+esc(label)+'</label>'+generator+'</div>'+
   '<div class="password-input-row"><input id="fld-'+attr(name)+'" name="'+attr(name)+'" type="password" placeholder="'+(register?'От 8 символов':'Твой пароль')+'" required minlength="8" maxlength="200" autocomplete="'+(register?'new-password':'current-password')+'"'+(register?' aria-describedby="password-hint"':'')+'>'+
   '<button type="button" class="password-visibility" data-password-visibility aria-label="Показать пароль" aria-pressed="false">'+ico('eye')+'</button></div>'+
-  (register?'<div class="password-strength" data-password-strength data-level="0" hidden><p data-password-strength-label role="status" aria-live="polite" aria-label="Надёжность пароля"></p><div class="password-strength-bars" aria-hidden="true"><i></i><i></i><i></i><i></i></div></div><p class="password-hint" id="password-hint">От 8 символов, A-Z, a-z и 0-9. Спецсимволы желательны</p>':'')+'</div>';
+  (register?'<div class="password-strength" data-password-strength data-level="0" hidden><p data-password-strength-label role="status" aria-live="polite" aria-label="Надёжность пароля"></p><div class="password-strength-bars" aria-hidden="true"><i></i><i></i><i></i><i></i></div></div><p class="password-hint" id="password-hint">От 8 символов. Лучше использовать длинный уникальный пароль</p>':'')+'</div>';
 }
 function confirmPasswordField(){
  return '<div class="field password-field"><label for="fld-confirm_password">Повтори пароль</label>'+
@@ -1171,12 +1171,18 @@ function newPasswordIssue(value){
  if(Array.from(value).length<8)return 'Минимум 8 символов';
  if(/[\u0000-\u001f\u007f]/.test(value)||Array.from(value).some(c=>c.length===1&&/[\ud800-\udfff]/.test(c)))return 'В пароле есть недопустимые символы';
  if(new TextEncoder().encode(value).length>72)return 'Пароль слишком длинный. Сократи его';
- const missing=[];
- if(!/[a-z]/.test(value))missing.push('строчную латинскую букву');
- if(!/[A-Z]/.test(value))missing.push('заглавную латинскую букву');
- if(!/[0-9]/.test(value))missing.push('цифру');
- if(missing.length)return 'Добавь '+(missing.length===1?missing[0]:missing.slice(0,-1).join(', ')+' и '+missing.at(-1));
  return '';
+}
+function passwordAdvice(value){
+ const base='От 8 символов. Лучше использовать длинный уникальный пароль';
+ if(!value||newPasswordIssue(value))return base;
+ const missing=[];
+ if(!/[a-z]/.test(value))missing.push('строчные буквы');
+ if(!/[A-Z]/.test(value))missing.push('заглавные буквы');
+ if(!/[0-9]/.test(value))missing.push('цифры');
+ if(!/[^A-Za-z0-9\s]/.test(value))missing.push('спецсимволы');
+ if(!missing.length)return base;
+ return 'Можно добавить '+(missing.length===1?missing[0]:missing.slice(0,-1).join(', ')+' и '+missing.at(-1))+' или увеличить длину пароля';
 }
 // zxcvbn runs in a same-origin worker, loaded only on new-password input.
 let strengthWorker=null,strengthBusy=null,strengthPending=null,strengthDebounce=0,strengthRequestId=0,strengthRetryAt=0,strengthTimeout=0;
@@ -1214,8 +1220,12 @@ function pumpStrengthWorker(){
      const score=event.data.score;
      if(newPasswordIssue(active.input.value))
       renderPasswordStrength(active.input,0,'Не подходит');
-     else if(Number.isInteger(score)&&score>=0&&score<=4)
+     else if(Number.isInteger(score)&&score>=0&&score<=4){
       renderPasswordStrength(active.input,Math.max(1,score));
+      const hint=active.input.closest('.password-field')?.querySelector('#password-hint');
+      if(hint&&score<=1&&hint.dataset.generated!=='true')
+       hint.textContent='Для надёжности увеличь длину и избегай повторов и знакомых слов';
+     }
      else strengthUnavailable(active);
     }
     pumpStrengthWorker();
@@ -1341,22 +1351,33 @@ function authEmailIssue(value){
  const email=value.trim();
  if(!email)return 'Укажи почту';
  if(Array.from(email).length>200)return 'Адрес почты слишком длинный';
- if(/[\s\u0000-\u001f\u007f]/.test(email))return 'Убери пробелы и недопустимые символы из почты';
+ if(/\s/.test(email))return 'Убери пробелы из адреса';
+ if(/[\u0000-\u001f\u007f]/.test(email))return 'Убери управляющие символы из адреса';
+ if(email.includes(','))return 'Убери запятую из адреса. Если это опечатка, замени её на точку';
+ if(email.includes('"'))return 'Убери двойные кавычки из адреса';
+ if(/[()[\]<>]/.test(email))return 'Убери скобки из адреса';
+ if(email.includes(':'))return 'Убери двоеточие из адреса';
+ if(email.includes(';'))return 'Убери точку с запятой из адреса';
+ if(email.includes('\\'))return 'Убери обратную косую черту из адреса';
  const parts=email.split('@');
  if(parts.length===1)return 'Добавь знак @';
  if(parts.length!==2)return 'В адресе должен быть только один знак @';
  const [local,domain]=parts;
  if(!local)return 'Укажи имя почты перед @';
  if(!domain)return 'Укажи домен после @';
- if(Array.from(local).length>64)return 'Часть почты перед @ слишком длинная';
+ if(/[^\x21-\x7e]/.test(local))return 'Перед @ используй латинские буквы, цифры и допустимые знаки';
+ if(/[^\x21-\x7e]/.test(domain))return 'Используй латинские буквы после @';
+ if(local.length>64)return 'Часть почты перед @ слишком длинная';
  if(local.startsWith('.')||local.endsWith('.')||local.includes('..'))return 'Исправь точки в части почты перед @';
- if(/["<>,:;()[\]\\]/.test(local)||Array.from(local).some(c=>c.length===1&&/[\ud800-\udfff]/.test(c)))return 'Убери недопустимые символы перед @';
+ if(!/^[A-Za-z0-9.!#$%&'*+/=?^_`{|}~-]+$/.test(local))return 'Проверь символы в части почты перед @';
  if(!domain.includes('.'))return 'Укажи домен с точкой, например example.com';
  const labels=domain.split('.');
  if(labels.some(label=>!label))return 'Убери лишние точки в домене';
  if(labels.some(label=>label.startsWith('-')||label.endsWith('-')))return 'Домен не должен начинаться или заканчиваться дефисом';
- if(labels.some(label=>!/^[a-z0-9-]{1,63}$/i.test(label)))return 'Проверь символы и длину домена после @';
- if(labels.at(-1).length<2)return 'Проверь окончание домена, например .ru или .com';
+ if(domain.includes('_'))return 'Убери нижнее подчёркивание из домена';
+ if(labels.some(label=>label.length>63))return 'Часть домена между точками слишком длинная';
+ if(labels.some(label=>!/^[a-z0-9-]+$/i.test(label)))return 'После @ используй только латинские буквы, цифры, точки и дефисы';
+ if(!/^(?:[a-z]{2,63}|xn--[a-z0-9-]{1,59})$/i.test(labels.at(-1)))return 'Проверь окончание домена, например .ru или .com';
  if(email.toLowerCase()==='demo@shursh.local')return 'Этот адрес недоступен для входа';
  return '';
 }
@@ -1421,7 +1442,11 @@ function setupAuthFormValidation(form,register){
    const newPassword=register&&['password','new_password'].includes(input.name);
    if(register&&(newPassword||input.name==='confirm_password')){
     const hint=form.querySelector('#password-hint');
-    if(hint)hint.textContent='От 8 символов, A-Z, a-z и 0-9. Спецсимволы желательны';
+    if(hint){
+     delete hint.dataset.generated;
+     const password=form.elements.new_password||form.elements.password;
+     hint.textContent=passwordAdvice(password?.value||'');
+    }
    }
    if(newPassword)updatePasswordStrength(input);
    if(touched.has(input.name)||(newPassword&&input.value))validate(input);
@@ -1930,7 +1955,7 @@ document.addEventListener('click',async ev=>{
    const toggle=field.querySelector('[data-password-visibility]');
    toggle.setAttribute('aria-pressed','true');toggle.setAttribute('aria-label','Скрыть пароль');toggle.innerHTML=ico('eye-off');
    const hint=field.querySelector('#password-hint');
-   if(hint)hint.textContent='Пароль создан и повторён. Сохрани его в менеджере паролей';
+   if(hint){hint.dataset.generated='true';hint.textContent='Пароль создан и повторён. Сохрани его в менеджере паролей';}
    input.focus({preventScroll:true});
   }catch(err){notice(err.message,true)}
   return;

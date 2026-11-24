@@ -17,8 +17,9 @@ IMAGE_USER_LIMIT = 12_000_000
 IMAGE_TOTAL_LIMIT = 100_000_000
 
 # Input-shape checks; Supabase owns password policy and authentication.
-AUTH_DOMAIN_LABEL = re.compile(r'[a-z0-9-]{1,63}', re.I | re.ASCII)
-AUTH_INVALID_LOCAL = set('"<>,:;()[]\\')
+AUTH_DOMAIN_LABEL = re.compile(r'[a-z0-9-]+', re.I | re.ASCII)
+AUTH_DOMAIN_END = re.compile(r'(?:[a-z]{2,63}|xn--[a-z0-9-]{1,59})', re.I | re.ASCII)
+AUTH_LOCAL = re.compile(r"[A-Za-z0-9.!#$%&'*+/=?^_\x60{|}~-]+")
 
 def valid_auth_email(raw):
     email = raw.strip() if isinstance(raw,str) else ''
@@ -26,27 +27,36 @@ def valid_auth_email(raw):
         raise ApiError(400,message)
     if not email: reject('Укажи почту')
     if len(email)>200: reject('Адрес почты слишком длинный')
-    if any(ch.isspace() or ord(ch)<32 or ord(ch)==127 for ch in email):
-        reject('Убери пробелы и недопустимые символы из почты')
+    if any(ch.isspace() for ch in email): reject('Убери пробелы из адреса')
+    if any(ord(ch)<32 or ord(ch)==127 for ch in email): reject('Убери управляющие символы из адреса')
+    if ',' in email: reject('Убери запятую из адреса. Если это опечатка, замени её на точку')
+    if '"' in email: reject('Убери двойные кавычки из адреса')
+    if any(ch in '()[]<>' for ch in email): reject('Убери скобки из адреса')
+    if ':' in email: reject('Убери двоеточие из адреса')
+    if ';' in email: reject('Убери точку с запятой из адреса')
+    if '\\' in email: reject('Убери обратную косую черту из адреса')
     parts=email.split('@')
     if len(parts)==1: reject('Добавь знак @')
     if len(parts)!=2: reject('В адресе должен быть только один знак @')
     local,domain=parts
     if not local: reject('Укажи имя почты перед @')
     if not domain: reject('Укажи домен после @')
+    if any(not 33<=ord(ch)<=126 for ch in local): reject('Перед @ используй латинские буквы, цифры и допустимые знаки')
+    if any(not 33<=ord(ch)<=126 for ch in domain): reject('Используй латинские буквы после @')
     if len(local)>64: reject('Часть почты перед @ слишком длинная')
     if local.startswith('.') or local.endswith('.') or '..' in local:
         reject('Исправь точки в части почты перед @')
-    if any(ch in AUTH_INVALID_LOCAL or 0xD800<=ord(ch)<=0xDFFF for ch in local):
-        reject('Убери недопустимые символы перед @')
+    if not AUTH_LOCAL.fullmatch(local): reject('Проверь символы в части почты перед @')
     if '.' not in domain: reject('Укажи домен с точкой, например example.com')
     labels=domain.split('.')
     if any(not label for label in labels): reject('Убери лишние точки в домене')
     if any(label.startswith('-') or label.endswith('-') for label in labels):
         reject('Домен не должен начинаться или заканчиваться дефисом')
+    if '_' in domain: reject('Убери нижнее подчёркивание из домена')
+    if any(len(label)>63 for label in labels): reject('Часть домена между точками слишком длинная')
     if any(not AUTH_DOMAIN_LABEL.fullmatch(label) for label in labels):
-        reject('Проверь символы и длину домена после @')
-    if len(labels[-1])<2: reject('Проверь окончание домена, например .ru или .com')
+        reject('После @ используй только латинские буквы, цифры, точки и дефисы')
+    if not AUTH_DOMAIN_END.fullmatch(labels[-1]): reject('Проверь окончание домена, например .ru или .com')
     if email.lower()=='demo@shursh.local': reject('Этот адрес недоступен для входа')
     return email.lower()
 

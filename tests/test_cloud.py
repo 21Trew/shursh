@@ -166,6 +166,8 @@ def test_auth_input_validation_rejects_bad_data_before_upstream(application, mon
     from server import ApiError
 
     assert valid_auth_email(' Name+tag@Example.COM ') == 'name+tag@example.com'
+    for address in ('a_b-c.d+tag@example.com', 'a!b@example.com', 'user@xn--e1afmkfd.xn--p1ai'):
+        assert valid_auth_email(address)==address
     assert valid_signup_name('  Анна  ') == 'Анна'
     assert valid_auth_password('secure-passphrase') == 'secure-passphrase'
     for address in ('x', 'john..doe@example.com', 'a@-example.com',
@@ -181,7 +183,18 @@ def test_auth_input_validation_rejects_bad_data_before_upstream(application, mon
         ('a@domain..com','Убери лишние точки в домене'),
         ('a@-example.com','Домен не должен начинаться или заканчиваться дефисом'),
         ('a@example.c','Проверь окончание домена, например .ru или .com'),
-        ('a b@example.com','Убери пробелы и недопустимые символы из почты')):
+        ("a b@example.com","Убери пробелы из адреса"),
+        ("user,name@example.com","Убери запятую из адреса. Если это опечатка, замени её на точку"),
+        ("user@example,com","Убери запятую из адреса. Если это опечатка, замени её на точку"),
+        ("\"user\"@example.com","Убери двойные кавычки из адреса"),
+        ("user(name)@example.com","Убери скобки из адреса"),
+        ("user:name@example.com","Убери двоеточие из адреса"),
+        ("user;name@example.com","Убери точку с запятой из адреса"),
+        ("user\\name@example.com","Убери обратную косую черту из адреса"),
+        ("почта@78.yy","Перед @ используй латинские буквы, цифры и допустимые знаки"),
+        ("user@почта.ru","Используй латинские буквы после @"),
+        ("user@foo_bar.ru","Убери нижнее подчёркивание из домена"),
+        ("user@example.123","Проверь окончание домена, например .ru или .com")):
         with pytest.raises(ApiError) as exc:
             valid_auth_email(address)
         assert exc.value.message==message
@@ -249,21 +262,32 @@ def test_browser_auth_inline_validation_and_password_confirmation(browser_http):
                     ('a@example','Укажи домен с точкой, например example.com'),
                     ('a@domain..com','Убери лишние точки в домене'),
                     ('a@-example.com','Домен не должен начинаться или заканчиваться дефисом'),
-                    ('a@example.c','Проверь окончание домена, например .ru или .com')):
+                    ('a@example.c','Проверь окончание домена, например .ru или .com'),
+                    ("a b@example.com","Убери пробелы из адреса"),
+                    ("user,name@example.com","Убери запятую из адреса. Если это опечатка, замени её на точку"),
+                    ("user@example,com","Убери запятую из адреса. Если это опечатка, замени её на точку"),
+                    ("\"user\"@example.com","Убери двойные кавычки из адреса"),
+                    ("user(name)@example.com","Убери скобки из адреса"),
+                    ("user:name@example.com","Убери двоеточие из адреса"),
+                    ("user;name@example.com","Убери точку с запятой из адреса"),
+                    ("user\\name@example.com","Убери обратную косую черту из адреса"),
+                    ("почта@78.yy","Перед @ используй латинские буквы, цифры и допустимые знаки"),
+                    ("user@почта.ru","Используй латинские буквы после @"),
+                    ("user@foo_bar.ru","Убери нижнее подчёркивание из домена"),
+                    ("user@example.123","Проверь окончание домена, например .ru или .com")):
                     page.locator('#fld-email').fill(address)
                     expect(page.locator('#auth-error-email')).to_have_text(message)
                 page.locator('#fld-email').fill('OWNER@EXAMPLE.TEST')
                 page.locator('#fld-password').fill('abcdefgh1')
-                expect(page.locator('#auth-error-password')).to_have_text('Добавь заглавную латинскую букву')
-                expect(page.locator('[data-password-strength-label]')).to_have_text('Не подходит')
-                page.locator('#fld-password').fill('qvR!NtMkY@pL8')
-                expect(page.locator('[data-password-strength-label]')).to_have_text(__import__('re').compile('^(Хороший|Надёжный)$'))
+                expect(page.locator('#auth-error-password')).to_be_hidden()
+                expect(page.locator('[data-password-strength-label]')).to_have_text('Слабый')
+                expect(page.locator('#password-hint')).to_contain_text('Для надёжности')
                 page.locator('#fld-password').fill('qvR!NtMkY@pLW')
-                expect(page.locator('[data-password-strength-label]')).to_have_text('Не подходит')
-                expect(page.locator('#auth-error-password')).to_have_text('Добавь цифру')
+                expect(page.locator('[data-password-strength-label]')).to_have_text(__import__('re').compile('^(Хороший|Надёжный)$'))
+                expect(page.locator('#auth-error-password')).to_be_hidden()
                 page.locator('#fld-password').fill('9!x'+'7'*35)
-                expect(page.locator('[data-password-strength-label]')).to_have_text('Не подходит')
-                expect(page.locator('#auth-error-password')).to_have_text('Добавь заглавную латинскую букву')
+                expect(page.locator('#auth-error-password')).to_be_hidden()
+                expect(page.locator('[data-password-strength-label]')).not_to_have_text('Не подходит')
                 page.locator('[data-password-generate]').click()
                 generated=page.locator('#fld-password').input_value()
                 assert generated==page.locator('#fld-confirm_password').input_value()
@@ -272,9 +296,9 @@ def test_browser_auth_inline_validation_and_password_confirmation(browser_http):
                 expect(page.locator('#fld-confirm_password')).to_have_attribute('type','text')
                 page.locator('.password-field:has(#fld-confirm_password) [data-password-visibility]').click()
                 expect(page.locator('#fld-confirm_password')).to_have_attribute('type','password')
-                page.locator('#fld-password').fill('Valid-new-password7')
+                page.locator('#fld-password').fill('abcdefgh1')
                 expect(page.locator('#password-hint')).not_to_contain_text('Пароль создан и повторён')
-                page.locator('#fld-confirm_password').fill('Valid-new-password7')
+                page.locator('#fld-confirm_password').fill('abcdefgh1')
                 expect(page.locator('#auth-error-email')).to_be_hidden()
                 page.locator('.modal-fixed-footer [type=submit]').click()
                 expect(page.get_by_role('dialog')).to_contain_text('Проверь почту',timeout=10000)
@@ -3072,7 +3096,7 @@ def test_vnext_registration_validates_before_sending_email(vnext_application):
     data['confirm_password']=data['password']='short'
     call(c,'POST','/api/auth/start',data,400)
     assert 'otp' not in seen
-    data['confirm_password']=data['password']='Valid-new-password7'
+    data['confirm_password']=data['password']='abcdefgh1'
     call(c,'POST','/api/auth/start',data,202)
     assert seen.count('otp')==1
     assert call(c,'GET','/api/me').json['user'] is None
