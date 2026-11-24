@@ -1402,6 +1402,101 @@ function authFieldIssue(input, form, register){
  }
  return '';
 }
+// Paint only error ranges over the real input; never duplicate password text.
+const authCharacterHighlights=new WeakMap();
+function authInvalidCharRanges(input,register,message){
+ if(!message)return [];
+ const value=input.value,ranges=[];
+ const add=(text,pattern,offset=0)=>{
+  for(const match of text.matchAll(pattern))ranges.push([offset+match.index,offset+match.index+match[0].length]);
+ };
+ if(register&&['password','new_password'].includes(input.name)){
+  if(input.type==='text')add(value,/[А-Яа-яЁё\u0000-\u001f\u007f]+/gu);
+  return ranges;
+ }
+ if(input.name!=='email')return ranges;
+ const email=value.trim(),offset=value.length-value.trimStart().length;
+ add(email,/[\s\u0000-\u001f\u007f,"()[\]<>:;\\]+/gu,offset);
+ const at=email.indexOf('@');
+ if(at<0)return ranges;
+ const local=email.slice(0,at),domain=email.slice(at+1),domainOffset=offset+at+1;
+ add(domain,/@/g,domainOffset);
+ add(local,/[^A-Za-z0-9.!#$%&'*+/=?^_\x60{|}~-]+/gu,offset);
+ add(domain,/[^A-Za-z0-9.@-]+/gu,domainOffset);
+ const dots=(text,start)=>{
+  for(let i=0;i<text.length;i++)if(text[i]==='.'&&(i===0||i===text.length-1||text[i-1]==='.'))ranges.push([start+i,start+i+1]);
+ };
+ dots(local,offset);dots(domain,domainOffset);
+ let start=domainOffset;
+ for(const label of domain.split('.')){
+  if(label.startsWith('-'))ranges.push([start,start+1]);
+  if(label.length>1&&label.endsWith('-'))ranges.push([start+label.length-1,start+label.length]);
+  start+=label.length+1;
+ }
+ return ranges;
+}
+function installAuthCharacterHighlights(input,register){
+ if(input.name!=='email'&&!(register&&['password','new_password'].includes(input.name)))return;
+ let wrapper=input.parentElement;
+ if(input.name==='email'){
+  wrapper=document.createElement('div');wrapper.className='auth-character-input-row';
+  input.before(wrapper);wrapper.append(input);
+ }
+ let canvas=null,message='';
+ const clear=()=>{if(canvas){canvas.hidden=true;canvas.width=0;canvas.height=0;}};
+ const paint=()=>{
+  if(!input.isConnected||input.type==='password'||!message){clear();return;}
+  const ranges=authInvalidCharRanges(input,register,message);
+  if(!ranges.length){clear();return;}
+  // Mixed bidi text can reorder glyphs; retain the explicit error instead.
+  if(/[\u0590-\u08ff\u202a-\u202e\u2066-\u2069]/u.test(input.value)){clear();return;}
+  const rect=input.getBoundingClientRect();
+  if(!rect.width||!rect.height){clear();return;}
+  if(!canvas){
+   canvas=document.createElement('canvas');canvas.className='auth-character-overlay';
+   canvas.setAttribute('aria-hidden','true');wrapper.append(canvas);
+  }
+  const ratio=Math.min(window.devicePixelRatio||1,3),w=rect.width,h=rect.height;
+  canvas.style.width=w+'px';canvas.style.height=h+'px';
+  canvas.width=Math.ceil(w*ratio);canvas.height=Math.ceil(h*ratio);
+  const ctx=canvas.getContext('2d');
+  if(!ctx){clear();return;}
+  ctx.scale(ratio,ratio);
+  const style=getComputedStyle(input),px=name=>parseFloat(style[name])||0;
+  ctx.font=style.fontStyle+' '+style.fontWeight+' '+style.fontSize+' '+style.fontFamily;
+  if('letterSpacing' in ctx)ctx.letterSpacing=style.letterSpacing==='normal'?'0px':style.letterSpacing;
+  if('fontKerning' in ctx)ctx.fontKerning=style.fontKerning;
+  const left=px('borderLeftWidth')+px('paddingLeft');
+  const right=w-px('borderRightWidth')-px('paddingRight');
+  const size=px('fontSize'),top=(h-size)/2-2,bottom=top+size+4;
+  const origin=left-input.scrollLeft;
+  const width=text=>ctx.measureText(text).width+('letterSpacing' in ctx?0:Array.from(text).length*px('letterSpacing'));
+  ctx.beginPath();ctx.rect(left,0,Math.max(0,right-left),h);ctx.clip();
+  const merged=[];
+  for(const range of ranges.sort((a,b)=>a[0]-b[0])){
+   const last=merged.at(-1);
+   if(last&&range[0]<=last[1])last[1]=Math.max(last[1],range[1]);
+   else merged.push(range);
+  }
+  for(const [from,to] of merged){
+   const x=origin+width(input.value.slice(0,from));
+   const end=origin+width(input.value.slice(0,to));
+   const span=Math.max(2,end-x);
+   ctx.fillStyle='rgba(173,48,43,.15)';ctx.fillRect(x,top,span,bottom-top);
+   ctx.fillStyle='#9f302b';ctx.fillRect(x,bottom-1,span,2);
+  }
+  canvas.hidden=false;
+ };
+ const update=next=>{if(typeof next==='string')message=next;paint();};
+ authCharacterHighlights.set(input,update);
+ for(const event of ['scroll','focus','blur','keyup','click'])input.addEventListener(event,()=>{
+  if(message)requestAnimationFrame(paint);
+ });
+ document.fonts?.ready.then(()=>{if(message&&input.isConnected)paint();});
+}
+window.addEventListener('resize',()=>{
+ for(const input of document.querySelectorAll('#modal-form input[aria-invalid="true"]'))authCharacterHighlights.get(input)?.();
+});
 function setupAuthFormValidation(form,register){
  if(!form)return;
  // Inline errors, not native validation popups which differ across mobile browsers.
@@ -1421,6 +1516,7 @@ function setupAuthFormValidation(form,register){
   if(node){node.textContent=message;node.hidden=!message;}
   if(message)input.setAttribute('aria-invalid','true');
   else input.removeAttribute('aria-invalid');
+  authCharacterHighlights.get(input)?.(message);
   const hint=['password','new_password'].includes(input.name)&&register?'password-hint':'';
   const ids=[hint,message?id:''].filter(Boolean).join(' ');
   if(ids)input.setAttribute('aria-describedby',ids);
@@ -1428,6 +1524,7 @@ function setupAuthFormValidation(form,register){
   return message;
  };
  for(const input of inputs){
+  installAuthCharacterHighlights(input,register);
   if(input.name==='email'&&input.value){touched.add(input.name);validate(input);}
   input.addEventListener('blur',event=>{
    // Modal footer controls are moved into a fixed rail. Creating an error while
@@ -1938,6 +2035,7 @@ document.addEventListener('click',async ev=>{
   reveal.setAttribute('aria-pressed',String(visible));
   reveal.setAttribute('aria-label',(visible?'Скрыть':'Показать')+(input.name==='confirm_password'?' повтор пароля':' пароль'));
   reveal.innerHTML=ico(visible?'eye-off':'eye');
+  authCharacterHighlights.get(input)?.();
   input.focus({preventScroll:true});return;
  }
  const generator=ev.target.closest('[data-password-generate]');
