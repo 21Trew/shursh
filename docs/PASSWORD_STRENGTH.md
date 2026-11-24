@@ -10,7 +10,8 @@ the library. No CDN, runtime npm install, CSP relaxation or external password
 estimation service. Worker replies contain only request ID and score.
 Debounced, one in-flight estimate with latest-only queued input; obsolete
 results are ignored. Empty/overlong inputs clear the meter. Worker errors
-clear the estimate rather than guessing. Existing submit validation and HIBP
+clear the estimate rather than guessing; an unresponsive worker is terminated
+at 15 seconds and can be retried after a 30-second cooldown. Existing submit validation and HIBP
 are unchanged. Original English/password dictionaries are not a comprehensive
 Russian-language dictionary. Levels map zxcvbn scores 0/1 → Weak, 2 → Medium,
 3 → Good, 4 → Strong. Score is an estimate, not authentication policy.

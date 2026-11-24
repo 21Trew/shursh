@@ -1293,8 +1293,11 @@ def test_mobile_webkit_signup_inline_validation(browser_https):
                     if req.url.endswith('/api/register') and req.method=='POST' else None)
             page.goto(browser_https+'/',wait_until='domcontentloaded')
             page.locator('header [data-open="login"]').click()
+            page.locator('#fld-password').fill('valid-password')
+            assert page.evaluate('strengthWorker===null'), 'Ordinary login must not load estimator'
             page.locator('.modal-foot [data-open="register"]').click()
             expect(page.locator('#fld-confirm_password')).to_be_visible()
+            assert page.evaluate('strengthWorker===null'), 'Opening registration must not load estimator before input'
             page.locator('.modal-fixed-footer [type=submit]').click()
             expect(page.locator('#auth-error-email')).to_have_text('Укажи почту')
             expect(page.locator('#auth-error-confirm_password')).to_have_text('Повтори пароль')
@@ -1305,6 +1308,7 @@ def test_mobile_webkit_signup_inline_validation(browser_https):
             password=page.locator('#fld-password').input_value()
             assert password and page.locator('#fld-confirm_password').input_value()==password
             expect(page.locator('[data-password-strength-label]')).to_have_text('Надёжный')
+            assert page.evaluate('strengthWorker instanceof Worker')
             label=page.locator('[data-password-strength-label]')
             bars=page.locator('.password-strength-bars')
             assert label.bounding_box()['x'] < bars.bounding_box()['x']
@@ -1314,6 +1318,11 @@ def test_mobile_webkit_signup_inline_validation(browser_https):
             expect(label).to_have_text('Слабый')
             page.locator('#fld-password').fill('Vq!7tZ#9mK2pF@8rYw4N')
             expect(label).to_have_text('Надёжный')
+            # Rapid changes must not allow an obsolete strong result to win.
+            page.locator('#fld-password').fill('Vq!7tZ#9mK2pF@8rYw4N')
+            page.locator('#fld-password').fill('password')
+            expect(label).to_have_text('Слабый')
+            expect(page.locator('[data-password-strength]')).to_have_attribute('data-target-level','1')
             # Check actual level transitions in both engines, including
             # reversal and no parallel multi-segment updates.
             meter=page.locator('[data-password-strength]')

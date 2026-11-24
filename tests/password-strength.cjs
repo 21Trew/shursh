@@ -20,7 +20,11 @@ const strong=['Vq!7tZ#9mK2pF@8rYw4N','qvR!NtMkY@pLW','qvR!NtMkY@pL8'];
 for(const s of weak)assert.ok(zxcvbn(s).score<=1,'Common/repeated sample not rejected by estimator');
 for(const s of strong)assert.ok(zxcvbn(s).score>=3,'Varied sample scored too low');
 assert.ok(zxcvbn('sampleuser2026!',['sampleuser']).score<=zxcvbn('sampleuser2026!').score);
-assert.ok(zxcvbn('8'.repeat(31)+'*-*++*-+*hvKKKK').score<zxcvbn(strong[0]).score||zxcvbn('8'.repeat(31)+'*-*++*-+*hvKKKK').score>=2);
+const repeated='8'.repeat(31);
+assert.ok(zxcvbn(repeated+'Zq!7mK@9tRpV').score>zxcvbn(repeated).score,'Varied suffix must contribute to the estimate');
+assert.ok(zxcvbn('abcabcabcabcabcabc').score<zxcvbn(strong[0]).score);
+const levels=new Set(['password','123456789','Ab3xy!90','Ab3xy!90Kp6n','aBc9xY','Vq!7tZ#9mK2pF@8rYw4N', 'a7Bz2rQx9', 'A7y!q3', 'Tr0ub4dour&3'].map(s=>Math.max(1,zxcvbn(s).score)));
+assert.ok([1,2,3,4].every(level=>levels.has(level)),'All four UI levels must be reachable');
 const corpus=[...weak,...strong,'Ab3xy!90','Ab3xy!90Kp6n','aB1'.repeat(24),'8'.repeat(60)+'Ab!9','я'.repeat(36),'😀'.repeat(18),'Vq!7tZ#9mK2pF@8rYw4N'.repeat(3)];
 const times=[];
 for(let i=0;i<4;i++)for(const s of corpus){

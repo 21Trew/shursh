@@ -1175,7 +1175,7 @@ function newPasswordIssue(value){
  return '';
 }
 // zxcvbn runs in a same-origin worker, loaded only on new-password input.
-let strengthWorker=null,strengthBusy=null,strengthPending=null,strengthDebounce=0,strengthRequestId=0,strengthRetryAt=0;
+let strengthWorker=null,strengthBusy=null,strengthPending=null,strengthDebounce=0,strengthRequestId=0,strengthRetryAt=0,strengthTimeout=0;
 const strengthRequests=new WeakMap();
 function currentStrengthRequest(job){
  return job&&job.input.isConnected&&strengthRequests.get(job.input)===job.id;
@@ -1185,6 +1185,7 @@ function strengthUnavailable(job){
  renderPasswordStrength(job.input,0);
 }
 function stopStrengthWorker(){
+ clearTimeout(strengthTimeout);strengthTimeout=0;
  strengthWorker?.terminate();strengthWorker=null;
  const pending=strengthPending,active=strengthBusy;
  strengthPending=null;strengthBusy=null;strengthRetryAt=Date.now()+30000;
@@ -1203,6 +1204,7 @@ function pumpStrengthWorker(){
    strengthWorker.onmessage=event=>{
     const active=strengthBusy;
     if(!active||event.data?.id!==active.id)return;
+    clearTimeout(strengthTimeout);strengthTimeout=0;
     strengthBusy=null;
     if(currentStrengthRequest(active)){
      const score=event.data.score;
@@ -1218,6 +1220,7 @@ function pumpStrengthWorker(){
   const form=job.input.form;
   const context=[form?.elements.email?.value,form?.elements.name?.value].filter(Boolean);
   strengthWorker.postMessage({id:job.id,password:job.input.value,context});
+  strengthTimeout=setTimeout(stopStrengthWorker,15000);
  }catch{stopStrengthWorker();strengthUnavailable(job);}
 }
 function updatePasswordStrength(input){
