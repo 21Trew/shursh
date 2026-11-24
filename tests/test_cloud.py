@@ -172,6 +172,19 @@ def test_auth_input_validation_rejects_bad_data_before_upstream(application, mon
                     'a@example.c', 'a@domain..com', 'demo@shursh.local'):
         with pytest.raises(ApiError):
             valid_auth_email(address)
+    for address,message in (
+        ('invalid','Добавь знак @'),
+        ('a@@example.com','В адресе должен быть только один знак @'),
+        ('@example.com','Укажи имя почты перед @'),
+        ('a@','Укажи домен после @'),
+        ('a@example','Укажи домен с точкой, например example.com'),
+        ('a@domain..com','Убери лишние точки в домене'),
+        ('a@-example.com','Домен не должен начинаться или заканчиваться дефисом'),
+        ('a@example.c','Проверь окончание домена, например .ru или .com'),
+        ('a b@example.com','Убери пробелы и недопустимые символы из почты')):
+        with pytest.raises(ApiError) as exc:
+            valid_auth_email(address)
+        assert exc.value.message==message
     for name in ('', '    ', 'a' * 41, 'ok\nInjected'):
         with pytest.raises(ApiError):
             valid_signup_name(name)
@@ -224,22 +237,33 @@ def test_browser_auth_inline_validation_and_password_confirmation(browser_http):
                 page.locator('#fld-password').fill('short')
                 page.locator('#fld-confirm_password').fill('different')
                 page.locator('.modal-fixed-footer [type=submit]').click()
-                expect(page.locator('#auth-error-email')).to_have_text('Проверь адрес электронной почты')
+                expect(page.locator('#auth-error-email')).to_have_text('Добавь знак @')
                 expect(page.locator('#auth-error-password')).to_have_text('Минимум 8 символов')
                 expect(page.locator('#auth-error-confirm_password')).to_have_text('Пароли не совпадают')
                 assert not posts
 
+                for address,message in (
+                    ('a@@example.com','В адресе должен быть только один знак @'),
+                    ('@example.com','Укажи имя почты перед @'),
+                    ('a@','Укажи домен после @'),
+                    ('a@example','Укажи домен с точкой, например example.com'),
+                    ('a@domain..com','Убери лишние точки в домене'),
+                    ('a@-example.com','Домен не должен начинаться или заканчиваться дефисом'),
+                    ('a@example.c','Проверь окончание домена, например .ru или .com')):
+                    page.locator('#fld-email').fill(address)
+                    expect(page.locator('#auth-error-email')).to_have_text(message)
                 page.locator('#fld-email').fill('OWNER@EXAMPLE.TEST')
                 page.locator('#fld-password').fill('abcdefgh1')
-                expect(page.locator('#auth-error-password')).to_have_text('Добавь строчные и заглавные латинские буквы и цифры')
-                page.locator('#fld-password').fill('password')
-                expect(page.locator('[data-password-strength-label]')).to_have_text('Слабый')
-                # Strength and composition are independent. Synthetic samples.
-                for sample in ('qvR!NtMkY@pLW','qvR!NtMkY@pL8'):
-                    page.locator('#fld-password').fill(sample)
-                    expect(page.locator('[data-password-strength-label]')).to_have_text(__import__('re').compile('^(Хороший|Надёжный)$'))
+                expect(page.locator('#auth-error-password')).to_have_text('Добавь заглавную латинскую букву')
+                expect(page.locator('[data-password-strength-label]')).to_have_text('Не подходит')
+                page.locator('#fld-password').fill('qvR!NtMkY@pL8')
+                expect(page.locator('[data-password-strength-label]')).to_have_text(__import__('re').compile('^(Хороший|Надёжный)$'))
                 page.locator('#fld-password').fill('qvR!NtMkY@pLW')
-                expect(page.locator('#auth-error-password')).to_have_text('Добавь строчные и заглавные латинские буквы и цифры')
+                expect(page.locator('[data-password-strength-label]')).to_have_text('Не подходит')
+                expect(page.locator('#auth-error-password')).to_have_text('Добавь цифру')
+                page.locator('#fld-password').fill('9!x'+'7'*35)
+                expect(page.locator('[data-password-strength-label]')).to_have_text('Не подходит')
+                expect(page.locator('#auth-error-password')).to_have_text('Добавь заглавную латинскую букву')
                 page.locator('[data-password-generate]').click()
                 generated=page.locator('#fld-password').input_value()
                 assert generated==page.locator('#fld-confirm_password').input_value()
@@ -249,6 +273,7 @@ def test_browser_auth_inline_validation_and_password_confirmation(browser_http):
                 page.locator('.password-field:has(#fld-confirm_password) [data-password-visibility]').click()
                 expect(page.locator('#fld-confirm_password')).to_have_attribute('type','password')
                 page.locator('#fld-password').fill('Valid-new-password7')
+                expect(page.locator('#password-hint')).not_to_contain_text('Пароль создан и повторён')
                 page.locator('#fld-confirm_password').fill('Valid-new-password7')
                 expect(page.locator('#auth-error-email')).to_be_hidden()
                 page.locator('.modal-fixed-footer [type=submit]').click()

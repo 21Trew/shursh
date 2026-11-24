@@ -80,3 +80,16 @@ def test_unavailable_range_fails_closed(monkeypatch):
 @pytest.mark.parametrize('value',['Ab3xyz90','Ab3xy!90','A1'+'x'*70])
 def test_approved_password_shape(value):
     password_policy.validate_new_password(value)
+
+
+@pytest.mark.parametrize('value,message',[
+    ('abcdefgh1','Добавь заглавную латинскую букву'),
+    ('ABCDEFGH1','Добавь строчную латинскую букву'),
+    ('Abcdefgh','Добавь цифру'),
+    ('abcdefgh','Добавь заглавную латинскую букву и цифру'),
+    ('12345678','Добавь строчную латинскую букву и заглавную латинскую букву'),
+])
+def test_specific_missing_password_requirements(value,message):
+    with pytest.raises(ApiError) as caught:
+        password_policy.validate_new_password(value)
+    assert caught.value.message==message

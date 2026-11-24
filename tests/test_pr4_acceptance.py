@@ -1314,15 +1314,21 @@ def test_mobile_webkit_signup_inline_validation(browser_https):
             assert label.bounding_box()['x'] < bars.bounding_box()['x']
             assert abs(label.bounding_box()['y']+label.bounding_box()['height']/2 - bars.bounding_box()['y']-bars.bounding_box()['height']/2)<2
             # The maintained estimator, not fixed length bands, owns the score.
-            page.locator('#fld-password').fill('password')
+            page.locator('#fld-password').fill('Password1')
             expect(label).to_have_text('Слабый')
             page.locator('#fld-password').fill('Vq!7tZ#9mK2pF@8rYw4N')
             expect(label).to_have_text('Надёжный')
             # Rapid changes must not allow an obsolete strong result to win.
             page.locator('#fld-password').fill('Vq!7tZ#9mK2pF@8rYw4N')
-            page.locator('#fld-password').fill('password')
+            page.locator('#fld-password').fill('Password1')
             expect(label).to_have_text('Слабый')
             expect(page.locator('[data-password-strength]')).to_have_attribute('data-target-level','1')
+            page.locator('#fld-password').fill('qvR!NtMkY@pLW')
+            expect(label).to_have_text('Не подходит')
+            expect(page.locator('#auth-error-password')).to_have_text('Добавь цифру')
+            page.locator('#fld-email').fill('not-email')
+            expect(page.locator('#auth-error-email')).to_have_text('Добавь знак @')
+            page.locator('#fld-email').fill('owner@example.test')
             # Check actual level transitions in both engines, including
             # reversal and no parallel multi-segment updates.
             meter=page.locator('[data-password-strength]')
@@ -1340,7 +1346,7 @@ def test_mobile_webkit_signup_inline_validation(browser_https):
             expect(label).to_have_text('Надёжный')
             expect(meter).to_have_attribute('data-level','4',timeout=3000)
             assert page.evaluate('window.strengthSteps')==[1,2,3,4]
-            page.locator('#fld-password').fill('short')
+            page.locator('#fld-password').fill('Password1')
             expect(meter).to_have_attribute('data-level','1',timeout=3000)
             assert page.evaluate('window.strengthSteps')==[1,2,3,4,3,2,1]
             page.locator('[data-password-generate]').click()

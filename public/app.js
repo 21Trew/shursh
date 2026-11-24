@@ -1171,7 +1171,11 @@ function newPasswordIssue(value){
  if(Array.from(value).length<8)return 'Минимум 8 символов';
  if(/[\u0000-\u001f\u007f]/.test(value)||Array.from(value).some(c=>c.length===1&&/[\ud800-\udfff]/.test(c)))return 'В пароле есть недопустимые символы';
  if(new TextEncoder().encode(value).length>72)return 'Пароль слишком длинный. Сократи его';
- if(!/[a-z]/.test(value)||!/[A-Z]/.test(value)||!/[0-9]/.test(value))return 'Добавь строчные и заглавные латинские буквы и цифры';
+ const missing=[];
+ if(!/[a-z]/.test(value))missing.push('строчную латинскую букву');
+ if(!/[A-Z]/.test(value))missing.push('заглавную латинскую букву');
+ if(!/[0-9]/.test(value))missing.push('цифру');
+ if(missing.length)return 'Добавь '+(missing.length===1?missing[0]:missing.slice(0,-1).join(', ')+' и '+missing.at(-1));
  return '';
 }
 // zxcvbn runs in a same-origin worker, loaded only on new-password input.
@@ -1208,7 +1212,9 @@ function pumpStrengthWorker(){
     strengthBusy=null;
     if(currentStrengthRequest(active)){
      const score=event.data.score;
-     if(Number.isInteger(score)&&score>=0&&score<=4)
+     if(newPasswordIssue(active.input.value))
+      renderPasswordStrength(active.input,0,'Не подходит');
+     else if(Number.isInteger(score)&&score>=0&&score<=4)
       renderPasswordStrength(active.input,Math.max(1,score));
      else strengthUnavailable(active);
     }
@@ -1230,9 +1236,13 @@ function updatePasswordStrength(input){
  strengthPending=null;
  // The server rejects passwords outside the bcrypt boundary. Do not score
  // an arbitrarily truncated prefix or retain long invalid input in the queue.
- if(!input.value||new TextEncoder().encode(input.value).length>72){
-  renderPasswordStrength(input,0);return;
+ if(!input.value){renderPasswordStrength(input,0);return;}
+ if(newPasswordIssue(input.value)){
+  renderPasswordStrength(input,0,'Не подходит');return;
  }
+ const indicator=input.closest('.password-field')?.querySelector('[data-password-strength]');
+ if(indicator?.querySelector('[data-password-strength-label]')?.textContent==='Не подходит')
+  renderPasswordStrength(input,0,'Оценка…');
  strengthDebounce=setTimeout(()=>{
   if(!input.isConnected||strengthRequests.get(input)!==id)return;
   strengthPending={id,input};pumpStrengthWorker();
@@ -1241,20 +1251,21 @@ function updatePasswordStrength(input){
 // One transition at a time. Input changes replace the target, not the
 // in-flight step, so rapid typing/backspace cannot start parallel fills.
 const passwordMeterMotion=new WeakMap();
-function renderPasswordStrength(input,target){
+function renderPasswordStrength(input,target,status=''){
  const indicator=input.closest('.password-field')?.querySelector('[data-password-strength]');
  if(!indicator)return;
  const node=indicator.querySelector('[data-password-strength-label]');
- const label=['','Слабый','Средний','Хороший','Надёжный'][target];
+ const label=status||['','Слабый','Средний','Хороший','Надёжный'][target];
  if(node.textContent!==label)node.textContent=label;
  let motion=passwordMeterMotion.get(indicator);
- if(!motion){motion={target:0,timer:0};passwordMeterMotion.set(indicator,motion);}
- motion.target=target;
+ if(!motion){motion={target:0,timer:0,status:''};passwordMeterMotion.set(indicator,motion);}
+ motion.target=target;motion.status=status;
+ if(status)indicator.hidden=false;
  indicator.dataset.targetLevel=String(target);
  const reduced=window.matchMedia('(prefers-reduced-motion: reduce)').matches;
  if(reduced){
   if(motion.timer)clearTimeout(motion.timer);
-  motion.timer=0;indicator.dataset.level=String(target);indicator.hidden=target===0;
+  motion.timer=0;indicator.dataset.level=String(target);indicator.hidden=target===0&&!status;
   return;
  }
  if(motion.timer)return;
@@ -1262,7 +1273,7 @@ function renderPasswordStrength(input,target){
   motion.timer=0;
   if(!indicator.isConnected)return;
   const current=Number(indicator.dataset.level)||0;
-  if(current===motion.target){indicator.hidden=current===0;return;}
+  if(current===motion.target){indicator.hidden=current===0&&!motion.status;return;}
   if(indicator.hidden){
    indicator.hidden=false;
    // Establish the empty visual state before the first CSS transition.
@@ -1326,6 +1337,29 @@ function resendConfirmationModal(email=''){
   footer:'Уже подтвердил адрес? <button type="button" data-open="login" data-email="'+attr(email)+'">Войти</button>'});
  setupAuthFormValidation(modalRoot.querySelector('#modal-form'),false);
 }
+function authEmailIssue(value){
+ const email=value.trim();
+ if(!email)return 'Укажи почту';
+ if(Array.from(email).length>200)return 'Адрес почты слишком длинный';
+ if(/[\s\u0000-\u001f\u007f]/.test(email))return 'Убери пробелы и недопустимые символы из почты';
+ const parts=email.split('@');
+ if(parts.length===1)return 'Добавь знак @';
+ if(parts.length!==2)return 'В адресе должен быть только один знак @';
+ const [local,domain]=parts;
+ if(!local)return 'Укажи имя почты перед @';
+ if(!domain)return 'Укажи домен после @';
+ if(Array.from(local).length>64)return 'Часть почты перед @ слишком длинная';
+ if(local.startsWith('.')||local.endsWith('.')||local.includes('..'))return 'Исправь точки в части почты перед @';
+ if(/["<>,:;()[\]\\]/.test(local)||Array.from(local).some(c=>c.length===1&&/[\ud800-\udfff]/.test(c)))return 'Убери недопустимые символы перед @';
+ if(!domain.includes('.'))return 'Укажи домен с точкой, например example.com';
+ const labels=domain.split('.');
+ if(labels.some(label=>!label))return 'Убери лишние точки в домене';
+ if(labels.some(label=>label.startsWith('-')||label.endsWith('-')))return 'Домен не должен начинаться или заканчиваться дефисом';
+ if(labels.some(label=>!/^[a-z0-9-]{1,63}$/i.test(label)))return 'Проверь символы и длину домена после @';
+ if(labels.at(-1).length<2)return 'Проверь окончание домена, например .ru или .com';
+ if(email.toLowerCase()==='demo@shursh.local')return 'Этот адрес недоступен для входа';
+ return '';
+}
 function authFieldIssue(input, form, register){
  const value=input.value, kind=input.name;
  if(kind==='code'&&!/^[0-9]{6}$/.test(value.trim()))return 'Введи шесть цифр из письма';
@@ -1335,24 +1369,12 @@ function authFieldIssue(input, form, register){
   if(trimmed.length>40)return 'Имя должно быть не длиннее 40 символов';
   if(/[\u0000-\u001f\u007f]/.test(trimmed))return 'В имени есть недопустимые символы';
  }
- if(kind==='email'){
-  const email=value.trim(), parts=email.split('@');
-  if(!email)return 'Укажи почту';
-  if(email.length>200||parts.length!==2)return 'Проверь адрес электронной почты';
-  const [local,domain]=parts;
-  const domainPattern=/^[a-z0-9](?:[a-z0-9-]{0,61}[a-z0-9])?(?:\.[a-z0-9](?:[a-z0-9-]{0,61}[a-z0-9])?)+$/i;
-  const localForbidden=/[\s"<>,:;()[\]\\]/;
-  if(!local||local.length>64||local.startsWith('.')||local.endsWith('.')||
-     local.includes('..')||localForbidden.test(local)||!domainPattern.test(domain)||
-     domain.split('.').at(-1).length<2||email.toLowerCase()==='demo@shursh.local'){
-    return 'Проверь адрес электронной почты';
-  }
- }
- if(kind==='password'||kind==='new_password'){
+ if(kind==='email')return authEmailIssue(value);
+ if(kind==='password'||kind==='new_password'||kind==='current_password'){
   if(!value)return 'Введи пароль';
   const len=Array.from(value).length;
-  if(register)return newPasswordIssue(value);
-  if(!register&&(len<8||len>200||value.includes('\u0000'))){
+  if(register&&kind!=='current_password')return newPasswordIssue(value);
+  if((len<8||len>200||value.includes('\u0000'))){
    return 'Пароль должен содержать от 8 до 200 символов';
   }
  }
@@ -1366,7 +1388,7 @@ function setupAuthFormValidation(form,register){
  if(!form)return;
  // Inline errors, not native validation popups which differ across mobile browsers.
  form.noValidate=true;
- const names=register?['name','email','password','new_password','confirm_password']:['email','password','code'];
+ const names=register?['name','email','password','current_password','new_password','confirm_password']:['email','password','current_password','code'];
  const inputs=names.map(name=>form.elements.namedItem(name)).filter(Boolean);
  const touched=new Set();
  const validate=input=>{
@@ -1396,8 +1418,13 @@ function setupAuthFormValidation(form,register){
    touched.add(input.name);validate(input);
   });
   input.addEventListener('input',()=>{
-   if(register&&['password','new_password'].includes(input.name))updatePasswordStrength(input);
-   if(touched.has(input.name))validate(input);
+   const newPassword=register&&['password','new_password'].includes(input.name);
+   if(register&&(newPassword||input.name==='confirm_password')){
+    const hint=form.querySelector('#password-hint');
+    if(hint)hint.textContent='От 8 символов, A-Z, a-z и 0-9. Спецсимволы желательны';
+   }
+   if(newPassword)updatePasswordStrength(input);
+   if(touched.has(input.name)||(newPassword&&input.value))validate(input);
    if(register&&['password','new_password'].includes(input.name)&&touched.has('confirm_password')){
     validate(form.elements.confirm_password);
    }

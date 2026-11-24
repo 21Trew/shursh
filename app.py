@@ -11,7 +11,7 @@ from flask import Flask, Response, request, send_from_directory
 from werkzeug.exceptions import RequestEntityTooLarge
 
 from cloud import db, auth, password_policy, auth_vnext
-from cloud.backend import CloudRequest, serialize
+from cloud.backend import CloudRequest, serialize, valid_auth_email
 from cloud.environment import EnvironmentError
 from server import ApiError, LIMIT_BYTES
 
@@ -138,13 +138,10 @@ def api(route):
             if not isinstance(current_password,str) or not (8<=len(current_password)<=200):
                 raise ApiError(400,'Введи текущий пароль')
             if path.endswith('/email'):
-                value=data.get('email')
-                import re as regex
-                if not isinstance(value,str) or len(value)>254 or not regex.fullmatch(r'[^@\s]{1,64}@[A-Za-z0-9-]+(?:\.[A-Za-z0-9-]+)+',value.strip()):
-                    raise ApiError(400,'Проверь адрес электронной почты')
-                if value.strip().casefold()==owner_email.casefold():
+                value=valid_auth_email(data.get('email'))
+                if value.casefold()==owner_email.casefold():
                     raise ApiError(400,'Это уже твой адрес')
-                change={'email':value.strip()}
+                change={'email':value}
             else:
                 value=data.get('new_password')
                 if not isinstance(value,str) or value==current_password:

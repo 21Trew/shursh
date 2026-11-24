@@ -17,23 +17,38 @@ IMAGE_USER_LIMIT = 12_000_000
 IMAGE_TOTAL_LIMIT = 100_000_000
 
 # Input-shape checks; Supabase owns password policy and authentication.
-AUTH_DOMAIN = re.compile(r'[a-z0-9](?:[a-z0-9-]{0,61}[a-z0-9])?(?:\.[a-z0-9](?:[a-z0-9-]{0,61}[a-z0-9])?)+', re.I)
+AUTH_DOMAIN_LABEL = re.compile(r'[a-z0-9-]{1,63}', re.I | re.ASCII)
 AUTH_INVALID_LOCAL = set('"<>,:;()[]\\')
 
 def valid_auth_email(raw):
-    email = req(raw, 'Почта', 200).lower()
-    parts = email.split('@')
-    if len(parts) != 2:
-        raise ApiError(400, 'Укажи корректную почту')
-    local, domain = parts
-    if (not 1 <= len(local) <= 64 or not 1 <= len(domain) <= 253
-            or local.startswith('.') or local.endswith('.') or '..' in local
-            or any(ch.isspace() or ord(ch)<33 or ord(ch)==127 or ch in AUTH_INVALID_LOCAL for ch in local)
-            or not AUTH_DOMAIN.fullmatch(domain)
-            or len(domain.rsplit('.', 1)[-1]) < 2
-            or email == 'demo@shursh.local'):
-        raise ApiError(400, 'Укажи корректную почту')
-    return email
+    email = raw.strip() if isinstance(raw,str) else ''
+    def reject(message):
+        raise ApiError(400,message)
+    if not email: reject('Укажи почту')
+    if len(email)>200: reject('Адрес почты слишком длинный')
+    if any(ch.isspace() or ord(ch)<32 or ord(ch)==127 for ch in email):
+        reject('Убери пробелы и недопустимые символы из почты')
+    parts=email.split('@')
+    if len(parts)==1: reject('Добавь знак @')
+    if len(parts)!=2: reject('В адресе должен быть только один знак @')
+    local,domain=parts
+    if not local: reject('Укажи имя почты перед @')
+    if not domain: reject('Укажи домен после @')
+    if len(local)>64: reject('Часть почты перед @ слишком длинная')
+    if local.startswith('.') or local.endswith('.') or '..' in local:
+        reject('Исправь точки в части почты перед @')
+    if any(ch in AUTH_INVALID_LOCAL or 0xD800<=ord(ch)<=0xDFFF for ch in local):
+        reject('Убери недопустимые символы перед @')
+    if '.' not in domain: reject('Укажи домен с точкой, например example.com')
+    labels=domain.split('.')
+    if any(not label for label in labels): reject('Убери лишние точки в домене')
+    if any(label.startswith('-') or label.endswith('-') for label in labels):
+        reject('Домен не должен начинаться или заканчиваться дефисом')
+    if any(not AUTH_DOMAIN_LABEL.fullmatch(label) for label in labels):
+        reject('Проверь символы и длину домена после @')
+    if len(labels[-1])<2: reject('Проверь окончание домена, например .ru или .com')
+    if email.lower()=='demo@shursh.local': reject('Этот адрес недоступен для входа')
+    return email.lower()
 
 
 def valid_auth_password(raw):

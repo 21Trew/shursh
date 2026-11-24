@@ -15,8 +15,13 @@ def validate_new_password(password):
     # bcrypt must never silently truncate the password.
     if len(password.encode('utf-8'))>72:
         raise ApiError(400,'Пароль слишком длинный. Сократи его')
-    if not (re.search(r'[a-z]',password) and re.search(r'[A-Z]',password) and re.search(r'[0-9]',password)):
-        raise ApiError(400,'Добавь строчные и заглавные латинские буквы и цифры')
+    missing=[label for pattern,label in (
+        (r'[a-z]','строчную латинскую букву'),
+        (r'[A-Z]','заглавную латинскую букву'),
+        (r'[0-9]','цифру')) if not re.search(pattern,password)]
+    if missing:
+        description=missing[0] if len(missing)==1 else ', '.join(missing[:-1])+' и '+missing[-1]
+        raise ApiError(400,'Добавь '+description)
 
 
 def screen_new_password(password):

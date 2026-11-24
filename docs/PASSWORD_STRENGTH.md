@@ -20,3 +20,10 @@ CI checks the exact original blob hash, compressed size and CPU times on
 synthetic fixtures (Node runner, not a mobile-device benchmark), plus
 Chromium/WebKit meter layout and sequential animations. The worker isolates
 computation from the UI thread. No password fixtures copied from users.
+
+The quality estimator is displayed only for passwords that pass mandatory
+local shape validation. Non-empty invalid input shows “Не подходит”, with an
+explicit field error; obsolete worker responses cannot override this state.
+This is distinct from a weak but policy-compliant zxcvbn score. The server
+reports the actual missing character classes. Email-format feedback uses
+matching reason-specific checks in browser and hosted backend.
