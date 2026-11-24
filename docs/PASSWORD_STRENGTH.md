@@ -7,7 +7,7 @@ The bundled license is retained; the unused source-map directive is removed.
 The static asset is self-hosted and loaded by a Web Worker only after input
 in a new-password field. No initial page or ordinary login bundle growth from
 the library. No CDN, runtime npm install, CSP relaxation or external password
-estimation service. Worker replies contain only request ID and score.
+estimation service. Worker replies contain only request ID, score and a coarse reason code, never matched substrings. Weak valid passwords can display two independent cryptographically generated replacements (length based on input, never copying a weak prefix). They are stored only in a WeakMap, masked when the input is masked, and cleared on edits. Selecting one fills both password fields without changing the current visibility.
 Debounced, one in-flight estimate with latest-only queued input; obsolete
 results are ignored. Empty/overlong inputs clear the meter. Worker errors
 clear the estimate rather than guessing; an unresponsive worker is terminated

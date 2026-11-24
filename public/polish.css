@@ -790,3 +790,10 @@ input[type="checkbox"]:not(.shursh-checkbox input):checked::after{content:"✓";
 /* Auth guidance is small text: meet WCAG AA contrast on the modal surface. */
 #modal-form .password-hint{color:#716963}
 #modal-form .password-hint[hidden]{display:none}
+
+/* Local replacement suggestions: compact, selectable, no value in masked DOM. */
+#modal-form .password-suggestions{display:grid;gap:6px;min-width:0}
+#modal-form .password-suggestions[hidden]{display:none}
+#modal-form .password-suggestions p{font-size:12px;color:#716963;font-weight:700}
+#modal-form .password-suggestions button{border:1px solid #d8cbe6;border-radius:10px;background:#f5effa;color:#63458b;padding:8px 10px;min-height:44px;text-align:left;font-size:13px;overflow-wrap:anywhere;cursor:pointer}
+#modal-form .password-suggestions button:focus-visible{outline:2px solid #8056b4;outline-offset:2px}

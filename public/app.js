@@ -1159,7 +1159,7 @@ function passwordField(register,name='password',label='Пароль'){
  return '<div class="field password-field"><div class="password-label-row"><label for="fld-'+attr(name)+'">'+esc(label)+'</label>'+generator+'</div>'+
   '<div class="password-input-row"><input id="fld-'+attr(name)+'" name="'+attr(name)+'" type="password" placeholder="'+(register?'От 8 символов':'Твой пароль')+'" required minlength="8" maxlength="200" autocomplete="'+(register?'new-password':'current-password')+'"'+(register?' aria-describedby="password-hint"':'')+'>'+
   '<button type="button" class="password-visibility" data-password-visibility aria-label="Показать пароль" aria-pressed="false">'+ico('eye')+'</button></div>'+
-  (register?'<div class="password-strength" data-password-strength data-level="0" hidden><p data-password-strength-label role="status" aria-live="polite" aria-label="Надёжность пароля"></p><div class="password-strength-bars" aria-hidden="true"><i></i><i></i><i></i><i></i></div></div><p class="password-hint" id="password-hint" hidden aria-live="polite"></p>':'')+'</div>';
+  (register?'<div class="password-strength" data-password-strength data-level="0" hidden><p data-password-strength-label role="status" aria-live="polite" aria-label="Надёжность пароля"></p><div class="password-strength-bars" aria-hidden="true"><i></i><i></i><i></i><i></i></div></div><p class="password-hint" id="password-hint" hidden aria-live="polite"></p><div class="password-suggestions" data-password-suggestions hidden></div>':'')+'</div>';
 }
 function confirmPasswordField(){
  return '<div class="field password-field"><label for="fld-confirm_password">Повтори пароль</label>'+
@@ -1180,7 +1180,7 @@ function passwordLengthIssue(value){
  const word=count===1?'символ':count<=4?'символа':'символов';
  return 'Добавь ещё '+count+' '+word;
 }
-function passwordAdvice(value,score=null){
+function passwordAdvice(value,score=null,reason=''){
  if(!value)return '';
  const issue=newPasswordIssue(value);
  // Required fixes take priority over optional strength tips.
@@ -1194,12 +1194,45 @@ function passwordAdvice(value,score=null){
   const items=missing.length===1?missing[0]:missing.slice(0,-1).join(', ')+' и '+missing.at(-1);
   return 'Добавь хотя бы '+items+', чтобы усилить пароль';
  }
- return Number.isInteger(score)&&score<=1?'Попробуй менее предсказуемую комбинацию':'';
+ if(!Number.isInteger(score)||score>1)return '';
+ const advice={
+  sequence:'Замени последовательности букв или цифр случайными символами',
+  repeat:'Замени повторяющиеся символы случайными',
+  dictionary:'Замени распространённые слова и комбинации случайными символами',
+  spatial:'Избегай последовательностей клавиш на клавиатуре',
+  date:'Замени даты и годы случайными цифрами',
+  short:'Добавь несколько случайных символов, чтобы усложнить подбор'
+ };
+ return advice[reason]||'Добавь несколько случайных символов, чтобы усложнить подбор';
 }
 function setPasswordHint(hint,message){
  if(!hint)return;
  if(hint.textContent!==message)hint.textContent=message;
  hint.hidden=!message;
+}
+// Suggestions are independent random replacements, not mutations of a guessable secret.
+const passwordSuggestions=new WeakMap();
+function renderPasswordSuggestions(input,show=false){
+ const panel=input.closest('.password-field')?.querySelector('[data-password-suggestions]');
+ if(!panel)return;
+ if(!show||!window.crypto?.getRandomValues){
+  passwordSuggestions.delete(input);panel.replaceChildren();panel.hidden=true;return;
+ }
+ let values=passwordSuggestions.get(input);
+ if(!values){
+  const length=Math.max(20,Math.min(32,Array.from(input.value).length+4));
+  values=[securePassword(length),securePassword(length)];
+  passwordSuggestions.set(input,values);
+ }
+ const title=document.createElement('p');
+ title.textContent='Более надёжные варианты';
+ const buttons=values.map((value,index)=>{
+  const button=document.createElement('button');button.type='button';
+  button.dataset.passwordSuggestion=String(index);
+  button.textContent=input.type==='text'?value:'Вариант '+(index+1)+' · '+value.length+' символов';
+  return button;
+ });
+ panel.replaceChildren(title,...buttons);panel.hidden=false;
 }
 // zxcvbn runs in a same-origin worker, loaded only on new-password input.
 let strengthWorker=null,strengthBusy=null,strengthPending=null,strengthDebounce=0,strengthRequestId=0,strengthRetryAt=0,strengthTimeout=0;
@@ -1240,7 +1273,8 @@ function pumpStrengthWorker(){
      else if(Number.isInteger(score)&&score>=0&&score<=4){
       renderPasswordStrength(active.input,Math.max(1,score));
       const hint=active.input.closest('.password-field')?.querySelector('#password-hint');
-      if(hint&&hint.dataset.generated!=='true')setPasswordHint(hint,passwordAdvice(active.input.value,score));
+      if(hint&&hint.dataset.generated!=='true')setPasswordHint(hint,passwordAdvice(active.input.value,score,event.data.reason));
+      renderPasswordSuggestions(active.input,score<=1&&hint?.dataset.generated!=='true');
      }
      else strengthUnavailable(active);
     }
@@ -1256,6 +1290,7 @@ function pumpStrengthWorker(){
  }catch{stopStrengthWorker();strengthUnavailable(job);}
 }
 function updatePasswordStrength(input){
+ renderPasswordSuggestions(input,false);
  const id=++strengthRequestId;
  strengthRequests.set(input,id);
  clearTimeout(strengthDebounce);
@@ -1310,13 +1345,13 @@ function renderPasswordStrength(input,target,status=''){
  };
  advance();
 }
-function securePassword(){
+function securePassword(length=20){
  if(!window.crypto || !crypto.getRandomValues)throw new Error('Для генерации пароля нужно защищённое HTTPS-соединение');
  const groups=['ABCDEFGHJKLMNPQRSTUVWXYZ','abcdefghijkmnopqrstuvwxyz','23456789','!@#$%&*'];
  const alphabet=groups.join(''),random=new Uint32Array(1);
  const pick=chars=>{const limit=Math.floor(4294967296/chars.length)*chars.length;let n;do{crypto.getRandomValues(random);n=random[0];}while(n>=limit);return chars[n%chars.length];};
  const chars=groups.map(pick);
- while(chars.length<20)chars.push(pick(alphabet));
+ while(chars.length<length)chars.push(pick(alphabet));
  for(let i=chars.length-1;i>0;i--){const j=Math.floor(crypto.getRandomValues(new Uint32Array(1))[0]*(i+1)/4294967296);[chars[i],chars[j]]=[chars[j],chars[i]];}
  return chars.join('');
 }
@@ -2083,15 +2118,19 @@ document.addEventListener('click',async ev=>{
   reveal.setAttribute('aria-label',(visible?'Скрыть':'Показать')+(input.name==='confirm_password'?' повтор пароля':' пароль'));
   reveal.innerHTML=ico(visible?'eye-off':'eye');
   authCharacterHighlights.get(input)?.();
+  if(passwordSuggestions.has(input))renderPasswordSuggestions(input,true);
   input.focus({preventScroll:true});return;
  }
- const generator=ev.target.closest('[data-password-generate]');
+ const suggested=ev.target.closest('[data-password-suggestion]');
+ const generator=ev.target.closest('[data-password-generate]')||suggested;
  if(generator){
   ev.preventDefault();
   try{
    const field=generator.closest('.password-field'),input=field?.querySelector('.password-input-row input');
    if(!input)return;
-   input.value=securePassword();input.type='text';
+   const value=suggested?passwordSuggestions.get(input)?.[Number(suggested.dataset.passwordSuggestion)]:securePassword();
+   if(!value)return;
+   input.value=value;if(!suggested)input.type='text';
    const confirmation=field.closest('form')?.elements.namedItem('confirm_password');
    if(confirmation){confirmation.value=input.value;confirmation.type='password';
     const ct=confirmation.closest('.password-field')?.querySelector('[data-password-visibility]');
@@ -2100,7 +2139,8 @@ document.addEventListener('click',async ev=>{
    input.dispatchEvent(new Event('input',{bubbles:true}));
    confirmation?.dispatchEvent(new Event('input',{bubbles:true}));
    const toggle=field.querySelector('[data-password-visibility]');
-   toggle.setAttribute('aria-pressed','true');toggle.setAttribute('aria-label','Скрыть пароль');toggle.innerHTML=ico('eye-off');
+   const visible=input.type==='text';
+   toggle.setAttribute('aria-pressed',String(visible));toggle.setAttribute('aria-label',visible?'Скрыть пароль':'Показать пароль');toggle.innerHTML=ico(visible?'eye-off':'eye');
    const hint=field.querySelector('#password-hint');
    if(hint){hint.dataset.generated='true';setPasswordHint(hint,'Пароль создан и повторён. Сохрани его в менеджере паролей');}
    input.focus({preventScroll:true});
