@@ -1174,23 +1174,73 @@ function newPasswordIssue(value){
  if(!/[a-z]/.test(value)||!/[A-Z]/.test(value)||!/[0-9]/.test(value))return 'Добавь строчные и заглавные латинские буквы и цифры';
  return '';
 }
-// Keep the quality estimate separate from mandatory signup validation.
-function passwordStrengthLevel(value){
- if(!value)return 0;
- const n=Array.from(value).length,special=/[^A-Za-z0-9\s]/.test(value);
- const common=/(?:password|qwerty|12345|abcdef|letmein|admin|пароль)/i.test(value)||/(.)\1{3,}|^(.{1,5})\2+$/.test(value)||new Set(value.toLowerCase()).size<5;
- if(n<8||common)return 1;
- const classes=[/[a-z]/,/[A-Z]/,/[0-9]/,/[^A-Za-z0-9\s]/].filter(re=>re.test(value)).length;
- if(classes<2)return n>=16?2:1;
- return n>=(special?16:18)?4:n>=12?3:2;
+// zxcvbn runs in a same-origin worker, loaded only on new-password input.
+let strengthWorker=null,strengthBusy=null,strengthPending=null,strengthDebounce=0,strengthRequestId=0,strengthRetryAt=0;
+const strengthRequests=new WeakMap();
+function currentStrengthRequest(job){
+ return job&&job.input.isConnected&&strengthRequests.get(job.input)===job.id;
+}
+function strengthUnavailable(job){
+ if(!currentStrengthRequest(job))return;
+ renderPasswordStrength(job.input,0);
+}
+function stopStrengthWorker(){
+ strengthWorker?.terminate();strengthWorker=null;
+ const pending=strengthPending,active=strengthBusy;
+ strengthPending=null;strengthBusy=null;strengthRetryAt=Date.now()+30000;
+ strengthUnavailable(active);strengthUnavailable(pending);
+}
+function pumpStrengthWorker(){
+ if(strengthBusy||!strengthPending)return;
+ const job=strengthPending;strengthPending=null;
+ if(!currentStrengthRequest(job))return;
+ if(Date.now()<strengthRetryAt){strengthUnavailable(job);return;}
+ try{
+  if(!strengthWorker){
+   strengthWorker=new Worker('/password-strength-worker.js');
+   strengthWorker.onerror=()=>stopStrengthWorker();
+   strengthWorker.onmessageerror=()=>stopStrengthWorker();
+   strengthWorker.onmessage=event=>{
+    const active=strengthBusy;
+    if(!active||event.data?.id!==active.id)return;
+    strengthBusy=null;
+    if(currentStrengthRequest(active)){
+     const score=event.data.score;
+     if(Number.isInteger(score)&&score>=0&&score<=4)
+      renderPasswordStrength(active.input,Math.max(1,score));
+     else strengthUnavailable(active);
+    }
+    pumpStrengthWorker();
+   };
+  }
+  strengthBusy=job;
+  // No password in a URL, fetch, log, storage or telemetry. Only worker IPC.
+  const form=job.input.form;
+  const context=[form?.elements.email?.value,form?.elements.name?.value].filter(Boolean);
+  strengthWorker.postMessage({id:job.id,password:job.input.value,context});
+ }catch{stopStrengthWorker();strengthUnavailable(job);}
+}
+function updatePasswordStrength(input){
+ const id=++strengthRequestId;
+ strengthRequests.set(input,id);
+ clearTimeout(strengthDebounce);
+ strengthPending=null;
+ // The server rejects passwords outside the bcrypt boundary. Do not score
+ // an arbitrarily truncated prefix or retain long invalid input in the queue.
+ if(!input.value||new TextEncoder().encode(input.value).length>72){
+  renderPasswordStrength(input,0);return;
+ }
+ strengthDebounce=setTimeout(()=>{
+  if(!input.isConnected||strengthRequests.get(input)!==id)return;
+  strengthPending={id,input};pumpStrengthWorker();
+ },60);
 }
 // One transition at a time. Input changes replace the target, not the
 // in-flight step, so rapid typing/backspace cannot start parallel fills.
 const passwordMeterMotion=new WeakMap();
-function updatePasswordStrength(input){
+function renderPasswordStrength(input,target){
  const indicator=input.closest('.password-field')?.querySelector('[data-password-strength]');
  if(!indicator)return;
- const target=passwordStrengthLevel(input.value);
  const node=indicator.querySelector('[data-password-strength-label]');
  const label=['','Слабый','Средний','Хороший','Надёжный'][target];
  if(node.textContent!==label)node.textContent=label;

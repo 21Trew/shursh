@@ -232,7 +232,7 @@ def image(filename):
 @app.get('/')
 @app.get('/<path:route>')
 def frontend(route=''):
-    if route in ('app.js','santa-ui.js','social-ui.js','styles.css','polish.css','fonts.css','favicon.svg','favicon.ico'):
+    if route in ('app.js','santa-ui.js','social-ui.js','password-strength-worker.js','zxcvbn-4.4.2.js','styles.css','polish.css','fonts.css','favicon.svg','favicon.ico'):
         return send_from_directory(ROOT/'public',route)
     if re.fullmatch(r'fonts/(?:onest|unbounded)-(?:cyrillic|cyrillic-ext|latin)-wght-normal\.woff2',route):
         return send_from_directory(ROOT/'public',route)

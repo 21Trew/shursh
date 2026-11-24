@@ -1309,12 +1309,11 @@ def test_mobile_webkit_signup_inline_validation(browser_https):
             bars=page.locator('.password-strength-bars')
             assert label.bounding_box()['x'] < bars.bounding_box()['x']
             assert abs(label.bounding_box()['y']+label.bounding_box()['height']/2 - bars.bounding_box()['y']-bars.bounding_box()['height']/2)<2
-            page.locator('#fld-password').fill('Ab3xy!90')
-            expect(label).to_have_text('Средний')
-            page.locator('#fld-password').fill('Ab3xy!90Kp6n')
-            expect(label).to_have_text('Хороший')
-            page.locator('#fld-password').fill('Ab3xy!90')
-            expect(label).to_have_text('Средний')
+            # The maintained estimator, not fixed length bands, owns the score.
+            page.locator('#fld-password').fill('password')
+            expect(label).to_have_text('Слабый')
+            page.locator('#fld-password').fill('Vq!7tZ#9mK2pF@8rYw4N')
+            expect(label).to_have_text('Надёжный')
             # Check actual level transitions in both engines, including
             # reversal and no parallel multi-segment updates.
             meter=page.locator('[data-password-strength]')
