@@ -78,6 +78,8 @@ jobs:
           python-version: '3.13'
       - run: python -m pip install -r requirements.txt -r requirements-dev.txt
       - run: python -m compileall -q app.py cloud server.py tests/test_cloud.py
+      - name: Synthetic password history feasibility probe (disposable DB only)
+        run: python -m pytest -q -s tests/test_auth_policy_probe.py
       - name: PostgreSQL integration + reproducible authenticated API timings
         run: python -m pytest -q -s tests/test_cloud.py -m "not browser and not fontperf"
 
