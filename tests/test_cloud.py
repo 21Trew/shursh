@@ -273,7 +273,7 @@ def test_browser_auth_inline_validation_and_password_confirmation(browser_http):
                 page.locator('#fld-confirm_password').fill('different')
                 page.locator('.modal-fixed-footer [type=submit]').click()
                 expect(page.locator('#auth-error-email')).to_have_text('Добавь знак @')
-                expect(page.locator('#auth-error-password')).to_have_text('Минимум 8 символов')
+                expect(page.locator('#auth-error-password')).to_have_text('Добавь ещё 3 символа')
                 expect(page.locator('#auth-error-confirm_password')).to_have_text('Пароли не совпадают')
                 assert not posts
 
@@ -303,7 +303,7 @@ def test_browser_auth_inline_validation_and_password_confirmation(browser_http):
                 page.locator('#fld-password').fill('abcdefgh1')
                 expect(page.locator('#auth-error-password')).to_be_hidden()
                 expect(page.locator('[data-password-strength-label]')).to_have_text('Слабый')
-                expect(page.locator('#password-hint')).to_contain_text('пароль было сложнее взломать')
+                expect(page.locator('#password-hint')).to_have_text('Добавь хотя бы 1 заглавную латинскую букву и 1 спецсимвол, чтобы усилить пароль')
                 for invalid in ('abcdefgя','abcdefgЁ','я'):
                     page.locator('#fld-password').fill(invalid)
                     expect(page.locator('#auth-error-password')).to_have_text('Убери русские буквы из пароля')

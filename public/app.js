@@ -1159,7 +1159,7 @@ function passwordField(register,name='password',label='Пароль'){
  return '<div class="field password-field"><div class="password-label-row"><label for="fld-'+attr(name)+'">'+esc(label)+'</label>'+generator+'</div>'+
   '<div class="password-input-row"><input id="fld-'+attr(name)+'" name="'+attr(name)+'" type="password" placeholder="'+(register?'От 8 символов':'Твой пароль')+'" required minlength="8" maxlength="200" autocomplete="'+(register?'new-password':'current-password')+'"'+(register?' aria-describedby="password-hint"':'')+'>'+
   '<button type="button" class="password-visibility" data-password-visibility aria-label="Показать пароль" aria-pressed="false">'+ico('eye')+'</button></div>'+
-  (register?'<div class="password-strength" data-password-strength data-level="0" hidden><p data-password-strength-label role="status" aria-live="polite" aria-label="Надёжность пароля"></p><div class="password-strength-bars" aria-hidden="true"><i></i><i></i><i></i><i></i></div></div><p class="password-hint" id="password-hint">Длинный уникальный пароль сложнее взломать</p>':'')+'</div>';
+  (register?'<div class="password-strength" data-password-strength data-level="0" hidden><p data-password-strength-label role="status" aria-live="polite" aria-label="Надёжность пароля"></p><div class="password-strength-bars" aria-hidden="true"><i></i><i></i><i></i><i></i></div></div><p class="password-hint" id="password-hint" hidden aria-live="polite"></p>':'')+'</div>';
 }
 function confirmPasswordField(){
  return '<div class="field password-field"><label for="fld-confirm_password">Повтори пароль</label>'+
@@ -1169,17 +1169,37 @@ function confirmPasswordField(){
 function newPasswordIssue(value){
  if(!value)return 'Введи пароль';
  if(/[А-Яа-яЁё]/.test(value))return 'Убери русские буквы из пароля';
- if(Array.from(value).length<8)return 'Минимум 8 символов';
+ if(Array.from(value).length<8)return passwordLengthIssue(value);
  if(/[\u0000-\u001f\u007f]/.test(value)||Array.from(value).some(c=>c.length===1&&/[\ud800-\udfff]/.test(c)))return 'В пароле есть недопустимые символы';
  if(new TextEncoder().encode(value).length>72)return 'Пароль слишком длинный. Сократи его';
  return '';
 }
-function passwordAdvice(value){
- const base='Длинный уникальный пароль сложнее взломать';
- if(!value||newPasswordIssue(value))return base;
- if(!/[a-z]/.test(value)||!/[A-Z]/.test(value)||!/[0-9]/.test(value)||!/[^\p{L}\p{N}\s]/u.test(value))
-  return 'Чтобы пароль было сложнее взломать, добавь разные символы или увеличь длину';
- return base;
+function passwordLengthIssue(value){
+ const count=8-Array.from(value).length;
+ if(count<=0)return '';
+ const word=count===1?'символ':count<=4?'символа':'символов';
+ return 'Добавь ещё '+count+' '+word;
+}
+function passwordAdvice(value,score=null){
+ if(!value)return '';
+ const issue=newPasswordIssue(value);
+ // Required fixes take priority over optional strength tips.
+ if(issue)return issue==='Убери русские буквы из пароля'?passwordLengthIssue(value):'';
+ const missing=[];
+ if(!/[a-z]/.test(value))missing.push('1 строчную латинскую букву');
+ if(!/[A-Z]/.test(value))missing.push('1 заглавную латинскую букву');
+ if(!/[0-9]/.test(value))missing.push('1 цифру');
+ if(!/[^\p{L}\p{N}\s]/u.test(value))missing.push('1 спецсимвол');
+ if(missing.length){
+  const items=missing.length===1?missing[0]:missing.slice(0,-1).join(', ')+' и '+missing.at(-1);
+  return 'Добавь хотя бы '+items+', чтобы усилить пароль';
+ }
+ return Number.isInteger(score)&&score<=1?'Попробуй менее предсказуемую комбинацию':'';
+}
+function setPasswordHint(hint,message){
+ if(!hint)return;
+ if(hint.textContent!==message)hint.textContent=message;
+ hint.hidden=!message;
 }
 // zxcvbn runs in a same-origin worker, loaded only on new-password input.
 let strengthWorker=null,strengthBusy=null,strengthPending=null,strengthDebounce=0,strengthRequestId=0,strengthRetryAt=0,strengthTimeout=0;
@@ -1220,8 +1240,7 @@ function pumpStrengthWorker(){
      else if(Number.isInteger(score)&&score>=0&&score<=4){
       renderPasswordStrength(active.input,Math.max(1,score));
       const hint=active.input.closest('.password-field')?.querySelector('#password-hint');
-      if(hint&&score<=1&&hint.dataset.generated!=='true')
-       hint.textContent='Чтобы пароль было сложнее взломать, увеличь длину и избегай повторов';
+      if(hint&&hint.dataset.generated!=='true')setPasswordHint(hint,passwordAdvice(active.input.value,score));
      }
      else strengthUnavailable(active);
     }
@@ -1556,12 +1575,11 @@ function setupAuthFormValidation(form,register){
   });
   input.addEventListener('input',()=>{
    const newPassword=register&&['password','new_password'].includes(input.name);
-   if(register&&(newPassword||input.name==='confirm_password')){
+   if(newPassword){
     const hint=form.querySelector('#password-hint');
     if(hint){
      delete hint.dataset.generated;
-     const password=form.elements.new_password||form.elements.password;
-     hint.textContent=passwordAdvice(password?.value||'');
+     setPasswordHint(hint,passwordAdvice(input.value));
     }
    }
    if(newPassword)updatePasswordStrength(input);
@@ -2076,7 +2094,7 @@ document.addEventListener('click',async ev=>{
    const toggle=field.querySelector('[data-password-visibility]');
    toggle.setAttribute('aria-pressed','true');toggle.setAttribute('aria-label','Скрыть пароль');toggle.innerHTML=ico('eye-off');
    const hint=field.querySelector('#password-hint');
-   if(hint){hint.dataset.generated='true';hint.textContent='Пароль создан и повторён. Сохрани его в менеджере паролей';}
+   if(hint){hint.dataset.generated='true';setPasswordHint(hint,'Пароль создан и повторён. Сохрани его в менеджере паролей');}
    input.focus({preventScroll:true});
   }catch(err){notice(err.message,true)}
   return;

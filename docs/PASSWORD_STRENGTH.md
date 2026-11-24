@@ -28,7 +28,7 @@ This is distinct from a weak but policy-compliant zxcvbn score. Character classe
 Mandatory shape checks still enforce eight characters and the existing bcrypt
 boundary, and reject Russian letters (А–Я, а–я, Ё, ё), controls and invalid
 Unicode. Existing passwords are unaffected by the new-letter restriction on login.
-Advice explains that longer, varied, unique passwords are harder to crack. Previously agreed HIBP
+Advice lists only missing character classes, never claims uniqueness and hides on valid passwords with all groups unless the estimator reports a weak pattern. Mandatory length feedback reports the exact remaining character count. Cyrillic and other mandatory errors take precedence over optional tips. Previously agreed HIBP
 breach blocking is separate from strength advice and remains unchanged.
 Email-format feedback uses matching reason-specific checks in browser and
 hosted backend. The supported address format is unquoted ASCII local part

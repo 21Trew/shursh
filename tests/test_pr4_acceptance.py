@@ -1489,7 +1489,24 @@ def test_auth_character_highlight_responsive(browser_https):
                         email.fill('user@example,com')
                         expect(email).to_have_attribute('aria-describedby','auth-error-email')
                         email.locator('..').screenshot(path=str(output/f'{engine.name}-{width}-email.png'))
+                        hint=page.locator('#password-hint')
+                        for value,message in (('a','Добавь ещё 7 символов'),('abcd','Добавь ещё 4 символа'),('abcdefg','Добавь ещё 1 символ')):
+                            password.fill(value)
+                            expect(page.locator('#auth-error-password')).to_have_text(message)
+                            expect(hint).to_be_hidden()
+                        for value,message in (
+                            ('qvR!NtMkY@pLW','Добавь хотя бы 1 цифру, чтобы усилить пароль'),
+                            ('qvr!ntmk9@plw','Добавь хотя бы 1 заглавную латинскую букву, чтобы усилить пароль'),
+                            ('QVR!NTMK9@PLW','Добавь хотя бы 1 строчную латинскую букву, чтобы усилить пароль'),
+                            ('qvR7NtMkY9pLW','Добавь хотя бы 1 спецсимвол, чтобы усилить пароль')):
+                            password.fill(value)
+                            expect(hint).to_have_text(message)
+                            expect(page.locator('#auth-error-password')).to_be_hidden()
+                        password.fill('Vq!7tZ#9mK2pF@8rYw4N')
+                        expect(page.locator('[data-password-strength-label]')).to_have_text('Надёжный')
+                        expect(hint).to_be_hidden()
                         password.fill('abЁcd123')
+                        expect(hint).to_be_hidden()
                         expect(password).to_have_attribute('type','password')
                         expect(password).to_have_attribute('aria-invalid','true')
                         assert not password.evaluate(pixel_test)

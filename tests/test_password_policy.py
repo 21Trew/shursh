@@ -103,3 +103,10 @@ def test_russian_letters_rejected_before_network(monkeypatch, value):
         password_policy.screen_new_password(value)
     assert caught.value.status == 400
     assert caught.value.message == 'Убери русские буквы из пароля'
+
+
+@pytest.mark.parametrize('value,message',[('a','Добавь ещё 7 символов'),('abc','Добавь ещё 5 символов'),('abcd','Добавь ещё 4 символа'),('abcdef','Добавь ещё 2 символа'),('abcdefg','Добавь ещё 1 символ'),('','Введи пароль')])
+def test_password_length_feedback(value,message):
+    with pytest.raises(ApiError) as caught:
+        password_policy.validate_new_password(value)
+    assert caught.value.message == message

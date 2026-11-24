@@ -194,8 +194,10 @@ class CloudRequest(Handler):
         db.close_request_connection()
         data = self.body()
         email = valid_auth_email(data.get('email'))
-        password = valid_auth_password(data.get('password'))
         action = 'register' if path.endswith('register') else 'login'
+        password = data.get('password') if action == 'register' else valid_auth_password(data.get('password'))
+        if action == 'register':
+            password_policy.validate_new_password(password)
         payload = {'email': email, 'password': password}
         if action == 'register':
             payload['data'] = {'name': valid_signup_name(data.get('name'))}
