@@ -10,7 +10,7 @@ from pathlib import Path
 from flask import Flask, Response, request, send_from_directory
 from werkzeug.exceptions import RequestEntityTooLarge
 
-from cloud import db, auth, password_policy
+from cloud import db, auth, password_policy, auth_vnext
 from cloud.backend import CloudRequest, serialize
 from server import ApiError, LIMIT_BYTES
 
@@ -101,6 +101,22 @@ def api(route):
             return response({'user': None, 'demo': False, 'lists': [], 'events': []})
     handler = CloudRequest(request)
     try:
+        vnext=auth_vnext.enabled()
+        if path in ('/api/auth/start','/api/auth/verify','/api/auth/finish') and request.method=='POST':
+            if not vnext:
+                raise ApiError(404,'Этот способ входа пока недоступен')
+            action={'/api/auth/start':auth_vnext.start,'/api/auth/verify':auth_vnext.verify,
+                    '/api/auth/finish':auth_vnext.finish}[path]
+            result=action(handler)
+            return response(result[1],result[0],result[2])
+        if vnext and request.method=='POST':
+            if path in ('/api/register','/api/auth/complete','/api/auth/resend'):
+                raise ApiError(409,'Подтверди почту с помощью кода')
+            if path=='/api/account/password':
+                raise ApiError(409,'Для смены пароля подтверди почту')
+            if path=='/api/login':
+                result=auth_vnext.login(handler)
+                return response(result[1],result[0],result[2])
         # Auth's upstream HTTP request must not run inside a DB transaction:
         # retain transactional session writes, but release the rate limiter
         # socket before the external request.
@@ -212,6 +228,9 @@ def frontend(route=''):
         return send_from_directory(ROOT/'public',route)
     # Serve only known app routes; never include the simulator or repository files.
     if route in ('','index.html','lists','santas','friends','profile','notifications','admin','admin/users','admin/feedback') or re.fullmatch(r'(?:list|santa)/[0-9]{1,16}|(?:w|r|join|p)/[A-Za-z0-9_-]{1,128}|join/p/[A-Za-z0-9_-]{43}|users/[0-9a-fA-F-]{36}',route):
+        if auth_vnext.enabled():
+            html=(ROOT/'public'/'index.html').read_text(encoding='utf-8')
+            return Response(html.replace('<html lang="ru">','<html lang="ru" data-auth-vnext="1">',1),mimetype='text/html')
         return send_from_directory(ROOT/'public','index.html')
     return response({'error':'Страница не найдена'},404)
 

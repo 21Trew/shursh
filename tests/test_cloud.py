@@ -27,6 +27,7 @@ def db_setup():
         con.execute('CREATE ROLE anon NOLOGIN; CREATE ROLE authenticated NOLOGIN; CREATE ROLE service_role NOLOGIN BYPASSRLS; CREATE SCHEMA auth; CREATE TABLE auth.users(id uuid PRIMARY KEY)')
         for migration in sorted((ROOT/'supabase/migrations').glob('*.sql')):
             con.execute(migration.read_text())
+        con.execute((ROOT/'supabase/auth_vnext_candidate.sql').read_text())
         for uid in IDS.values():
             con.execute('INSERT INTO auth.users(id) VALUES(%s)', (uid,))
     yield
@@ -2763,3 +2764,136 @@ def test_typed_duplicate_signup_transport_is_generic(monkeypatch):
             assert exc.value.status==400
         else:
             assert auth.auth_request('register',email='owner@example.test',password='valid-password')=={}
+
+@pytest.fixture
+def vnext_application(application,monkeypatch):
+    from cloud import auth
+    from uuid import uuid4
+    monkeypatch.setenv('SHURSH_AUTH_VNEXT','1')
+    fresh=uuid4()
+    with psycopg.connect(os.environ['SHURSH_DATABASE_URL']) as con:
+        con.execute('INSERT INTO auth.users(id) VALUES(%s)',(fresh,))
+        con.execute('DELETE FROM shursh_auth_private.challenge')
+        con.execute('DELETE FROM shursh_auth_private.guard')
+        con.execute("INSERT INTO public.profiles(id,name) VALUES(%s,'Owner') ON CONFLICT(id) DO NOTHING",
+                    (IDS['owner@example.test'],))
+    passwords={'owner@example.test':'valid-password','new@example.test':'preexisting-attacker-password'}
+    ids={'owner@example.test':IDS['owner@example.test'],'new@example.test':fresh}
+    verified=set()
+    seen=[]
+    def provider(action,**payload):
+        from server import ApiError
+        seen.append(action)
+        email=payload.get('email')
+        if action=='otp':
+            assert payload['create_user'] is True
+            return {}
+        if action=='otp_verify':
+            if payload['token']!='123456' or email not in ids or email in verified:
+                raise ApiError(400,'Код неверный или истёк')
+            verified.add(email)
+        elif action=='login':
+            if passwords.get(email)!=payload.get('password'):
+                raise ApiError(401,'Неверная почта или пароль')
+        else:
+            pytest.fail('Unexpected provider action')
+        return {'access_token':'synthetic-otp-access','user':{'id':str(ids[email]),
+                'email':email,'email_confirmed_at':'2026-01-01T00:00:00Z','user_metadata':{'name':'Untrusted'}}}
+    def mutate(access,uid,email,password):
+        from server import ApiError
+        assert access=='synthetic-otp-access' and ids[email]==uid and email in verified
+        if passwords[email]==password:
+            raise ApiError(400,'Новый пароль должен отличаться от текущего')
+        passwords[email]=password
+        seen.append('global-logout')
+    monkeypatch.setattr(auth,'auth_request',provider)
+    monkeypatch.setattr(auth,'set_password_from_otp',mutate)
+    return application,seen,passwords
+
+
+def test_vnext_email_proof_onboarding_and_legacy_bypass(vnext_application):
+    app,seen,passwords=vnext_application
+    a=app.test_client();b=app.test_client()
+    old=call(a,'POST','/api/auth/start',{'email':'owner@example.test'},202)
+    new=call(b,'POST','/api/auth/start',{'email':'new@example.test'},202)
+    assert old.json==new.json
+    assert '__Host-shursh_auth=' in new.headers['Set-Cookie']
+    assert all(x in new.headers['Set-Cookie'] for x in ('HttpOnly','Secure','SameSite=Strict'))
+    assert 'no-store' in new.headers['Cache-Control']
+    assert call(b,'GET','/api/me').json['user'] is None
+    call(b,'POST','/api/register',{'email':'new@example.test'},409)
+    call(b,'POST','/api/auth/complete',{'access_token':'header.payload.signature'},409)
+    call(b,'POST','/api/auth/finish',{'email':'new@example.test','name':'Guest','password':'brand-new-password'},400)
+    call(a,'POST','/api/auth/verify',{'email':'new@example.test','code':'123456'},400)
+    call(b,'POST','/api/auth/verify',{'email':'new@example.test','code':'999999'},400)
+    assert call(b,'POST','/api/auth/verify',{'email':'new@example.test','code':'123456'}).json=={'next':'setup'}
+    assert call(a,'POST','/api/auth/verify',{'email':'owner@example.test','code':'123456'}).json=={'next':'existing'}
+    # A pre-set provider password cannot create a Shursh profile after OTP.
+    attacker=app.test_client()
+    call(attacker,'POST','/api/login',{'email':'new@example.test','password':'preexisting-attacker-password'},403)
+    call(b,'POST','/api/auth/verify',{'email':'new@example.test','code':'123456'},400)
+    result=call(b,'POST','/api/auth/finish',{'email':'new@example.test','name':'Guest','password':'brand-new-password'})
+    assert result.json['user']['name']=='Guest'
+    assert 'synthetic-otp-access' not in result.get_data(as_text=True)
+    assert call(b,'GET','/api/me').json['user']['name']=='Guest'
+    assert seen.count('global-logout')==1
+    call(b,'POST','/api/auth/finish',{'email':'new@example.test','name':'Guest','password':'brand-new-password'},400)
+    call(attacker,'POST','/api/login',{'email':'new@example.test','password':'preexisting-attacker-password'},401)
+
+
+def test_vnext_recovery_revokes_sessions_and_rejects_replay(vnext_application):
+    app,seen,passwords=vnext_application
+    old=login(app);other=login(app)
+    recovery=app.test_client()
+    call(recovery,'POST','/api/auth/start',{'email':'owner@example.test'},202)
+    assert call(recovery,'POST','/api/auth/verify',{'email':'owner@example.test','code':'123456'}).json=={'next':'existing'}
+    call(recovery,'POST','/api/auth/finish',{'email':'owner@example.test','password':'short'},400)
+    res=call(recovery,'POST','/api/auth/finish',{'email':'owner@example.test','password':'unique-new-password'})
+    assert res.json=={'login_required':True}
+    for client in (old,other,recovery):
+        assert call(client,'GET','/api/me').json['user'] is None
+    call(recovery,'POST','/api/auth/finish',{'email':'owner@example.test','password':'unique-new-password'},400)
+    call(recovery,'POST','/api/login',{'email':'owner@example.test','password':'valid-password'},401)
+    assert call(recovery,'POST','/api/login',{'email':'owner@example.test','password':'unique-new-password'}).json['user']['id']==str(IDS['owner@example.test'])
+    assert seen.count('global-logout')==1
+
+
+def test_vnext_attempt_limit_and_no_public_challenge_access(vnext_application):
+    app,seen,_=vnext_application
+    c=app.test_client()
+    call(c,'POST','/api/auth/start',{'email':'new@example.test'},202)
+    call(c,'POST','/api/auth/start',{'email':'new@example.test'},429)
+    for _ in range(5):
+        call(c,'POST','/api/auth/verify',{'email':'new@example.test','code':'999999'},400)
+    call(c,'POST','/api/auth/verify',{'email':'new@example.test','code':'123456'},400)
+    assert seen.count('otp_verify')==5
+    with psycopg.connect(os.environ['SHURSH_DATABASE_URL']) as con:
+        for role in ('anon','authenticated'):
+            assert not con.execute("SELECT has_schema_privilege(%s,'shursh_auth_private','USAGE')",(role,)).fetchone()[0]
+            assert not con.execute("SELECT has_table_privilege(%s,'shursh_auth_private.challenge','SELECT')",(role,)).fetchone()[0]
+
+
+@pytest.mark.browser
+def test_vnext_chromium_otp_registration(browser_http,vnext_application):
+    from playwright.sync_api import sync_playwright,expect
+    with sync_playwright() as play:
+        browser=play.chromium.launch(headless=True)
+        try:
+            page=browser.new_page(viewport={'width':390,'height':844})
+            page.goto(browser_http+'/')
+            page.locator('header [data-open="login"]').click()
+            page.locator('.modal-foot [data-open="register"]').click()
+            expect(page.locator('#fld-password')).to_have_count(0)
+            page.locator('#fld-email').fill('new@example.test')
+            page.locator('.modal-fixed-footer [type=submit]').click()
+            expect(page.locator('#fld-code')).to_be_visible()
+            page.locator('#fld-code').fill('123456')
+            page.locator('.modal-fixed-footer [type=submit]').click()
+            expect(page.locator('#fld-name')).to_be_visible()
+            page.locator('#fld-name').fill('Новый друг')
+            page.locator('[data-password-generate]').click()
+            page.locator('.modal-fixed-footer [type=submit]').click()
+            expect(page.locator('.site-header .header-avatar')).to_be_visible(timeout=10000)
+            assert page.evaluate('document.documentElement.scrollWidth<=innerWidth+2')
+        finally:
+            browser.close()

@@ -16,7 +16,7 @@ from urllib.parse import urlsplit
 import pytest
 from playwright.sync_api import sync_playwright, expect
 
-from test_cloud import browser_http, browser_login, application, db_setup
+from test_cloud import browser_http, browser_login, application, db_setup, vnext_application
 
 ROUTES = (
     ("/", "С возвращением", 'header .nav [data-nav="/"]'),
@@ -1320,6 +1320,38 @@ def test_mobile_webkit_signup_inline_validation(browser_https):
             expect(dialog).to_be_visible()
             assert page.locator('.toast').count()==0
             page.unroute('**/api/login')
+            assert page.evaluate('document.documentElement.scrollWidth<=innerWidth+2')
+        finally:
+            browser.close()
+
+@pytest.mark.browser
+def test_vnext_webkit_recovery(browser_https,vnext_application):
+    with sync_playwright() as play:
+        browser=play.webkit.launch(headless=True)
+        try:
+            context=browser.new_context(viewport={'width':390,'height':844},
+                                        is_mobile=True,ignore_https_errors=True)
+            page=context.new_page()
+            page.goto(browser_https+'/')
+            page.locator('header [data-open="login"]').click()
+            page.locator('#fld-email').fill('owner@example.test')
+            page.locator('.modal-foot [data-open="recover"]').click()
+            expect(page.locator('#fld-email')).to_have_value('owner@example.test')
+            page.locator('.modal-fixed-footer [type=submit]').click()
+            expect(page.locator('#fld-code')).to_be_visible()
+            page.locator('#fld-code').fill('999999')
+            page.locator('.modal-fixed-footer [type=submit]').click()
+            expect(page.locator('.auth-form-warning')).to_be_visible()
+            page.locator('#fld-code').fill('123456')
+            page.locator('.modal-fixed-footer [type=submit]').click()
+            expect(page.locator('#fld-password')).to_be_visible()
+            page.locator('[data-password-generate]').click()
+            password=page.locator('#fld-password').input_value()
+            page.locator('.modal-fixed-footer [type=submit]').click()
+            expect(page.locator('#fld-email')).to_have_value('owner@example.test')
+            page.locator('#fld-password').fill(password)
+            page.locator('.modal-fixed-footer [type=submit]').click()
+            expect(page.locator('.site-header .header-avatar')).to_be_visible(timeout=10000)
             assert page.evaluate('document.documentElement.scrollWidth<=innerWidth+2')
         finally:
             browser.close()

@@ -163,6 +163,7 @@ async function socialEditAvatarModal(){
 async function socialAccountModal(kind){
  if(isPreview){notice('Настройки входа доступны только на сайте',true);return;}
  const email=kind==='email';
+ if(authVnext&&!email){loginModal('recover',currentUser?.email||'');return;}
  modal({title:email?'Изменить почту':'Изменить пароль',subtitle:'Для защиты аккаунта сначала подтверди текущий пароль',
   content:field('Текущий пароль','current_password','Твой текущий пароль','password','',true,'autocomplete="current-password" minlength="8" maxlength="200"')+
    (email?field('Новая почта','email','new@example.com','email','',true,'autocomplete="email" maxlength="254"'):

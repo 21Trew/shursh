@@ -16,10 +16,10 @@ def auth_request(action, **payload):
     if not url.startswith('https://') or not key:
         raise RuntimeError('Supabase Auth is not configured')
     suffix = {'register': 'signup', 'login': 'token?grant_type=password',
-              'resend': 'resend'}[action]
+              'resend': 'resend', 'otp': 'otp', 'otp_verify': 'verify'}[action]
     # Confirmation links always use a fixed destination: never request Host.
     # Fail closed instead of silently falling back to Supabase's Site URL.
-    if action in ('register', 'resend'):
+    if action in ('register', 'resend', 'otp'):
         redirect = os.environ.get('SHURSH_AUTH_REDIRECT_URL', '').strip()
         if not redirect:
             raise RuntimeError('SHURSH_AUTH_REDIRECT_URL is not configured')
@@ -50,6 +50,20 @@ def auth_request(action, **payload):
             if isinstance(details, dict) and details.get('error_code') in (
                     'user_already_exists', 'email_exists'):
                 return {}
+        if action == 'otp_verify' and exc.code in (400, 401, 403, 422):
+            raise ApiError(400, 'Код неверный или истёк. Запроси новый при необходимости') from None
+        if action == 'otp':
+            # Never relay existence-sensitive provider error codes or raw data.
+            if exc.code in (400, 403, 422):
+                try:
+                    details=json.loads(exc.read(2048))
+                except (ValueError, TypeError):
+                    details={}
+                if isinstance(details,dict) and details.get('error_code') in (
+                        'user_already_exists','email_exists','user_not_found',
+                        'signup_disabled','email_not_confirmed','user_banned'):
+                    return {}
+            raise ApiError(503, 'Не удалось запросить код. Попробуй позже') from None
         if action == 'resend':
             # Never claim an email was sent when GoTrue rejected the request,
             # including invalid redirect URL configuration.
@@ -133,3 +147,45 @@ def update_verified_account(user_id,email,current_password,change):
     if not isinstance(updated,dict) or str(updated.get('id'))!=str(user_id):
         raise ApiError(503,'Не удалось подтвердить изменение в системе входа')
     return True
+
+def set_password_from_otp(access, user_id, email, password):
+    """Only a server-verified, single-use OTP challenge may call this helper."""
+    assert_staging_target(require_database=False)
+    base=os.environ.get('SUPABASE_URL','').rstrip('/')
+    key=os.environ.get('SUPABASE_PUBLISHABLE_KEY','')
+    if not base.startswith('https://') or not key:
+        raise RuntimeError('Supabase Auth is not configured')
+    headers={'apikey':key,'Authorization':f'Bearer {access}',
+             'Content-Type':'application/json'}
+    req=Request(f'{base}/auth/v1/user',method='PUT',
+                data=json.dumps({'password':password}).encode(),headers=headers)
+    try:
+        with urlopen(req,timeout=10) as response:
+            updated=json.load(response)
+    except HTTPError as error:
+        if error.code==429:
+            raise ApiError(429,'Слишком много попыток. Попробуй позже') from None
+        if error.code in (400,422):
+            try:
+                details=json.loads(error.read(2048))
+            except (ValueError,TypeError):
+                details={}
+            if isinstance(details,dict) and details.get('error_code')=='same_password':
+                raise ApiError(400,'Новый пароль должен отличаться от текущего') from None
+        raise ApiError(503,'Не удалось обновить пароль. Запроси новый код') from None
+    except (URLError,TimeoutError,ValueError):
+        raise ApiError(503,'Не удалось обновить пароль. Запроси новый код') from None
+    if (not isinstance(updated,dict) or str(updated.get('id'))!=str(user_id)
+            or str(updated.get('email','')).casefold()!=email.casefold()
+            or not updated.get('email_confirmed_at')):
+        raise ApiError(503,'Не удалось подтвердить изменение пароля')
+    # Revoke provider refresh sessions before granting a Shursh profile/session.
+    # Access JWTs may remain valid until expiry; never accept them via a generic
+    # session-exchange endpoint in vNext. Live provider behavior is a release gate.
+    req=Request(f'{base}/auth/v1/logout?scope=global',method='POST',headers=headers)
+    try:
+        with urlopen(req,timeout=10) as response:
+            if response.status not in (200,204):
+                raise ValueError('Unexpected logout response')
+    except (HTTPError,URLError,TimeoutError,ValueError):
+        raise ApiError(503,'Пароль мог измениться. Запроси новый код для безопасного входа') from None

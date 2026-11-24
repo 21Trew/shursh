@@ -6,6 +6,7 @@ let currentUser = null;
 let isDemo = false;
 let lastRenderToken = 0;
 let toastTimeout;
+const authVnext = document.documentElement.dataset.authVnext==='1';
 const isPreview = window.location.protocol === 'file:' || window.location.pathname.endsWith('/shursh-preview.html');
 const ico = (name, size=20) => `<svg class="icon" width="${size}" height="${size}" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">${({
   plus:'<path d="M12 5v14M5 12h14"/>', arrow:'<path d="M5 12h14m-6-6 6 6-6 6"/>',
@@ -1297,9 +1298,78 @@ function setupAuthFormValidation(form,register){
    invalid[0].focus({preventScroll:false});
    return;
   }
-  form.elements.email.value=form.elements.email.value.trim().toLowerCase();
-  if(register)form.elements.name.value=form.elements.name.value.trim();
+  if(form.elements.email)form.elements.email.value=form.elements.email.value.trim().toLowerCase();
+  if(register&&form.elements.name)form.elements.name.value=form.elements.name.value.trim();
  },true);
+}
+async function authSuccess(result,register){
+ currentUser=result.user;broadcastSessionChange();
+ if(pendingGameClaim){
+  const claim=pendingGameClaim;
+  try{await claimPersonalGame(claim);}
+  catch(error){notice('Ты вошёл, но игру пока не удалось привязать: '+error.message,true);nav('/p/'+claim,{force:true});}
+  return;
+ }
+ notice(register?'Аккаунт создан!':'С возвращением!');
+ const landing=currentPath();
+ nav((/^\/join\/([A-Za-z0-9_-]+|p\/[A-Za-z0-9_-]{43})$/.test(landing)||/^\/w\/[A-Za-z0-9_-]+$/.test(landing))?landing:'/',{force:true});
+}
+function otpStartModal(email='',recover=false){
+ modal({title:recover?'Восстановим доступ':'Давай знакомиться!',
+  subtitle:'Сначала подтверди свою почту',
+  content:field('Почта','email','you@example.com','email',email,true,'autocomplete="email" maxlength="200"')+authFormWarning(),
+  onError:showAuthFormWarning,submitLabel:'Получить код',
+  onSubmit:async form=>{
+   clearAuthFormWarning(form);
+   const value=form.elements.email.value.trim().toLowerCase();
+   await api('/api/auth/start',{method:'POST',body:{email:value}});
+   if(form.isConnected)otpCodeModal(value,recover);
+  },
+  footer:'Уже есть аккаунт? <button type="button" data-open="login" data-email="'+attr(email)+'">Войти с паролем</button>'
+ });
+ setupAuthFormValidation(modalRoot.querySelector('#modal-form'),false);
+}
+function otpCodeModal(email,recover){
+ modal({title:'Проверь почту 💌',subtitle:'Введи шесть цифр из письма на '+email,
+  content:field('Код из письма','code','000000','text','',true,'inputmode="numeric" autocomplete="one-time-code" pattern="[0-9]{6}" maxlength="6"')+
+   '<p class="auth-confirm-help">Если письмо не пришло, проверь «Спам». Новый код можно запросить через минуту</p>'+authFormWarning(),
+  onError:showAuthFormWarning,submitLabel:'Подтвердить почту',
+  onSubmit:async form=>{
+   clearAuthFormWarning(form);
+   const code=form.elements.code.value.trim();
+   const result=await api('/api/auth/verify',{method:'POST',body:{email,code}});
+   if(!form.isConnected)return;
+   if(result.next==='existing'&&!recover)otpExistingModal(email);
+   else otpPasswordModal(email,result.next==='setup');
+  },
+  footer:'<button type="button" data-open="'+(recover?'recover':'register')+'" data-email="'+attr(email)+'">Изменить почту / запросить новый код</button>'
+ });
+}
+function otpExistingModal(email){
+ modal({title:'С возвращением!',subtitle:'Почта подтверждена. У тебя уже есть аккаунт',
+  content:'<p>Все твои желания на месте</p>',
+  footer:'<button type="button" data-open="login" data-email="'+attr(email)+'">Войти с паролем</button> · <button type="button" data-otp-password>Не помню пароль</button>'});
+ modalRoot.querySelector('[data-otp-password]').addEventListener('click',()=>otpPasswordModal(email,false));
+}
+function otpPasswordModal(email,setup){
+ modal({title:setup?'Давай знакомиться!':'Придумаем новый пароль?',
+  subtitle:'Почта подтверждена',
+  content:(setup?field('Как тебя зовут?','name','Например, Саша','text','',true,'maxlength="40" autocomplete="name"'):'')+
+   passwordField(true)+field('Повтори пароль','confirm_password','Тот же пароль','password','',true,'autocomplete="new-password" minlength="15" maxlength="72"')+authFormWarning(),
+  onError:showAuthFormWarning,submitLabel:setup?'Создать аккаунт':'Сохранить пароль',
+  onSubmit:async form=>{
+   clearAuthFormWarning(form);
+   const payload=readForm(form);delete payload.confirm_password;
+   const result=await api('/api/auth/finish',{method:'POST',body:{...payload,email}});
+   if(result.login_required){
+    currentUser=null;clearOwnerDataCache();broadcastSessionChange();
+    notice('Пароль изменён! Войди с новым паролем');
+    if(form.isConnected)loginModal('login',email);
+   }else await authSuccess(result,true);
+  },
+  footer:'<button type="button" data-open="register" data-email="'+attr(email)+'">Запросить новый код</button>'
+ });
+ setupAuthFormValidation(modalRoot.querySelector('#modal-form'),true);
 }
 function loginModal(mode='login',email=''){
  const register=mode==='register';
@@ -1307,6 +1377,7 @@ function loginModal(mode='login',email=''){
  // is an explicit membership recovery action, even via the header.
  const pageToken=!currentUser&&currentPath().match(/^\/p\/([A-Za-z0-9_-]{43})$/)?.[1];
  if(pageToken&&!pendingGameClaim)savePendingGameClaim(pageToken);
+ if(authVnext&&(register||mode==='recover')){otpStartModal(email,mode==='recover');return;}
  modal({title:register?'Давай знакомиться!':'С возвращением!',
   subtitle:pendingGameClaim?'После входа сохраним эту игру в твоём аккаунте':register?'Создай аккаунт, чтобы хранить свои списки и организовывать игры':'Твои желания уже соскучились',
   content:(register?field('Как тебя зовут?','name','Например, Саша','text','',true,'maxlength="40" autocomplete="name"'):'')+
@@ -1320,21 +1391,11 @@ function loginModal(mode='login',email=''){
    delete payload.confirm_password;
    const result=await api(register?'/api/register':'/api/login',{method:'POST',body:payload});
    if(result.pending_confirmation){if(register)persistSignupClaim();if(form.isConnected)confirmationModal(payload.email);return;}
-   currentUser=result.user;broadcastSessionChange();
-    if(pendingGameClaim){
-     const claim=pendingGameClaim;
-     try{await claimPersonalGame(claim);}
-     catch(error){
-      notice('Ты вошёл, но игру пока не удалось привязать: '+error.message,true);
-      nav('/p/'+claim,{force:true});
-     }
-     return;
-    }
-    notice(register?'Аккаунт создан!':'С возвращением!');const landing=currentPath();nav((/^\/join\/([A-Za-z0-9_-]+|p\/[A-Za-z0-9_-]{43})$/.test(landing)||/^\/w\/[A-Za-z0-9_-]+$/.test(landing))?landing:'/',{force:true});
+   await authSuccess(result,register);
   },
   footer:(register?'Уже есть аккаунт?':'Нет аккаунта?')+
    ' <button type="button" data-open="'+(register?'login':'register')+'">'+(register?'Войти':'Зарегистрироваться')+'</button>'+
-   (!register?'<span> · </span><button type="button" data-open="resend">Не пришло подтверждение?</button>':'')+
+   (!register?(authVnext?'<span> · </span><button type="button" data-open="recover">Не помню пароль</button>':'<span> · </span><button type="button" data-open="resend">Не пришло подтверждение?</button>'):'')+
    (!register&&isDemo?'<p style="margin-top:12px"><button type="button" data-action="demo-login">Войти в демонстрационный аккаунт →</button></p>':'')
  });
  setupAuthFormValidation(modalRoot.querySelector('#modal-form'),register);
@@ -1687,7 +1748,7 @@ document.addEventListener('click',async ev=>{
   }catch(err){notice(err.message,true)}
   return;
  }
- const n=ev.target.closest('[data-nav]');if(n){ev.preventDefault();nav(n.dataset.nav);return;}const op=ev.target.closest('[data-open]');if(op){ev.preventDefault();const key=op.dataset.open;if(key==='login'||key==='register'||key==='resend'){const email=op.closest('.modal')?.querySelector('#fld-email')?.value||op.dataset.email||'';if(key==='resend')resendConfirmationModal(email);else loginModal(key,email);}if(key==='list')listModal();if(key==='wish')wishModal();if(key==='santa')santaModal();return;}const a=ev.target.closest('[data-action]');if(a){ev.preventDefault();await dispatch(a.dataset.action,a);}});
+ const n=ev.target.closest('[data-nav]');if(n){ev.preventDefault();nav(n.dataset.nav);return;}const op=ev.target.closest('[data-open]');if(op){ev.preventDefault();const key=op.dataset.open;if(key==='login'||key==='register'||key==='resend'||key==='recover'){const email=op.closest('.modal')?.querySelector('#fld-email')?.value||op.dataset.email||'';if(key==='resend'&&!authVnext)resendConfirmationModal(email);else loginModal(key==='resend'?'register':key,email);}if(key==='list')listModal();if(key==='wish')wishModal();if(key==='santa')santaModal();return;}const a=ev.target.closest('[data-action]');if(a){ev.preventDefault();await dispatch(a.dataset.action,a);}});
 window.addEventListener('popstate',()=>{rememberOwnerTab();if(restoreOwnerTab(currentPath()))lastRenderToken++;else render();});window.addEventListener('hashchange',()=>{if(isPreview)render();});
 if(!isPreview)(async()=>{
  if(confirmationToken&&!authReturnError){
