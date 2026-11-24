@@ -774,3 +774,7 @@ input[type="checkbox"]:not(.shursh-checkbox input):checked::after{content:"✓";
  font-weight:600;
 }
 #modal-form .auth-field-error[hidden]{display:none}
+
+/* Persistent Auth feedback within the scrollable modal, separate from field errors. */
+#modal-form .auth-form-warning{margin:0;padding:12px 14px;border-radius:var(--radius-control);background:#fff0eb;color:#8c3029;font-size:14px;line-height:1.45;overflow-wrap:anywhere}
+#modal-form .auth-form-warning[hidden]{display:none}
