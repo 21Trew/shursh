@@ -162,7 +162,7 @@ class CloudRequest(Handler):
         name = display.strip()[:40] if isinstance(display,str) and display.strip() else 'Друг'
         return (uid,name,provider['email'])
 
-    def prepare_auth(self, path):
+    def prepare_auth(self, path, *, before_upstream=None):
         self.throttled('auth', 15)
         # Release the completed rate-limit transaction before waiting on HTTPS
         # so slow Supabase Auth does not reserve a PostgreSQL connection.
@@ -178,6 +178,8 @@ class CloudRequest(Handler):
         db.close_request_connection()
         if action == 'register':
             password_policy.screen_new_password(password)
+        snapshot=before_upstream() if before_upstream is not None else None
+        db.close_request_connection()
         started_auth = time.perf_counter()
         try:
             result = auth.auth_request(action, **payload)
@@ -197,7 +199,8 @@ class CloudRequest(Handler):
         # Metadata is for display ONLY; authorization uses the provider's user ID.
         display = (provider.get('user_metadata') or {}).get('name')
         name = display.strip()[:40] if isinstance(display, str) and display.strip() else 'Друг'
-        return (uid, name, provider.get('email') or email)
+        prepared=(uid, name, provider.get('email') or email)
+        return (prepared,snapshot) if before_upstream is not None else prepared
 
     def finish_auth(self, con, prepared):
         uid,name,verified_email = prepared

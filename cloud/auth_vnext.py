@@ -12,6 +12,7 @@ import time
 from uuid import UUID
 
 from cryptography.hazmat.primitives.ciphers.aead import AESGCM
+from psycopg.conninfo import conninfo_to_dict
 
 from cloud import auth, db, password_policy
 from cloud.backend import valid_auth_email, valid_signup_name
@@ -30,6 +31,13 @@ def enabled():
             os.environ.get('VERCEL')=='1' and os.environ.get('SHURSH_ENV')!='staging'):
         raise RuntimeError('Auth vNext is restricted to isolated Staging')
     assert_staging_target()
+    if os.environ.get('SHURSH_ENV')!='staging':
+        # Never allow this experiment against a hosted DSN from a local shell.
+        cfg=conninfo_to_dict(os.environ.get('SHURSH_DATABASE_URL',''))
+        if (cfg.get('host') not in ('localhost','127.0.0.1')
+                or cfg.get('dbname')!='shursh_ci' or cfg.get('hostaddr')
+                or cfg.get('service') or cfg.get('options')):
+            raise RuntimeError('Auth vNext requires isolated Staging or disposable CI')
     return True
 
 
@@ -86,14 +94,23 @@ def ensure_idle(con,key):
     return generation
 
 
+def credential_fingerprint(con,uid):
+    # The narrowly granted private function returns a second hash of the
+    # provider's salted verifier, never the password or original verifier.
+    row=con.execute('SELECT shursh_auth_private.credential_fingerprint(?) AS stamp',(uid,)).fetchone()
+    return row['stamp'] if row else None
+
+
 def login(handler):
     email=valid_auth_email(handler.body().get('email'))
     key=address_key(email)
-    with db.transaction() as con:
-        generation=ensure_idle(con,key)
-    db.close_request_connection()
-    prepared=handler.prepare_auth('/api/login')
-    uid,_,_=prepared
+    def snapshot():
+        with db.transaction() as con:
+            return ensure_idle(con,key)
+    prepared,generation=handler.prepare_auth('/api/login',before_upstream=snapshot)
+    uid,_,verified_email=prepared
+    if verified_email.casefold()!=email:
+        raise ApiError(401,'Неверная почта или пароль')
     with db.transaction(write=True,rate_limit=True) as con:
         lock_address(con,key)
         if ensure_idle(con,key)!=generation:
@@ -102,6 +119,10 @@ def login(handler):
         # Shursh profile merely by logging in after someone verified its email.
         if not con.execute('SELECT id FROM profiles WHERE id=?',(uid,)).fetchone():
             raise ApiError(403,'Подтверди почту, чтобы завершить создание аккаунта')
+        approved=con.execute('SELECT stamp FROM shursh_auth_private.credential_stamp WHERE user_id=?',(uid,)).fetchone()
+        current=credential_fingerprint(con,uid)
+        if not approved or current is None or not hmac.compare_digest(approved['stamp'],current):
+            raise ApiError(403,'Для безопасного входа восстанови пароль по почте')
         return handler.finish_auth(con,prepared)
 
 
@@ -127,7 +148,8 @@ def start(handler):
           (key,digest,now,now+CHALLENGE_SECONDS))
         # Expired rows contain no usable capability; bounded cleanup per send.
         con.execute("""DELETE FROM shursh_auth_private.challenge WHERE email_hash IN
-          (SELECT email_hash FROM shursh_auth_private.challenge WHERE expires_at<? LIMIT 50)""",(now,))
+          (SELECT email_hash FROM shursh_auth_private.challenge WHERE expires_at<?
+           LIMIT 50 FOR UPDATE SKIP LOCKED)""",(now,))
     db.close_request_connection()
     try:
         # Same native OTP request for new/existing/recovery addresses. A new
@@ -247,16 +269,36 @@ def finish(handler):
                        WHERE challenge_hash=? AND state='consumed' AND expires_at>?""",
                        (encrypt_proof(access,digest),digest,int(time.time())))
         raise
+    # Establish that the provider accepts the exact newly screened candidate.
+    # Snapshot before proof; compare again before accepting the credential.
+    # A direct provider password mutation must not be blessed by the app.
+    with db.transaction() as con:
+        stamp=credential_fingerprint(con,uid)
+    db.close_request_connection()
+    if stamp is None:
+        raise ApiError(503,'Не удалось подтвердить новый пароль. Запроси новый код')
+    confirmed=auth.auth_request('login',email=email,password=password)
+    identity=confirmed.get('user') or {}
+    fresh=confirmed.get('access_token')
+    if (not isinstance(fresh,str) or not fresh or str(identity.get('id'))!=str(uid)
+            or str(identity.get('email','')).casefold()!=email or not identity.get('email_confirmed_at')):
+        raise ApiError(503,'Не удалось подтвердить новый пароль. Запроси новый код')
+    auth.revoke_provider_sessions(fresh)
     with db.transaction(write=True,rate_limit=True) as con:
         lock_address(con,key)
         current,busy=guard(con,key)
         if current!=generation or busy<=int(time.time()):
             raise ApiError(409,'Данные входа изменились. Запроси новый код')
+        live_stamp=credential_fingerprint(con,uid)
+        if live_stamp is None or not hmac.compare_digest(stamp,live_stamp):
+            raise ApiError(409,'Данные входа изменились. Запроси новый код')
+        con.execute("""INSERT INTO shursh_auth_private.credential_stamp(user_id,stamp) VALUES(?,?)
+            ON CONFLICT(user_id) DO UPDATE SET stamp=excluded.stamp""",(uid,stamp))
         con.execute('DELETE FROM app_sessions WHERE user_id=?',(uid,))
         con.execute('UPDATE shursh_auth_private.guard SET busy_until=0 WHERE email_hash=? AND generation=?',(key,generation))
         if not row['existing']:
-            result=handler.finish_auth(con,(uid,name,email))
-            return result
+            status,data,session_cookie=handler.finish_auth(con,(uid,name,email))
+            return status,data,[session_cookie,cookie('',0)]
         # OWASP recovery guidance: return to pre-filled normal login, not an
         # implicit session after password reset. Existing profile untouched.
-        return 200,{'login_required':True},handler.send_cookie('',0)
+        return 200,{'login_required':True},[handler.send_cookie('',0),cookie('',0)]

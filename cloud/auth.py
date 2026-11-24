@@ -179,9 +179,18 @@ def set_password_from_otp(access, user_id, email, password):
             or str(updated.get('email','')).casefold()!=email.casefold()
             or not updated.get('email_confirmed_at')):
         raise ApiError(503,'Не удалось подтвердить изменение пароля')
-    # Revoke provider refresh sessions before granting a Shursh profile/session.
-    # Access JWTs may remain valid until expiry; never accept them via a generic
-    # session-exchange endpoint in vNext. Live provider behavior is a release gate.
+
+
+def revoke_provider_sessions(access):
+    """Revoke refresh sessions using a fresh proof of the accepted password."""
+    assert_staging_target(require_database=False)
+    base=os.environ.get('SUPABASE_URL','').rstrip('/')
+    key=os.environ.get('SUPABASE_PUBLISHABLE_KEY','')
+    if not base.startswith('https://') or not key:
+        raise RuntimeError('Supabase Auth is not configured')
+    # Access JWTs may remain valid until expiry; vNext never exchanges them
+    # for app sessions, and credential stamps reject unapproved changes.
+    headers={'apikey':key,'Authorization':f'Bearer {access}'}
     req=Request(f'{base}/auth/v1/logout?scope=global',method='POST',headers=headers)
     try:
         with urlopen(req,timeout=10) as response:

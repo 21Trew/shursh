@@ -1216,6 +1216,7 @@ function resendConfirmationModal(email=''){
 }
 function authFieldIssue(input, form, register){
  const value=input.value, kind=input.name;
+ if(kind==='code'&&!/^[0-9]{6}$/.test(value.trim()))return 'Введи шесть цифр из письма';
  if(kind==='name' && register){
   const trimmed=value.trim();
   if(!trimmed)return 'Укажи имя';
@@ -1255,7 +1256,7 @@ function setupAuthFormValidation(form,register){
  if(!form)return;
  // Inline errors, not native validation popups which differ across mobile browsers.
  form.noValidate=true;
- const names=register?['name','email','password','confirm_password']:['email','password'];
+ const names=register?['name','email','password','confirm_password']:['email','password','code'];
  const inputs=names.map(name=>form.elements.namedItem(name)).filter(Boolean);
  const touched=new Set();
  const validate=input=>{
@@ -1342,7 +1343,25 @@ function otpCodeModal(email,recover){
    if(result.next==='existing'&&!recover)otpExistingModal(email);
    else otpPasswordModal(email,result.next==='setup');
   },
-  footer:'<button type="button" data-open="'+(recover?'recover':'register')+'" data-email="'+attr(email)+'">Изменить почту / запросить новый код</button>'
+  footer:'<button type="button" data-open="'+(recover?'recover':'register')+'" data-email="'+attr(email)+'">Изменить почту</button> · <button type="button" data-otp-resend disabled>Новый код через 60 с</button>'
+ });
+ const form=modalRoot.querySelector('#modal-form');
+ setupAuthFormValidation(form,false);
+ const resend=modalRoot.querySelector('[data-otp-resend]');
+ const until=Date.now()+60000;
+ const timer=setInterval(()=>{
+  if(!resend.isConnected){clearInterval(timer);return;}
+  const left=Math.max(0,Math.ceil((until-Date.now())/1000));
+  resend.textContent=left?'Новый код через '+left+' с':'Запросить новый код';
+  if(!left){resend.disabled=false;clearInterval(timer);}
+ },250);
+ resend.addEventListener('click',async()=>{
+  if(resend.disabled)return;
+  resend.disabled=true;clearAuthFormWarning(form);
+  try{
+   await api('/api/auth/start',{method:'POST',body:{email}});
+   if(form.isConnected)otpCodeModal(email,recover);
+  }catch(error){if(form.isConnected){showAuthFormWarning(error,form);resend.disabled=false;}}
  });
 }
 function otpExistingModal(email){
@@ -1362,7 +1381,10 @@ function otpPasswordModal(email,setup){
    const payload=readForm(form);delete payload.confirm_password;
    const result=await api('/api/auth/finish',{method:'POST',body:{...payload,email}});
    if(result.login_required){
+    const wasSignedIn=Boolean(currentUser);
     currentUser=null;clearOwnerDataCache();broadcastSessionChange();
+    // Do not leave the old user's private DOM visible after cookie revocation.
+    if(wasSignedIn){app.replaceChildren();renderStarted=false;nav('/',{force:true});}
     notice('Пароль изменён! Войди с новым паролем');
     if(form.isConnected)loginModal('login',email);
    }else await authSuccess(result,true);

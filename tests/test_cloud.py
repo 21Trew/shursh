@@ -24,7 +24,7 @@ def db_setup():
     cfg = conninfo_to_dict(dsn)
     assert cfg.get('host') in ('localhost', '127.0.0.1') and cfg.get('dbname') == 'shursh_ci', 'Refusing non-CI database'
     with psycopg.connect(dsn, autocommit=True) as con:
-        con.execute('CREATE ROLE anon NOLOGIN; CREATE ROLE authenticated NOLOGIN; CREATE ROLE service_role NOLOGIN BYPASSRLS; CREATE SCHEMA auth; CREATE TABLE auth.users(id uuid PRIMARY KEY)')
+        con.execute('CREATE ROLE anon NOLOGIN; CREATE ROLE authenticated NOLOGIN; CREATE ROLE service_role NOLOGIN BYPASSRLS; CREATE SCHEMA auth; CREATE TABLE auth.users(id uuid PRIMARY KEY, encrypted_password text, email_confirmed_at timestamptz)')
         for migration in sorted((ROOT/'supabase/migrations').glob('*.sql')):
             con.execute(migration.read_text())
         con.execute((ROOT/'supabase/auth_vnext_candidate.sql').read_text())
@@ -742,8 +742,8 @@ def test_browser_register_wishlist_reservation_and_isolation(browser_http):
             page.locator('[data-password-visibility]').click()
             assert page.locator('#fld-password').get_attribute('type')=='password'
             page.locator('[data-password-visibility]').click()
-            page.locator('#fld-password').fill('valid-password')
-            page.locator('#fld-confirm_password').fill('valid-password')
+            page.locator('#fld-password').fill('valid-new-password')
+            page.locator('#fld-confirm_password').fill('valid-new-password')
             page.locator('#modal-form button[type="submit"], .modal-fixed-footer button[type="submit"]').click()
             expect(page.get_by_role('dialog')).to_contain_text('Проверь почту')
             expect(page.locator('.auth-confirm-card')).to_be_visible()
@@ -2009,8 +2009,8 @@ def test_browser_guest_member_claim_after_email_confirmation_and_manual_link(bro
             assert guest.evaluate("localStorage.getItem('shursh-pending-game-claim')") is None
             guest.locator('#fld-name').fill('Гость')
             guest.locator('#fld-email').fill('owner@example.test')
-            guest.locator('#fld-password').fill('valid-password')
-            guest.locator('#fld-confirm_password').fill('valid-password')
+            guest.locator('#fld-password').fill('valid-new-password')
+            guest.locator('#fld-confirm_password').fill('valid-new-password')
             guest.locator('.modal-fixed-footer button[type="submit"]').click()
             expect(guest.get_by_role('dialog')).to_contain_text('Проверь почту')
             assert guest.evaluate("!!localStorage.getItem('shursh-pending-game-claim')")
@@ -2772,9 +2772,13 @@ def vnext_application(application,monkeypatch):
     monkeypatch.setenv('SHURSH_AUTH_VNEXT','1')
     fresh=uuid4()
     with psycopg.connect(os.environ['SHURSH_DATABASE_URL']) as con:
-        con.execute('INSERT INTO auth.users(id) VALUES(%s)',(fresh,))
+        con.execute("INSERT INTO auth.users(id,encrypted_password,email_confirmed_at) VALUES(%s,'synthetic-provisional-version',now())",(fresh,))
+        con.execute("UPDATE auth.users SET encrypted_password='synthetic-approved-version',email_confirmed_at=now() WHERE id=%s",(IDS['owner@example.test'],))
         con.execute('DELETE FROM shursh_auth_private.challenge')
         con.execute('DELETE FROM shursh_auth_private.guard')
+        con.execute('DELETE FROM shursh_auth_private.credential_stamp')
+        con.execute("""INSERT INTO shursh_auth_private.credential_stamp(user_id,stamp)
+            VALUES(%s,shursh_auth_private.credential_fingerprint(%s))""",(IDS['owner@example.test'],IDS['owner@example.test']))
         con.execute("INSERT INTO public.profiles(id,name) VALUES(%s,'Owner') ON CONFLICT(id) DO NOTHING",
                     (IDS['owner@example.test'],))
     passwords={'owner@example.test':'valid-password','new@example.test':'preexisting-attacker-password'}
@@ -2805,9 +2809,16 @@ def vnext_application(application,monkeypatch):
         if passwords[email]==password:
             raise ApiError(400,'Новый пароль должен отличаться от текущего')
         passwords[email]=password
+        # Emulate provider-side verifier rotation; never save a real password
+        # or an actual verifier in the fake auth.users table.
+        with psycopg.connect(os.environ['SHURSH_DATABASE_URL']) as con:
+            con.execute("UPDATE auth.users SET encrypted_password=%s,email_confirmed_at=now() WHERE id=%s",(uuid4().hex,uid))
+    def revoke(access):
+        assert access=='synthetic-otp-access'
         seen.append('global-logout')
     monkeypatch.setattr(auth,'auth_request',provider)
     monkeypatch.setattr(auth,'set_password_from_otp',mutate)
+    monkeypatch.setattr(auth,'revoke_provider_sessions',revoke)
     return application,seen,passwords
 
 
@@ -2897,3 +2908,106 @@ def test_vnext_chromium_otp_registration(browser_http,vnext_application):
             assert page.evaluate('document.documentElement.scrollWidth<=innerWidth+2')
         finally:
             browser.close()
+
+def test_vnext_direct_provider_password_mutation_cannot_mint_app_session(vnext_application):
+    app,seen,passwords=vnext_application
+    before=login(app)
+    # Simulate direct provider API accepting an out-of-band password update.
+    # The app is not told that this credential passed screening.
+    passwords['owner@example.test']='unscreened-provider-password'
+    with psycopg.connect(os.environ['SHURSH_DATABASE_URL']) as con:
+        con.execute("UPDATE auth.users SET encrypted_password='synthetic-unapproved-version' WHERE id=%s",(IDS['owner@example.test'],))
+    result=call(app.test_client(),'POST','/api/login',
+                {'email':'owner@example.test','password':'unscreened-provider-password'},403)
+    assert 'Set-Cookie' not in result.headers
+    recovery=app.test_client()
+    call(recovery,'POST','/api/auth/start',{'email':'owner@example.test'},202)
+    call(recovery,'POST','/api/auth/verify',{'email':'owner@example.test','code':'123456'})
+    call(recovery,'POST','/api/auth/finish',{'email':'owner@example.test','password':'reviewed-new-password'})
+    assert call(before,'GET','/api/me').json['user'] is None
+    call(recovery,'POST','/api/login',{'email':'owner@example.test','password':'reviewed-new-password'})
+
+
+def test_vnext_inflight_login_cannot_survive_password_reset(vnext_application,monkeypatch):
+    from cloud import auth
+    import threading
+    app,seen,passwords=vnext_application
+    recovery=app.test_client()
+    call(recovery,'POST','/api/auth/start',{'email':'owner@example.test'},202)
+    call(recovery,'POST','/api/auth/verify',{'email':'owner@example.test','code':'123456'})
+    original=auth.auth_request
+    entered=threading.Event()
+    release=threading.Event()
+    def pause_old_login(action,**payload):
+        result=original(action,**payload)
+        if action=='login' and payload.get('password')=='valid-password':
+            entered.set()
+            assert release.wait(10)
+        return result
+    monkeypatch.setattr(auth,'auth_request',pause_old_login)
+    with ThreadPoolExecutor(max_workers=1) as pool:
+        future=pool.submit(lambda: app.test_client().post('/api/login',base_url=BASE,
+                          json={'email':'owner@example.test','password':'valid-password'}))
+        try:
+            assert entered.wait(10)
+            call(recovery,'POST','/api/auth/finish',{'email':'owner@example.test','password':'unique-new-password'})
+        finally:
+            release.set()
+        res=future.result(timeout=10)
+    assert res.status_code==409 and 'Set-Cookie' not in res.headers
+
+
+def test_vnext_ambiguous_provider_failure_consumes_challenge(vnext_application,monkeypatch):
+    from cloud import auth
+    from server import ApiError
+    app,seen,passwords=vnext_application
+    previous=login(app)
+    recovery=app.test_client()
+    call(recovery,'POST','/api/auth/start',{'email':'owner@example.test'},202)
+    call(recovery,'POST','/api/auth/verify',{'email':'owner@example.test','code':'123456'})
+    def fail(*args):
+        raise ApiError(503,'Synthetic upstream timeout')
+    monkeypatch.setattr(auth,'set_password_from_otp',fail)
+    call(recovery,'POST','/api/auth/finish',{'email':'owner@example.test','password':'unique-new-password'},503)
+    assert call(previous,'GET','/api/me').json['user'] is None
+    call(recovery,'POST','/api/auth/finish',{'email':'owner@example.test','password':'unique-new-password'},400)
+    call(recovery,'POST','/api/login',{'email':'owner@example.test','password':'valid-password'},409)
+
+
+def test_vnext_same_password_rejected_then_new_password_accepted(vnext_application):
+    app,seen,passwords=vnext_application
+    # First give the simulated existing account a policy-compliant password.
+    passwords['owner@example.test']='existing-strong-password'
+    c=app.test_client()
+    call(c,'POST','/api/auth/start',{'email':'owner@example.test'},202)
+    call(c,'POST','/api/auth/verify',{'email':'owner@example.test','code':'123456'})
+    result=call(c,'POST','/api/auth/finish',{'email':'owner@example.test','password':'existing-strong-password'},400)
+    assert 'отличаться' in result.json['error']
+    call(c,'POST','/api/auth/finish',{'email':'owner@example.test','password':'replacement-strong-password'})
+
+
+def test_vnext_private_credential_function_permissions(vnext_application):
+    with psycopg.connect(os.environ['SHURSH_DATABASE_URL']) as con:
+        for role in ('anon','authenticated'):
+            assert not con.execute("SELECT has_function_privilege(%s,'shursh_auth_private.credential_fingerprint(uuid)','EXECUTE')",(role,)).fetchone()[0]
+            assert not con.execute("SELECT has_table_privilege(%s,'shursh_auth_private.credential_stamp','SELECT')",(role,)).fetchone()[0]
+        assert con.execute("SELECT has_function_privilege('shursh_backend','shursh_auth_private.credential_fingerprint(uuid)','EXECUTE')").fetchone()[0]
+        assert not con.execute("SELECT has_table_privilege('shursh_backend','auth.users','SELECT')").fetchone()[0]
+
+
+def test_vnext_expired_challenge_no_provider_call(vnext_application):
+    app,seen,_=vnext_application
+    c=app.test_client()
+    call(c,'POST','/api/auth/start',{'email':'new@example.test'},202)
+    with psycopg.connect(os.environ['SHURSH_DATABASE_URL']) as con:
+        con.execute('UPDATE shursh_auth_private.challenge SET expires_at=0')
+    call(c,'POST','/api/auth/verify',{'email':'new@example.test','code':'123456'},400)
+    assert 'otp_verify' not in seen
+
+
+def test_vnext_production_flag_fails_closed(monkeypatch):
+    from cloud import auth_vnext
+    monkeypatch.setenv('SHURSH_AUTH_VNEXT','1')
+    monkeypatch.setenv('VERCEL_ENV','production')
+    with pytest.raises(RuntimeError,match='isolated Staging'):
+        auth_vnext.enabled()

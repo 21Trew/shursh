@@ -22,22 +22,32 @@ enabling Staging. No existing account IDs or business tables are changed.
 - Both signup and magic-link templates must use {{ .Token }} on Staging;
   real email delivery, provider response/error mapping and OTP lifetime need
   dedicated verified mailbox. No hosted settings have been changed.
-- Verify actual legacy unconfirmed user/password race against real Auth:
-  app rejects login for missing profile until OTP password setup + global
-  logout, but provider JWTs may remain usable until expiry. Direct provider
-  password updates and HIBP bypass remain possible with public provider
-  credentials; do not claim global enforcement on Free. Evaluate provider
-  session checks and old token access before activation.
+- Verify actual legacy unconfirmed user/password race against real Auth.
+  The app refuses missing profiles until screened password setup, proof of
+  the newly accepted password, global logout and credential-stamp recording.
+  A private read-only fingerprint of the provider's salted password verifier
+  detects later out-of-band changes at app login. Existing profiles are
+  seeded at migration; no prior password history or raw verifier is stored.
+  The backend role has no direct read permission on auth.users. The function
+  grants only the fingerprint to the backend, with empty search_path.
+  Direct provider password updates remain possible at the provider; the
+  application refuses to mint a session from an unapproved credential.
+  This depends on the managed encrypted_password column: validate provider
+  upgrades/hash rehash behavior and real OTP/session semantics in Staging.
+  Existing app cookies remain valid after out-of-band provider changes until
+  expiry or an app recovery. Do not claim provider-wide enforcement.
 - Recovery uses the same create_user OTP path for all addresses, so a
   nonexistent address can leave a provisional provider identity; no Shursh
   profile or session until proof and new password.
 - Same response/status for valid new/existing start; timing and provider
   throttles not yet empirically equalized. Test real enumeration resistance.
 - Password change through old app endpoint disabled in vNext; use OTP.
-  Email changes and recovery across aliases, provider/network ambiguity,
-  concurrent in-flight requests, expiry cleanup and rate-limit DoS require
-  additional integration/security tests. A failed remote mutation consumes
-  proof and conservatively revokes app sessions; bounded busy fence remains.
+  Synthetic CI covers concurrent in-flight old-password login, ambiguous
+  mutation failure, expiry, same-password retry, unapproved provider
+  credential changes and private function grants. Real provider behavior,
+  cross-address email changes and rate-limit DoS remain live-test gates.
+  A failed remote mutation consumes proof and conservatively revokes app
+  sessions; bounded busy fence remains.
 - Global logout revokes refresh tokens, not necessarily outstanding access
   JWTs. Never accept those via old generic exchange in vNext.
 - No Production merge/deploy, paid plans or hosted DB/Auth edits.

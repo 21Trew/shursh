@@ -23,7 +23,8 @@ def response(data, status=200, cookie=None):
     result = Response(json.dumps(data, ensure_ascii=False, default=serialize),
                       status=status, mimetype='application/json')
     if cookie:
-        result.headers['Set-Cookie'] = cookie
+        for value in cookie if isinstance(cookie,list) else [cookie]:
+            result.headers.add('Set-Cookie',value)
     return result
 
 
