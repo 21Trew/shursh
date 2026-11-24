@@ -1490,10 +1490,13 @@ def test_auth_character_highlight_responsive(browser_https):
                         expect(email).to_have_attribute('aria-describedby','auth-error-email')
                         email.locator('..').screenshot(path=str(output/f'{engine.name}-{width}-email.png'))
                         hint=page.locator('#password-hint')
-                        for value,message in (('a','Добавь ещё 7 символов'),('abcd','Добавь ещё 4 символа'),('abcdefg','Добавь ещё 1 символ')):
-                            password.fill(value)
-                            expect(page.locator('#auth-error-password')).to_have_text(message)
+                        field=password.locator('../..')
+                        assert hint.evaluate("h=>h.hidden")
+                        for count,word in ((7,'символов'),(6,'символов'),(5,'символов'),(4,'символа'),(3,'символа'),(2,'символа'),(1,'символ')):
+                            password.fill('a'*(8-count))
+                            expect(page.locator('#auth-error-password')).to_have_text(f'Добавь ещё {count} {word}')
                             expect(hint).to_be_hidden()
+                        field.screenshot(path=str(output/f'{engine.name}-{width}-length.png'))
                         for value,message in (
                             ('qvR!NtMkY@pLW','Добавь хотя бы 1 цифру, чтобы усилить пароль'),
                             ('qvr!ntmk9@plw','Добавь хотя бы 1 заглавную латинскую букву, чтобы усилить пароль'),
@@ -1501,10 +1504,18 @@ def test_auth_character_highlight_responsive(browser_https):
                             ('qvR7NtMkY9pLW','Добавь хотя бы 1 спецсимвол, чтобы усилить пароль')):
                             password.fill(value)
                             expect(hint).to_have_text(message)
+                            expect(hint).to_be_visible()
                             expect(page.locator('#auth-error-password')).to_be_hidden()
+                            assert hint.evaluate("h=>h.scrollWidth<=h.clientWidth+1")
+                        password.fill('abcdefgh1')
+                        expect(hint).to_have_text('Добавь хотя бы 1 заглавную латинскую букву и 1 спецсимвол, чтобы усилить пароль')
+                        expect(hint).to_be_visible()
+                        expect(page.locator('[data-password-strength-label]')).to_have_text('Слабый')
+                        field.screenshot(path=str(output/f'{engine.name}-{width}-advice.png'))
                         password.fill('Vq!7tZ#9mK2pF@8rYw4N')
                         expect(page.locator('[data-password-strength-label]')).to_have_text('Надёжный')
                         expect(hint).to_be_hidden()
+                        field.screenshot(path=str(output/f'{engine.name}-{width}-strong.png'))
                         password.fill('abЁcd123')
                         expect(hint).to_be_hidden()
                         expect(password).to_have_attribute('type','password')
@@ -1524,6 +1535,10 @@ def test_auth_character_highlight_responsive(browser_https):
                         password.fill('abcd1234')
                         expect(page.locator('#auth-error-password')).to_be_hidden()
                         assert not password.evaluate(pixel_test)
+                        page.locator('[data-password-generate]').click()
+                        expect(hint).to_contain_text('Пароль создан и повторён')
+                        page.locator('#fld-confirm_password').fill('different-synthetic-value')
+                        expect(hint).to_be_hidden()
                         email.fill('user@example.com')
                         expect(page.locator('#auth-error-email')).to_be_hidden()
                         assert not email.evaluate(pixel_test)

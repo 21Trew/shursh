@@ -1582,6 +1582,14 @@ function setupAuthFormValidation(form,register){
      setPasswordHint(hint,passwordAdvice(input.value));
     }
    }
+   if(register&&input.name==='confirm_password'){
+    const hint=form.querySelector('#password-hint');
+    const primary=form.elements.new_password||form.elements.password;
+    if(hint?.dataset.generated==='true'&&primary&&input.value!==primary.value){
+     delete hint.dataset.generated;
+     setPasswordHint(hint,passwordAdvice(primary.value));
+    }
+   }
    if(newPassword)updatePasswordStrength(input);
    // Check the raw email from the first nonempty input, before blur or submit.
    // Auth fields use type=text + inputmode=email so the browser cannot

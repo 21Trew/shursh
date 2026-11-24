@@ -786,3 +786,7 @@ input[type="checkbox"]:not(.shursh-checkbox input):checked::after{content:"✓";
 
 /* In forced-colors mode retain native text/field errors instead of custom pixels. */
 @media (forced-colors:active){.auth-character-overlay{display:none}}
+
+/* Auth guidance is small text: meet WCAG AA contrast on the modal surface. */
+#modal-form .password-hint{color:#716963}
+#modal-form .password-hint[hidden]{display:none}
