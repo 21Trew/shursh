@@ -1535,7 +1535,7 @@ def test_auth_character_highlight_responsive(browser_https):
                         expect(panel).to_have_attribute('aria-label','Более надёжные варианты пароля')
                         assert panel.evaluate("p=>getComputedStyle(p).display==='flex' && getComputedStyle(p).flexWrap==='nowrap'")
                         assert options.count()>=1
-                        assert panel.evaluate("p=>{const r=p.getBoundingClientRect(),buttons=[...p.querySelectorAll('button:not([hidden])')];return buttons.every(b=>{const x=b.getBoundingClientRect();return Math.abs(x.top-buttons[0].getBoundingClientRect().top)<1&&x.height>=44&&x.right<=r.right+.5;});}")
+                        assert panel.evaluate("p=>{const r=p.getBoundingClientRect(),buttons=[...p.querySelectorAll('button:not([hidden])')];return buttons.every(b=>{const x=b.getBoundingClientRect();return Math.abs(x.top-buttons[0].getBoundingClientRect().top)<1&&x.height>=30&&x.height<=34&&x.right<=r.right+.5;});}")
                         expect(options.first).to_contain_text('Вариант')
                         toggle.click()
                         expect(password).to_have_attribute('type','text')
@@ -1726,6 +1726,82 @@ def test_auth_modal_shared_shell(browser_https):
                         page.wait_for_function("()=>matchMedia('(prefers-reduced-motion: reduce)').matches")
                         page.locator('.modal-foot [data-open="register"]').click()
                         assert page.evaluate("!document.querySelector('.modal').classList.contains('auth-height-motion')")
+                    finally:
+                        context.close()
+            finally:
+                browser.close()
+
+
+@pytest.mark.browser
+def test_auth_mobile_bottom_sheet_and_compact_controls(browser_https):
+    """Auth-only edge-to-edge geometry and compact controls, including short viewports."""
+    out=OUTPUT/"auth-mobile-sheet"
+    out.mkdir(parents=True,exist_ok=True)
+    with sync_playwright() as play:
+        for engine in (play.chromium,play.webkit):
+            browser=engine.launch(headless=True)
+            try:
+                for width,height in ((320,568),(375,667),(390,844),(760,844),(768,844),(1440,900)):
+                    context=browser.new_context(viewport={"width":width,"height":height},
+                        is_mobile=width<=760,has_touch=width<=760,
+                        device_scale_factor=2 if width<=760 else 1,
+                        ignore_https_errors=True,reduced_motion="reduce")
+                    try:
+                        page=context.new_page()
+                        page.goto(browser_https+'/',wait_until='domcontentloaded')
+                        page.locator('header [data-open="login"]').click()
+                        modal=page.locator('.modal[data-auth-screen]')
+                        for index,mode in enumerate(('login','register','login')):
+                            expect(modal).to_have_attribute('data-auth-screen',mode)
+                            geometry=modal.evaluate("""m=>{
+                              const r=m.getBoundingClientRect(),s=getComputedStyle(m);
+                              const footer=m.querySelector('.modal-fixed-footer');
+                              const f=footer.getBoundingClientRect();
+                              const buttons=[...footer.querySelectorAll('.form-actions .btn')].map(b=>{
+                                const r=b.getBoundingClientRect(),s=getComputedStyle(b);
+                                return {height:r.height,width:r.width,padding:parseFloat(s.paddingTop),bottom:r.bottom};
+                              });
+                              return {x:r.x,right:r.right,bottom:r.bottom,top:r.top,
+                                width:innerWidth,height:innerHeight,
+                                radius:parseFloat(s.borderBottomLeftRadius),footerBottom:f.bottom,buttons};
+                            }""")
+                            if width<=760:
+                                assert abs(geometry['x'])<=1 and abs(geometry['right']-width)<=1,geometry
+                                assert abs(geometry['bottom']-height)<=1 and geometry['top']>=-1,geometry
+                                assert geometry['radius']==0,geometry
+                                assert abs(geometry['footerBottom']-height)<=1,geometry
+                                for button in geometry['buttons']:
+                                    assert 44<=button['height']<=64 and button['width']>=44 and button['padding']<=10,geometry
+                                    assert button['bottom']<=height,geometry
+                            else:
+                                assert geometry['x']>0 and geometry['right']<width and geometry['radius']>0,geometry
+                            if mode=='register':
+                                password=page.locator('#fld-password')
+                                password.fill('7u#nQZ')
+                                expect(page.locator('#auth-error-password')).to_have_text('Добавь ещё 2 символа')
+                                panel=page.locator('[data-password-suggestions]')
+                                expect(panel).to_be_visible()
+                                page.locator('.password-field:has(#fld-password) [data-password-visibility]').click()
+                                assert panel.evaluate("""p=>{
+                                  const r=p.getBoundingClientRect(),b=[...p.querySelectorAll('button:not([hidden])')];
+                                  return b.length>0&&b.every(x=>{
+                                    const q=x.getBoundingClientRect();
+                                    return q.height>=30&&q.height<=34&&q.right<=r.right+.5&&Math.abs(q.top-b[0].getBoundingClientRect().top)<1;
+                                  })&&p.scrollWidth<=p.clientWidth+1;
+                                }""")
+                                page.locator('#fld-confirm_password').scroll_into_view_if_needed()
+                                assert page.locator('#fld-confirm_password').evaluate("""e=>{
+                                  const r=e.getBoundingClientRect(),s=e.closest('.modal-scroll-area').getBoundingClientRect();
+                                  return r.top>=s.top-1&&r.bottom<=s.bottom+1;
+                                }""")
+                                page.screenshot(path=str(out/f'{engine.name}-{width}-register.png'),animations='disabled')
+                            else:
+                                page.screenshot(path=str(out/f'{engine.name}-{width}-login.png'),animations='disabled')
+                            if index<2:
+                                next_mode='register' if mode=='login' else 'login'
+                                page.locator('.modal-foot [data-open="'+next_mode+'"]').click()
+                        page.locator('.modal-close').click()
+                        expect(modal).to_have_count(0)
                     finally:
                         context.close()
             finally:
