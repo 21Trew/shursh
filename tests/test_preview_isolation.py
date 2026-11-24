@@ -130,3 +130,30 @@ def test_unknown_postgres_options_are_rejected(staging_config, monkeypatch):
         '?sslmode=require&options=-c%20search_path%3Dpublic')
     with pytest.raises(RuntimeError, match='not Staging'):
         assert_staging_target()
+
+
+def test_preview_omitted_tls_is_enforced_in_actual_pool_dsn(staging_config,monkeypatch):
+    from psycopg.conninfo import conninfo_to_dict
+    monkeypatch.setenv('SHURSH_DATABASE_URL',
+        f'postgresql://shursh_preview_login.{STAGING_REF}:pass@'
+        'aws-0-eu-central-1.pooler.supabase.com:6543/postgres')
+    class StopBeforeNetwork(Exception):
+        pass
+    def inspect_pool(dsn):
+        cfg=conninfo_to_dict(dsn)
+        assert cfg['sslmode']=='require'
+        assert cfg['gssencmode']=='disable'
+        assert cfg['user']==f'shursh_preview_login.{STAGING_REF}'
+        raise StopBeforeNetwork()
+    monkeypatch.setattr(db,'_pool_for',inspect_pool)
+    with pytest.raises(StopBeforeNetwork):
+        with db.transaction(): pass
+
+
+@pytest.mark.parametrize('mode',['allow','prefer','disable'])
+def test_preview_explicit_insecure_tls_still_fails(staging_config,monkeypatch,mode):
+    monkeypatch.setenv('SHURSH_DATABASE_URL',
+        f'postgresql://shursh_preview_login.{STAGING_REF}:pass@'
+        'aws-0-eu-central-1.pooler.supabase.com:6543/postgres?sslmode='+mode)
+    with pytest.raises(RuntimeError,match='TLS'):
+        assert_staging_target()

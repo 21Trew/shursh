@@ -7,7 +7,7 @@ import os
 import re
 from urllib.parse import urlsplit
 
-from psycopg.conninfo import conninfo_to_dict
+from psycopg.conninfo import conninfo_to_dict, make_conninfo
 
 STAGING_REF = 'vwhzhbsaspbelkvnjjho'
 PRODUCTION_REF = 'rqnbhjhwmubsjwzontnu'
@@ -74,5 +74,10 @@ def assert_staging_target(*, require_database=True):
             not config.get('password') or
             config.get('hostaddr') or config.get('service') or config.get('options')):
         raise EnvironmentError('database_identity_mismatch', 'Preview PostgreSQL project is not Staging')
-    if config.get('sslmode') not in ('require', 'verify-ca', 'verify-full'):
+    # Supabase's copied transaction-pooler URI may omit sslmode. Supply a
+    # mandatory TLS default ourselves, never libpq's opportunistic default.
+    # An explicitly insecure mode is still a configuration error.
+    mode=config.get('sslmode','require')
+    if mode not in ('require', 'verify-ca', 'verify-full'):
         raise EnvironmentError('database_tls_required', 'Preview PostgreSQL TLS is mandatory')
+    return make_conninfo(dsn,sslmode=mode,gssencmode='disable')

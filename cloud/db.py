@@ -111,8 +111,8 @@ def close_request_connection():
 
 @contextmanager
 def transaction(write=False, *, rate_limit=False):
-    assert_staging_target()
-    dsn=os.environ.get('SHURSH_DATABASE_URL')
+    # Use the validated/normalized DSN for both pooled and ephemeral sockets.
+    dsn=assert_staging_target() or os.environ.get('SHURSH_DATABASE_URL')
     if not dsn:
         raise RuntimeError('SHURSH_DATABASE_URL is not configured')
     in_request=has_request_context()
