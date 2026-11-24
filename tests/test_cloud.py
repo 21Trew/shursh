@@ -232,6 +232,19 @@ def test_browser_auth_inline_validation_and_password_confirmation(browser_http):
                 page.locator('.modal-fixed-footer [type=submit]').click()
                 expect(page.get_by_role('dialog')).to_contain_text('Проверь почту',timeout=10000)
                 assert posts==['register']
+                dialog=page.get_by_role('dialog')
+                expect(dialog).to_contain_text('Если аккаунт уже есть')
+                expect(dialog).not_to_contain_text('Письмо с подтверждением отправлено!')
+                dialog.locator('[data-open="login"]').click()
+                expect(page.locator('#fld-email')).to_have_value('owner@example.test')
+                page.locator('#fld-password').fill('valid-password')
+                page.route('**/api/login', lambda route: route.fulfill(
+                    status=401, json={'error':'Неверная почта или пароль'}))
+                page.locator('.modal-fixed-footer [type=submit]').click()
+                expect(dialog.locator('.auth-form-warning')).to_have_text('Неверная почта или пароль')
+                expect(dialog).to_be_visible()
+                assert page.locator('.toast').count()==0
+                page.unroute('**/api/login')
                 assert page.evaluate('document.documentElement.scrollWidth<=innerWidth+2')
                 page.close()
             finally:
@@ -724,7 +737,7 @@ def test_browser_register_wishlist_reservation_and_isolation(browser_http):
             expect(page.get_by_role('dialog')).to_contain_text('Проверь почту')
             expect(page.locator('.auth-confirm-card')).to_be_visible()
             expect(page.locator('.auth-confirm-card .auth-confirm-symbol .icon')).to_be_visible()
-            expect(page.locator('.auth-confirm-card')).to_contain_text('Письмо с подтверждением отправлено!')
+            expect(page.locator('.auth-confirm-card')).to_contain_text('Запрос принят')
             expect(page.get_by_role('dialog')).to_contain_text('owner@example.test')
             assert page.locator('.toast').count()==0, 'No duplicate registration toast'
             assert page.locator('.auth-confirm-card').evaluate(
@@ -2701,3 +2714,39 @@ def test_browser_cookie_notice_has_intrinsic_width_on_mobile_and_desktop(browser
                     page.close()
         finally:
             browser.close()
+
+
+def test_duplicate_signup_provider_outcomes_are_indistinguishable(application,monkeypatch):
+    from cloud import auth
+    for provider in ({'id':'new-user','identities':[{'id':'new'}]},
+                     {'id':'fake-user','identities':[]}):
+        monkeypatch.setattr(auth,'auth_request',lambda action, **data: provider)
+        client=application.test_client()
+        res=call(client,'POST','/api/register',
+                 {'name':'Tester','email':'owner@example.test','password':'valid-password'},202)
+        assert res.json=={'user':None,'pending_confirmation':True}
+        assert 'Set-Cookie' not in res.headers
+
+
+def test_typed_duplicate_signup_transport_is_generic(monkeypatch):
+    import io
+    import json
+    from urllib.error import HTTPError
+    from cloud import auth
+    from server import ApiError
+    monkeypatch.delenv('SHURSH_ENV',raising=False)
+    monkeypatch.delenv('VERCEL_ENV',raising=False)
+    monkeypatch.delenv('VERCEL',raising=False)
+    monkeypatch.setenv('SUPABASE_URL','https://unit-project.supabase.co')
+    monkeypatch.setenv('SUPABASE_PUBLISHABLE_KEY','sb_publishable_for_test')
+    monkeypatch.setenv('SHURSH_AUTH_REDIRECT_URL','https://shursh.fun')
+    for code in ('user_already_exists','email_exists','weak_password'):
+        def reject(request,timeout):
+            raise HTTPError(request.full_url,422,'Rejected',{},io.BytesIO(json.dumps({'error_code':code}).encode()))
+        monkeypatch.setattr(auth,'urlopen',reject)
+        if code=='weak_password':
+            with pytest.raises(ApiError) as exc:
+                auth.auth_request('register',email='owner@example.test',password='valid-password')
+            assert exc.value.status==400
+        else:
+            assert auth.auth_request('register',email='owner@example.test',password='valid-password')=={}
