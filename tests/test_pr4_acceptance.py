@@ -1307,6 +1307,19 @@ def test_mobile_webkit_signup_inline_validation(browser_https):
             page.locator('.modal-fixed-footer [type=submit]').click()
             expect(page.get_by_role('dialog')).to_contain_text('Проверь почту',timeout=10000)
             assert requests==['signup']
+            dialog=page.get_by_role('dialog')
+            expect(dialog).to_contain_text('Если аккаунт уже есть')
+            expect(dialog).not_to_contain_text('Письмо с подтверждением отправлено!')
+            dialog.locator('[data-open="login"]').click()
+            expect(page.locator('#fld-email')).to_have_value('owner@example.test')
+            page.locator('#fld-password').fill('valid-password')
+            page.route('**/api/login', lambda route: route.fulfill(
+                status=429, json={'error':'Rate limit'}))
+            page.locator('.modal-fixed-footer [type=submit]').click()
+            expect(dialog.locator('.auth-form-warning')).to_have_text('Слишком много попыток. Попробуй позже')
+            expect(dialog).to_be_visible()
+            assert page.locator('.toast').count()==0
+            page.unroute('**/api/login')
             assert page.evaluate('document.documentElement.scrollWidth<=innerWidth+2')
         finally:
             browser.close()
