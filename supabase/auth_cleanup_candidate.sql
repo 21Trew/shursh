@@ -16,7 +16,9 @@ BEGIN
  IF NOT pg_try_advisory_xact_lock(58310974031082413) THEN RETURN 0; END IF;
  -- An unexpected custom trigger may have side effects we cannot audit.
  IF EXISTS(SELECT 1 FROM pg_catalog.pg_trigger
-   WHERE tgrelid='auth.users'::regclass AND NOT tgisinternal) THEN
+   WHERE tgrelid IN ('auth.users'::regclass,'auth.identities'::regclass,'auth.one_time_tokens'::regclass)
+     AND NOT tgisinternal) OR EXISTS(SELECT 1 FROM pg_catalog.pg_constraint
+   WHERE contype='f' AND confrelid IN ('auth.identities'::regclass,'auth.one_time_tokens'::regclass)) THEN
    RAISE EXCEPTION 'Review Auth triggers before signup cleanup';
  END IF;
  FOR candidate IN
@@ -34,6 +36,13 @@ BEGIN
      AND coalesce(u.raw_app_meta_data->'providers','["email"]'::jsonb)='["email"]'::jsonb
    ORDER BY u.created_at,u.id LIMIT 200 FOR UPDATE OF u SKIP LOCKED
  LOOP
+   -- Skip a candidate if provider-side identity/token maintenance holds a
+   -- conflicting lock. Never wait while owning the parent user lock.
+   BEGIN
+     PERFORM 1 FROM auth.identities WHERE user_id=candidate.id FOR UPDATE NOWAIT;
+     PERFORM 1 FROM auth.one_time_tokens WHERE user_id=candidate.id FOR UPDATE NOWAIT;
+   EXCEPTION WHEN lock_not_available THEN CONTINUE;
+   END;
    -- Native email identity and stale verification tokens are the ONLY
    -- cascade dependents that may be removed. All other FKs are inspected,
    -- including future tables, invitations, sessions, and SET NULL references.
@@ -43,7 +52,7 @@ BEGIN
           OR greatest(i.created_at,i.updated_at)>cutoff))
      OR (SELECT count(*) FROM auth.identities i WHERE i.user_id=candidate.id)>1
      OR EXISTS(SELECT 1 FROM auth.one_time_tokens t WHERE t.user_id=candidate.id
-          AND greatest(t.created_at,t.updated_at)>cutoff)
+          AND (greatest(t.created_at,t.updated_at)>cutoff OR t.expires_at>clock_timestamp()))
    THEN CONTINUE; END IF;
    linked:=false;
    FOR dependency IN

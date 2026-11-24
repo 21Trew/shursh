@@ -24,7 +24,7 @@ def db_setup():
     cfg = conninfo_to_dict(dsn)
     assert cfg.get('host') in ('localhost', '127.0.0.1') and cfg.get('dbname') == 'shursh_ci', 'Refusing non-CI database'
     with psycopg.connect(dsn, autocommit=True) as con:
-        con.execute('CREATE ROLE anon NOLOGIN; CREATE ROLE authenticated NOLOGIN; CREATE ROLE service_role NOLOGIN BYPASSRLS; CREATE SCHEMA auth; CREATE TABLE auth.users(id uuid PRIMARY KEY, encrypted_password text, email_confirmed_at timestamptz, confirmed_at timestamptz, created_at timestamptz, updated_at timestamptz, confirmation_sent_at timestamptz, recovery_sent_at timestamptz, email_change_sent_at timestamptz, reauthentication_sent_at timestamptz, phone_confirmed_at timestamptz, last_sign_in_at timestamptz, invited_at timestamptz, deleted_at timestamptz, banned_until timestamptz, is_anonymous boolean, is_sso_user boolean, is_super_admin boolean, phone text, email_change text, email text, raw_app_meta_data jsonb); CREATE TABLE auth.identities(user_id uuid REFERENCES auth.users(id) ON DELETE CASCADE, provider text, identity_data jsonb, created_at timestamptz, updated_at timestamptz); CREATE TABLE auth.one_time_tokens(user_id uuid REFERENCES auth.users(id) ON DELETE CASCADE, created_at timestamptz, updated_at timestamptz); CREATE TABLE auth.sessions(user_id uuid REFERENCES auth.users(id) ON DELETE CASCADE); CREATE TABLE auth.refresh_tokens(user_id text); CREATE SCHEMA storage; CREATE TABLE storage.objects(owner uuid, owner_id text)')
+        con.execute('CREATE ROLE anon NOLOGIN; CREATE ROLE authenticated NOLOGIN; CREATE ROLE service_role NOLOGIN BYPASSRLS; CREATE SCHEMA auth; CREATE TABLE auth.users(id uuid PRIMARY KEY, encrypted_password text, email_confirmed_at timestamptz, confirmed_at timestamptz, created_at timestamptz, updated_at timestamptz, confirmation_sent_at timestamptz, recovery_sent_at timestamptz, email_change_sent_at timestamptz, reauthentication_sent_at timestamptz, phone_confirmed_at timestamptz, last_sign_in_at timestamptz, invited_at timestamptz, deleted_at timestamptz, banned_until timestamptz, is_anonymous boolean, is_sso_user boolean, is_super_admin boolean, phone text, email_change text, email text, raw_app_meta_data jsonb); CREATE TABLE auth.identities(user_id uuid REFERENCES auth.users(id) ON DELETE CASCADE, provider text, identity_data jsonb, created_at timestamptz, updated_at timestamptz); CREATE TABLE auth.one_time_tokens(user_id uuid REFERENCES auth.users(id) ON DELETE CASCADE, created_at timestamptz, updated_at timestamptz, expires_at timestamptz); CREATE TABLE auth.sessions(user_id uuid REFERENCES auth.users(id) ON DELETE CASCADE); CREATE TABLE auth.refresh_tokens(user_id text); CREATE SCHEMA storage; CREATE TABLE storage.objects(owner uuid, owner_id text)')
         for migration in sorted((ROOT/'supabase/migrations').glob('*.sql')):
             con.execute(migration.read_text())
         con.execute((ROOT/'supabase/auth_cleanup_candidate.sql').read_text())
@@ -3098,7 +3098,7 @@ def test_vnext_explicit_registration_can_provision_identity(vnext_application):
 def test_cleanup_only_abandoned_unconfirmed_signups(application):
     from uuid import uuid4
     with psycopg.connect(os.environ['SHURSH_DATABASE_URL']) as con:
-        ids={k:uuid4() for k in ('stale','fresh','confirmed','recent','profile','session','storage','other_provider','refresh','invited','token','future_fk')}
+        ids={k:uuid4() for k in ('stale','fresh','confirmed','recent','profile','session','storage','other_provider','refresh','invited','token','future_token','future_fk')}
         for k,uid in ids.items():
             con.execute("""INSERT INTO auth.users(id,email,created_at,updated_at,confirmation_sent_at,raw_app_meta_data)
                 VALUES(%s,%s,now()-interval '26 hours',now()-interval '26 hours',now()-interval '26 hours',
@@ -3114,6 +3114,7 @@ def test_cleanup_only_abandoned_unconfirmed_signups(application):
         con.execute("INSERT INTO auth.identities(user_id,provider,created_at) VALUES(%s,'google',now()-interval '26 hours')",(ids['other_provider'],))
         con.execute("INSERT INTO auth.identities(user_id,provider,created_at,updated_at) VALUES(%s,'email',now()-interval '26 hours',now()-interval '26 hours')",(ids['stale'],))
         con.execute("INSERT INTO auth.one_time_tokens(user_id,created_at) VALUES(%s,now())",(ids['token'],))
+        con.execute("INSERT INTO auth.one_time_tokens(user_id,created_at,expires_at) VALUES(%s,now()-interval '26 hours',now()+interval '1 hour')",(ids['future_token'],))
         con.execute("CREATE TABLE public.cleanup_future_ref(uid uuid REFERENCES auth.users(id) ON DELETE CASCADE)")
         con.execute("INSERT INTO public.cleanup_future_ref VALUES(%s)",(ids['future_fk'],))
         assert con.execute("SELECT shursh_auth_private.cleanup_expired_signups(true)").fetchone()[0]==1
