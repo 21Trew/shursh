@@ -48,13 +48,7 @@ def application(monkeypatch):
     # Keep network screening deterministic in CI; the separate policy suite
     # checks the real parser, request and error behavior.
     from cloud import password_policy
-    original_screen=password_policy.screen_new_password
-    def screen_shape_only(password):
-        if (not isinstance(password,str) or len(password)<15 or
-                '\x00' in password or any(0xD800<=ord(ch)<=0xDFFF for ch in password)
-                or len(password.encode('utf-8'))>72):
-            original_screen(password)  # rejects before outbound transport
-    monkeypatch.setattr(password_policy,'screen_new_password',screen_shape_only)
+    monkeypatch.setattr(password_policy,'screen_new_password',password_policy.validate_new_password)
     # Remove only ephemeral test rate records; never touch hosted Supabase.
     with psycopg.connect(os.environ['SHURSH_DATABASE_URL']) as con:
         con.execute('DELETE FROM public.app_rate_limits')
@@ -231,13 +225,27 @@ def test_browser_auth_inline_validation_and_password_confirmation(browser_http):
                 page.locator('#fld-confirm_password').fill('different')
                 page.locator('.modal-fixed-footer [type=submit]').click()
                 expect(page.locator('#auth-error-email')).to_have_text('Проверь адрес электронной почты')
-                expect(page.locator('#auth-error-password')).to_have_text('Новый пароль должен содержать не менее 15 символов и не более 72 байт')
+                expect(page.locator('#auth-error-password')).to_have_text('Минимум 8 символов')
                 expect(page.locator('#auth-error-confirm_password')).to_have_text('Пароли не совпадают')
                 assert not posts
 
                 page.locator('#fld-email').fill('OWNER@EXAMPLE.TEST')
-                page.locator('#fld-password').fill('valid-new-password')
-                page.locator('#fld-confirm_password').fill('valid-new-password')
+                page.locator('#fld-password').fill('abcdefgh1')
+                expect(page.locator('#auth-error-password')).to_have_text('Добавь строчные и заглавные латинские буквы и цифры')
+                expect(page.locator('[data-password-strength-label]')).to_have_text('Надёжность: Слабый')
+                page.locator('#fld-password').fill('Ab3xyz90')
+                expect(page.locator('#auth-error-password')).to_be_hidden()
+                expect(page.locator('[data-password-strength-label]')).to_have_text('Надёжность: Средний')
+                page.locator('[data-password-generate]').click()
+                generated=page.locator('#fld-password').input_value()
+                assert generated==page.locator('#fld-confirm_password').input_value()
+                expect(page.locator('[data-password-strength-label]')).to_have_text('Надёжность: Надёжный')
+                page.locator('.password-field:has(#fld-confirm_password) [data-password-visibility]').click()
+                expect(page.locator('#fld-confirm_password')).to_have_attribute('type','text')
+                page.locator('.password-field:has(#fld-confirm_password) [data-password-visibility]').click()
+                expect(page.locator('#fld-confirm_password')).to_have_attribute('type','password')
+                page.locator('#fld-password').fill('Valid-new-password7')
+                page.locator('#fld-confirm_password').fill('Valid-new-password7')
                 expect(page.locator('#auth-error-email')).to_be_hidden()
                 page.locator('.modal-fixed-footer [type=submit]').click()
                 expect(page.get_by_role('dialog')).to_contain_text('Проверь почту',timeout=10000)
@@ -270,7 +278,7 @@ def test_auth_and_session(application):
     assert 'sql-exec;dur=0.0;desc="0 statement(s)"' in guest_dashboard.headers['Server-Timing']
     call(c,'GET','/api/lists',status=401)
     call(c,'POST','/api/login',{'email':'owner@example.test','password':'bad-password'},401)
-    r=call(c,'POST','/api/register',{'email':'owner@example.test','name':'Owner','password':'valid-new-password'},202)
+    r=call(c,'POST','/api/register',{'email':'owner@example.test','name':'Owner','password':'Valid-new-password7'},202)
     assert r.json['pending_confirmation'] and 'Set-Cookie' not in r.headers
     r=call(c,'POST','/api/login',{'email':'owner@example.test','password':'valid-password'})
     cookie=r.headers['Set-Cookie']; assert all(s in cookie for s in ('HttpOnly','Secure','SameSite=Lax'))
@@ -741,8 +749,8 @@ def test_browser_register_wishlist_reservation_and_isolation(browser_http):
             page.locator('[data-password-visibility]').click()
             assert page.locator('#fld-password').get_attribute('type')=='password'
             page.locator('[data-password-visibility]').click()
-            page.locator('#fld-password').fill('valid-new-password')
-            page.locator('#fld-confirm_password').fill('valid-new-password')
+            page.locator('#fld-password').fill('Valid-new-password7')
+            page.locator('#fld-confirm_password').fill('Valid-new-password7')
             page.locator('#modal-form button[type="submit"], .modal-fixed-footer button[type="submit"]').click()
             expect(page.get_by_role('dialog')).to_contain_text('Проверь почту')
             expect(page.locator('.auth-confirm-card')).to_be_visible()
@@ -1875,13 +1883,13 @@ def test_account_changes_require_password_and_exact_authenticated_identity(appli
         'email':'new@example.test'},200).json
     assert good['pending_confirmation'] is True
     other=call(client,'POST','/api/account/password',{
-        'current_password':'valid-password','new_password':'another-strong-password'},200).json
+        'current_password':'valid-password','new_password':'Another-strong-password7'},200).json
     assert other['pending_confirmation'] is False
-    assert seen==[{'email':'new@example.test'},{'password':'another-strong-password'}]
+    assert seen==[{'email':'new@example.test'},{'password':'Another-strong-password7'}]
     assert call(another_session,'GET','/api/me').json['user'] is None
     assert call(client,'GET','/api/me').json['user']['email']=='owner@example.test'
     call(application.test_client(),'POST','/api/account/password',
-         {'current_password':'valid-password','new_password':'another-strong-password'},401)
+         {'current_password':'valid-password','new_password':'Another-strong-password7'},401)
 
 
 @pytest.mark.browser
@@ -2008,8 +2016,8 @@ def test_browser_guest_member_claim_after_email_confirmation_and_manual_link(bro
             assert guest.evaluate("localStorage.getItem('shursh-pending-game-claim')") is None
             guest.locator('#fld-name').fill('Гость')
             guest.locator('#fld-email').fill('owner@example.test')
-            guest.locator('#fld-password').fill('valid-new-password')
-            guest.locator('#fld-confirm_password').fill('valid-new-password')
+            guest.locator('#fld-password').fill('Valid-new-password7')
+            guest.locator('#fld-confirm_password').fill('Valid-new-password7')
             guest.locator('.modal-fixed-footer button[type="submit"]').click()
             expect(guest.get_by_role('dialog')).to_contain_text('Проверь почту')
             assert guest.evaluate("!!localStorage.getItem('shursh-pending-game-claim')")
@@ -2736,7 +2744,7 @@ def test_duplicate_signup_provider_outcomes_are_indistinguishable(application,mo
         monkeypatch.setattr(auth,'auth_request',lambda action, **data: provider)
         client=application.test_client()
         res=call(client,'POST','/api/register',
-                 {'name':'Tester','email':'owner@example.test','password':'valid-new-password'},202)
+                 {'name':'Tester','email':'owner@example.test','password':'Valid-new-password7'},202)
         assert res.json=={'user':None,'pending_confirmation':True}
         assert 'Set-Cookie' not in res.headers
 
@@ -2838,7 +2846,7 @@ def test_vnext_email_proof_onboarding_and_legacy_bypass(vnext_application):
     assert call(b,'GET','/api/me').json['user'] is None
     call(b,'POST','/api/register',{'email':'new@example.test'},409)
     call(b,'POST','/api/auth/complete',{'access_token':'header.payload.signature'},409)
-    call(b,'POST','/api/auth/finish',{'email':'new@example.test','name':'Guest','password':'brand-new-password'},400)
+    call(b,'POST','/api/auth/finish',{'email':'new@example.test','name':'Guest','password':'Brand-new-password7'},400)
     call(a,'POST','/api/auth/verify',{'email':'new@example.test','code':'123456'},400)
     call(b,'POST','/api/auth/verify',{'email':'new@example.test','code':'999999'},400)
     assert call(b,'POST','/api/auth/verify',{'email':'new@example.test','code':'123456'}).json=={'next':'setup'}
@@ -2847,12 +2855,12 @@ def test_vnext_email_proof_onboarding_and_legacy_bypass(vnext_application):
     attacker=app.test_client()
     call(attacker,'POST','/api/login',{'email':'new@example.test','password':'preexisting-attacker-password'},403)
     call(b,'POST','/api/auth/verify',{'email':'new@example.test','code':'123456'},400)
-    result=call(b,'POST','/api/auth/finish',{'email':'new@example.test','name':'Guest','password':'brand-new-password'})
+    result=call(b,'POST','/api/auth/finish',{'email':'new@example.test','name':'Guest','password':'Brand-new-password7'})
     assert result.json['user']['name']=='Guest'
     assert 'synthetic-otp-access' not in result.get_data(as_text=True)
     assert call(b,'GET','/api/me').json['user']['name']=='Guest'
     assert seen.count('global-logout')==1
-    call(b,'POST','/api/auth/finish',{'email':'new@example.test','name':'Guest','password':'brand-new-password'},400)
+    call(b,'POST','/api/auth/finish',{'email':'new@example.test','name':'Guest','password':'Brand-new-password7'},400)
     call(attacker,'POST','/api/login',{'email':'new@example.test','password':'preexisting-attacker-password'},401)
 
 
@@ -2863,13 +2871,13 @@ def test_vnext_recovery_revokes_sessions_and_rejects_replay(vnext_application):
     call(recovery,'POST','/api/auth/start',{'email':'owner@example.test'},202)
     assert call(recovery,'POST','/api/auth/verify',{'email':'owner@example.test','code':'123456'}).json=={'next':'existing'}
     call(recovery,'POST','/api/auth/finish',{'email':'owner@example.test','password':'short'},400)
-    res=call(recovery,'POST','/api/auth/finish',{'email':'owner@example.test','password':'unique-new-password'})
+    res=call(recovery,'POST','/api/auth/finish',{'email':'owner@example.test','password':'Unique-new-password7'})
     assert res.json=={'login_required':True}
     for client in (old,other,recovery):
         assert call(client,'GET','/api/me').json['user'] is None
-    call(recovery,'POST','/api/auth/finish',{'email':'owner@example.test','password':'unique-new-password'},400)
+    call(recovery,'POST','/api/auth/finish',{'email':'owner@example.test','password':'Unique-new-password7'},400)
     call(recovery,'POST','/api/login',{'email':'owner@example.test','password':'valid-password'},401)
-    assert call(recovery,'POST','/api/login',{'email':'owner@example.test','password':'unique-new-password'}).json['user']['id']==str(IDS['owner@example.test'])
+    assert call(recovery,'POST','/api/login',{'email':'owner@example.test','password':'Unique-new-password7'}).json['user']['id']==str(IDS['owner@example.test'])
     assert seen.count('global-logout')==1
 
 
@@ -2927,9 +2935,9 @@ def test_vnext_direct_provider_password_mutation_cannot_mint_app_session(vnext_a
     recovery=app.test_client()
     call(recovery,'POST','/api/auth/start',{'email':'owner@example.test'},202)
     call(recovery,'POST','/api/auth/verify',{'email':'owner@example.test','code':'123456'})
-    call(recovery,'POST','/api/auth/finish',{'email':'owner@example.test','password':'reviewed-new-password'})
+    call(recovery,'POST','/api/auth/finish',{'email':'owner@example.test','password':'Reviewed-new-password7'})
     assert call(before,'GET','/api/me').json['user'] is None
-    call(recovery,'POST','/api/login',{'email':'owner@example.test','password':'reviewed-new-password'})
+    call(recovery,'POST','/api/login',{'email':'owner@example.test','password':'Reviewed-new-password7'})
 
 
 def test_vnext_inflight_login_cannot_survive_password_reset(vnext_application,monkeypatch):
@@ -2954,7 +2962,7 @@ def test_vnext_inflight_login_cannot_survive_password_reset(vnext_application,mo
                           json={'email':'owner@example.test','password':'valid-password'}))
         try:
             assert entered.wait(10)
-            call(recovery,'POST','/api/auth/finish',{'email':'owner@example.test','password':'unique-new-password'})
+            call(recovery,'POST','/api/auth/finish',{'email':'owner@example.test','password':'Unique-new-password7'})
         finally:
             release.set()
         res=future.result(timeout=10)
@@ -2972,22 +2980,22 @@ def test_vnext_ambiguous_provider_failure_consumes_challenge(vnext_application,m
     def fail(*args):
         raise ApiError(503,'Synthetic upstream timeout')
     monkeypatch.setattr(auth,'set_password_from_otp',fail)
-    call(recovery,'POST','/api/auth/finish',{'email':'owner@example.test','password':'unique-new-password'},503)
+    call(recovery,'POST','/api/auth/finish',{'email':'owner@example.test','password':'Unique-new-password7'},503)
     assert call(previous,'GET','/api/me').json['user'] is None
-    call(recovery,'POST','/api/auth/finish',{'email':'owner@example.test','password':'unique-new-password'},400)
+    call(recovery,'POST','/api/auth/finish',{'email':'owner@example.test','password':'Unique-new-password7'},400)
     call(recovery,'POST','/api/login',{'email':'owner@example.test','password':'valid-password'},409)
 
 
 def test_vnext_same_password_rejected_then_new_password_accepted(vnext_application):
     app,seen,passwords=vnext_application
     # First give the simulated existing account a policy-compliant password.
-    passwords['owner@example.test']='existing-strong-password'
+    passwords['owner@example.test']='Existing-strong-password7'
     c=app.test_client()
     call(c,'POST','/api/auth/start',{'email':'owner@example.test'},202)
     call(c,'POST','/api/auth/verify',{'email':'owner@example.test','code':'123456'})
-    result=call(c,'POST','/api/auth/finish',{'email':'owner@example.test','password':'existing-strong-password'},400)
+    result=call(c,'POST','/api/auth/finish',{'email':'owner@example.test','password':'Existing-strong-password7'},400)
     assert 'отличаться' in result.json['error']
-    call(c,'POST','/api/auth/finish',{'email':'owner@example.test','password':'replacement-strong-password'})
+    call(c,'POST','/api/auth/finish',{'email':'owner@example.test','password':'Replacement-strong-password7'})
 
 
 def test_vnext_private_credential_function_permissions(vnext_application):
@@ -3029,13 +3037,13 @@ def test_vnext_registration_validates_before_sending_email(vnext_application):
     app,seen,_=vnext_application
     c=app.test_client()
     data={'email':'new@example.test','name':'New friend','purpose':'register',
-          'password':'valid-new-password','confirm_password':'different-password'}
+          'password':'Valid-new-password7','confirm_password':'different-password'}
     call(c,'POST','/api/auth/start',data,400)
     assert 'otp' not in seen
     data['confirm_password']=data['password']='short'
     call(c,'POST','/api/auth/start',data,400)
     assert 'otp' not in seen
-    data['confirm_password']=data['password']='valid-new-password'
+    data['confirm_password']=data['password']='Valid-new-password7'
     call(c,'POST','/api/auth/start',data,202)
     assert seen.count('otp')==1
     assert call(c,'GET','/api/me').json['user'] is None
@@ -3085,7 +3093,7 @@ def test_vnext_explicit_registration_can_provision_identity(vnext_application):
     app,seen,_=vnext_application
     c=app.test_client()
     data={'email':'absent-register@example.test','purpose':'register','name':'New friend',
-          'password':'valid-new-password','confirm_password':'valid-new-password'}
+          'password':'Valid-new-password7','confirm_password':'Valid-new-password7'}
     with psycopg.connect(os.environ['SHURSH_DATABASE_URL']) as con:
         before=con.execute('SELECT count(*) FROM auth.users').fetchone()[0]
     call(c,'POST','/api/auth/start',data,202)

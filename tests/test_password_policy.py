@@ -7,7 +7,7 @@ from cloud import password_policy
 from server import ApiError
 
 # Synthetic values only. No live credentials or upstream traffic in CI.
-CANDIDATE = 'synthetic-candidate-for-unit-test'
+CANDIDATE = 'Synthetic-candidate-7-for-unit-test'
 HASH = hashlib.sha1(CANDIDATE.encode(), usedforsecurity=False).hexdigest().upper()
 
 
@@ -50,7 +50,7 @@ def test_pwned_password_range(monkeypatch, count):
         password_policy.screen_new_password(CANDIDATE)
 
 
-@pytest.mark.parametrize('value', ['short', 'x'*73, 'я'*37, 'x'*15+'\x00', 'x'*15+'\ud800'])
+@pytest.mark.parametrize('value', ['short', 'Ab1'+'x'*70, 'Ab1'+'я'*36, 'Ab1aaaaa'+'\x00', 'Ab1aaaaa'+'\ud800', 'abcdefgh1', 'ABCDEFGH1', 'Abcdefgh', 'Абвгдеёж1', 'Abc1xyz'])
 def test_invalid_new_password_no_network(monkeypatch, value):
     def no_network(*args, **kwargs):
         pytest.fail('Malformed password reached HIBP')
@@ -76,3 +76,7 @@ def test_unavailable_range_fails_closed(monkeypatch):
     with pytest.raises(ApiError) as caught:
         password_policy.screen_new_password(CANDIDATE)
     assert caught.value.status == 503
+
+@pytest.mark.parametrize('value',['Ab3xyz90','Ab3xy!90','A1'+'x'*70'])
+def test_approved_password_shape(value):
+    password_policy.validate_new_password(value)

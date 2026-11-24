@@ -7,14 +7,20 @@ from urllib.request import Request, urlopen
 from server import ApiError
 
 
+def validate_new_password(password):
+    if not isinstance(password,str) or len(password)<8:
+        raise ApiError(400,'Минимум 8 символов')
+    if any(ord(ch)<32 or ord(ch)==127 or 0xD800<=ord(ch)<=0xDFFF for ch in password):
+        raise ApiError(400,'В пароле есть недопустимые символы')
+    # bcrypt must never silently truncate the password.
+    if len(password.encode('utf-8'))>72:
+        raise ApiError(400,'Пароль слишком длинный. Сократи его')
+    if not (re.search(r'[a-z]',password) and re.search(r'[A-Z]',password) and re.search(r'[0-9]',password)):
+        raise ApiError(400,'Добавь строчные и заглавные латинские буквы и цифры')
+
+
 def screen_new_password(password):
-    # Supabase Auth uses bcrypt. Reject overlong UTF-8 rather than silently
-    # accepting two passwords with the same first 72 bytes.
-    if (not isinstance(password, str) or len(password) < 15
-            or '\x00' in password
-            or any(0xD800 <= ord(ch) <= 0xDFFF for ch in password)
-            or len(password.encode('utf-8')) > 72):
-        raise ApiError(400, 'Новый пароль должен содержать не менее 15 символов и не более 72 байт')
+    validate_new_password(password)
     digest = hashlib.sha1(password.encode('utf-8'), usedforsecurity=False).hexdigest().upper()
     prefix, suffix = digest[:5], digest[5:]
     # HIBP Pwned Passwords range API: no email, password or full hash leaves

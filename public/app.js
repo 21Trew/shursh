@@ -1154,12 +1154,41 @@ async function participantPage(key,marker=lastRenderToken){
  return santaGamePage(null,marker,key);
 }
 
-function passwordField(register){
+function passwordField(register,name='password',label='Пароль'){
  const generator=register?'<button type="button" class="password-generate" data-password-generate>'+ico('spark')+' Сгенерировать пароль</button>':'';
- return '<div class="field password-field"><div class="password-label-row"><label for="fld-password">'+(register?'Пароль (от 15 символов)':'Пароль')+'</label>'+generator+'</div>'+
-  '<div class="password-input-row"><input id="fld-password" name="password" type="password" placeholder="'+(register?'Не менее 15 символов':'Твой пароль')+'" required minlength="'+(register?15:8)+'" maxlength="200" autocomplete="'+(register?'new-password':'current-password')+'">'+
+ return '<div class="field password-field"><div class="password-label-row"><label for="fld-'+attr(name)+'">'+esc(label)+'</label>'+generator+'</div>'+
+  '<div class="password-input-row"><input id="fld-'+attr(name)+'" name="'+attr(name)+'" type="password" placeholder="'+(register?'От 8 символов':'Твой пароль')+'" required minlength="8" maxlength="200" autocomplete="'+(register?'new-password':'current-password')+'"'+(register?' aria-describedby="password-hint"':'')+'>'+
   '<button type="button" class="password-visibility" data-password-visibility aria-label="Показать пароль" aria-pressed="false">'+ico('eye')+'</button></div>'+
-  (register?'<p class="password-hint" id="password-hint">Используй уникальный пароль и сохрани его в менеджере паролей</p>':'')+'</div>';
+  (register?'<div class="password-strength" data-password-strength data-level="0" hidden><div class="password-strength-bars" aria-hidden="true"><i></i><i></i><i></i><i></i></div><p data-password-strength-label role="status" aria-live="polite"></p></div><p class="password-hint" id="password-hint">От 8 символов, A-Z, a-z и 0-9. Спецсимволы желательны</p>':'')+'</div>';
+}
+function confirmPasswordField(){
+ return '<div class="field password-field"><label for="fld-confirm_password">Повтори пароль</label>'+
+  '<div class="password-input-row"><input id="fld-confirm_password" name="confirm_password" type="password" placeholder="Тот же пароль" required minlength="8" maxlength="200" autocomplete="new-password">'+
+  '<button type="button" class="password-visibility" data-password-visibility aria-label="Показать повтор пароля" aria-pressed="false">'+ico('eye')+'</button></div></div>';
+}
+function newPasswordIssue(value){
+ if(!value)return 'Введи пароль';
+ if(Array.from(value).length<8)return 'Минимум 8 символов';
+ if(/[\u0000-\u001f\u007f]/.test(value)||Array.from(value).some(c=>c.length===1&&/[\ud800-\udfff]/.test(c)))return 'В пароле есть недопустимые символы';
+ if(new TextEncoder().encode(value).length>72)return 'Пароль слишком длинный. Сократи его';
+ if(!/[a-z]/.test(value)||!/[A-Z]/.test(value)||!/[0-9]/.test(value))return 'Добавь строчные и заглавные латинские буквы и цифры';
+ return '';
+}
+function updatePasswordStrength(input){
+ const indicator=input.closest('.password-field')?.querySelector('[data-password-strength]');
+ if(!indicator)return;
+ const value=input.value;
+ if(!value){indicator.hidden=true;indicator.dataset.level='0';return;}
+ const n=Array.from(value).length,special=/[^A-Za-z0-9\s]/.test(value);
+ // Heuristic feedback, not a guarantee of entropy or breach screening.
+ const common=/(?:password|qwerty|12345|abcdef|letmein|admin|пароль)/i.test(value)||/(.)\1{3,}|^(.{1,5})\2+$/.test(value)||new Set(value.toLowerCase()).size<5;
+ let level=1;
+ if(!newPasswordIssue(value)&&!common)level=n>=16?4:n>=12?(special?4:3):special?3:2;
+ const label=['','Слабый','Средний','Хороший','Надёжный'][level];
+ indicator.hidden=false;indicator.dataset.level=String(level);
+ const node=indicator.querySelector('[data-password-strength-label]');
+ const message='Надёжность: '+label;
+ if(node.textContent!==message)node.textContent=message;
 }
 function securePassword(){
  if(!window.crypto || !crypto.getRandomValues)throw new Error('Для генерации пароля нужно защищённое HTTPS-соединение');
@@ -1236,19 +1265,17 @@ function authFieldIssue(input, form, register){
     return 'Проверь адрес электронной почты';
   }
  }
- if(kind==='password'){
+ if(kind==='password'||kind==='new_password'){
   if(!value)return 'Введи пароль';
   const len=Array.from(value).length;
-  if(register&&(len<15||new TextEncoder().encode(value).length>72||value.includes('\u0000'))){
-   return 'Новый пароль должен содержать не менее 15 символов и не более 72 байт';
-  }
+  if(register)return newPasswordIssue(value);
   if(!register&&(len<8||len>200||value.includes('\u0000'))){
    return 'Пароль должен содержать от 8 до 200 символов';
   }
  }
  if(kind==='confirm_password' && register){
   if(!value)return 'Повтори пароль';
-  if(value!==form.elements.password.value)return 'Пароли не совпадают';
+  if(value!==(form.elements.new_password||form.elements.password)?.value)return 'Пароли не совпадают';
  }
  return '';
 }
@@ -1256,7 +1283,7 @@ function setupAuthFormValidation(form,register){
  if(!form)return;
  // Inline errors, not native validation popups which differ across mobile browsers.
  form.noValidate=true;
- const names=register?['name','email','password','confirm_password']:['email','password','code'];
+ const names=register?['name','email','password','new_password','confirm_password']:['email','password','code'];
  const inputs=names.map(name=>form.elements.namedItem(name)).filter(Boolean);
  const touched=new Set();
  const validate=input=>{
@@ -1271,7 +1298,7 @@ function setupAuthFormValidation(form,register){
   if(node){node.textContent=message;node.hidden=!message;}
   if(message)input.setAttribute('aria-invalid','true');
   else input.removeAttribute('aria-invalid');
-  const hint=input.name==='password'&&register?'password-hint':'';
+  const hint=['password','new_password'].includes(input.name)&&register?'password-hint':'';
   const ids=[hint,message?id:''].filter(Boolean).join(' ');
   if(ids)input.setAttribute('aria-describedby',ids);
   else input.removeAttribute('aria-describedby');
@@ -1286,8 +1313,9 @@ function setupAuthFormValidation(form,register){
    touched.add(input.name);validate(input);
   });
   input.addEventListener('input',()=>{
+   if(register&&['password','new_password'].includes(input.name))updatePasswordStrength(input);
    if(touched.has(input.name))validate(input);
-   if(register&&input.name==='password'&&touched.has('confirm_password')){
+   if(register&&['password','new_password'].includes(input.name)&&touched.has('confirm_password')){
     validate(form.elements.confirm_password);
    }
   });
@@ -1390,7 +1418,7 @@ function otpPasswordModal(email,setup){
  modal({title:setup?'Давай знакомиться!':'Придумаем новый пароль?',
   subtitle:'Почта подтверждена',
   content:(setup?field('Как тебя зовут?','name','Например, Саша','text','',true,'maxlength="40" autocomplete="name"'):'')+
-   passwordField(true)+field('Повтори пароль','confirm_password','Тот же пароль','password','',true,'autocomplete="new-password" minlength="15" maxlength="72"')+authFormWarning(),
+   passwordField(true)+confirmPasswordField()+authFormWarning(),
   onError:showAuthFormWarning,submitLabel:setup?'Создать аккаунт':'Сохранить пароль',
   onSubmit:async form=>{
    clearAuthFormWarning(form);
@@ -1420,7 +1448,7 @@ function loginModal(mode='login',email=''){
   subtitle:pendingGameClaim?'После входа сохраним эту игру в твоём аккаунте':register?'Создай аккаунт, чтобы хранить свои списки и организовывать игры':'Твои желания уже соскучились',
   content:(register?field('Как тебя зовут?','name','Например, Саша','text','',true,'maxlength="40" autocomplete="name"'):'')+
    field('Почта','email','you@example.com','email',email,true,'autocomplete="email" maxlength="200"')+passwordField(register)+
-   (register?field('Повтори пароль','confirm_password','Тот же пароль','password','',true,'autocomplete="new-password" minlength="8" maxlength="200"'):'')+authFormWarning(),
+   (register?confirmPasswordField():'')+authFormWarning(),
   onError:showAuthFormWarning,
   submitLabel:register?'Создать аккаунт':'Войти',
   onSubmit:async form=>{
@@ -1767,11 +1795,11 @@ document.addEventListener('click',async ev=>{
  const reveal=ev.target.closest('[data-password-visibility]');
  if(reveal){
   ev.preventDefault();
-  const input=reveal.closest('.password-field')?.querySelector('input[name="password"]');
+  const input=reveal.closest('.password-field')?.querySelector('.password-input-row input');
   if(!input)return;
   const visible=input.type==='password';input.type=visible?'text':'password';
   reveal.setAttribute('aria-pressed',String(visible));
-  reveal.setAttribute('aria-label',visible?'Скрыть пароль':'Показать пароль');
+  reveal.setAttribute('aria-label',(visible?'Скрыть':'Показать')+(input.name==='confirm_password'?' повтор пароля':' пароль'));
   reveal.innerHTML=ico(visible?'eye-off':'eye');
   input.focus({preventScroll:true});return;
  }
@@ -1779,17 +1807,20 @@ document.addEventListener('click',async ev=>{
  if(generator){
   ev.preventDefault();
   try{
-   const field=generator.closest('.password-field'),input=field?.querySelector('input[name="password"]');
+   const field=generator.closest('.password-field'),input=field?.querySelector('.password-input-row input');
    if(!input)return;
    input.value=securePassword();input.type='text';
    const confirmation=field.closest('form')?.elements.namedItem('confirm_password');
-   if(confirmation)confirmation.value=input.value;
+   if(confirmation){confirmation.value=input.value;confirmation.type='password';
+    const ct=confirmation.closest('.password-field')?.querySelector('[data-password-visibility]');
+    if(ct){ct.setAttribute('aria-pressed','false');ct.setAttribute('aria-label','Показать повтор пароля');ct.innerHTML=ico('eye');}
+   }
    input.dispatchEvent(new Event('input',{bubbles:true}));
    confirmation?.dispatchEvent(new Event('input',{bubbles:true}));
    const toggle=field.querySelector('[data-password-visibility]');
    toggle.setAttribute('aria-pressed','true');toggle.setAttribute('aria-label','Скрыть пароль');toggle.innerHTML=ico('eye-off');
    const hint=field.querySelector('#password-hint');
-   if(hint)hint.textContent='Новый пароль создан. Сохрани его в менеджере паролей перед регистрацией';
+   if(hint)hint.textContent='Пароль создан и повторён. Сохрани его в менеджере паролей';
    input.focus({preventScroll:true});
   }catch(err){notice(err.message,true)}
   return;

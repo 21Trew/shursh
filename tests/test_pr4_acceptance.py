@@ -1304,6 +1304,11 @@ def test_mobile_webkit_signup_inline_validation(browser_https):
             page.locator('[data-password-generate]').click()
             password=page.locator('#fld-password').input_value()
             assert password and page.locator('#fld-confirm_password').input_value()==password
+            expect(page.locator('[data-password-strength-label]')).to_have_text('Надёжность: Надёжный')
+            page.locator('.password-field:has(#fld-confirm_password) [data-password-visibility]').click()
+            expect(page.locator('#fld-confirm_password')).to_have_attribute('type','text')
+            page.locator('.password-field:has(#fld-confirm_password) [data-password-visibility]').click()
+            expect(page.locator('#fld-confirm_password')).to_have_attribute('type','password')
             page.locator('.modal-fixed-footer [type=submit]').click()
             expect(page.get_by_role('dialog')).to_contain_text('Проверь почту',timeout=10000)
             assert requests==['signup']
