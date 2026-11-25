@@ -1968,7 +1968,7 @@ def test_navigation_filter_markers_focus_and_noop_mutations(browser_https,applic
              'occasion':category,'visibility':'private'},201)
     eid=call(owner,'POST','/api/santas',{'title':'Navigation audit '+suffix},201).json['id']
     widths=(320,375,390,430,760,761,768,1024,1440)
-    groups=('.wishlist-view-tabs','.wishlist-filters','.santa-state-tabs','.notification-tabs')
+    results=[]
     out=OUTPUT/'navigation-selection'
     out.mkdir(parents=True,exist_ok=True)
     visible="""({selector,attribute})=>{
@@ -1995,11 +1995,14 @@ def test_navigation_filter_markers_focus_and_noop_mutations(browser_https,applic
                 for touch in (False,True):
                     ctx=browser.new_context(viewport={'width':390,'height':844},
                         is_mobile=touch,has_touch=touch,ignore_https_errors=True,
-                        reduced_motion='reduce')
+                        reduced_motion='no-preference')
                     try:
                         page=ctx.new_page()
                         page.goto(browser_https+'/')
                         browser_login(page)
+                        page.wait_for_function("() => typeof ownerWarmupReady !== 'undefined' && ownerWarmupReady && !socialUnreadBusy",timeout=15000)
+                        traffic=[]
+                        page.on('request',lambda req: traffic.append((req.method,urlsplit(req.url).path)) if req.url.startswith(browser_https+'/api/') else None)
                         def assert_group(selector,attribute):
                             page.wait_for_function(visible,arg={'selector':selector,'attribute':attribute})
                         def exercise(selector,attribute,indices=None):
@@ -2014,10 +2017,14 @@ def test_navigation_filter_markers_focus_and_noop_mutations(browser_https,applic
                                 if touch:b.tap()
                                 else:b.click()
                                 expect(b).to_have_attribute(attribute,'true')
+                                assert buttons.evaluate_all("""(bs,attr)=>bs.filter(e=>e.getAttribute(attr)!=='true').every(e=>getComputedStyle(e,'::before').content==='none')""",attribute), (engine,touch,selector,i)
                                 if selector=='.wishlist-view-tabs button':
                                     expect(page.locator('#wishlist-view-content')).not_to_contain_text('Загружаем вишлисты друзей…')
                                 assert_group(selector,attribute)
+                                before=len(traffic)
                                 assert b.evaluate(noop)==0, (engine,touch,selector,i)
+                                page.evaluate('() => new Promise(requestAnimationFrame)')
+                                assert not [r for r in traffic[before:] if r[1] != '/api/notifications/unread-count'], (engine,touch,selector,i,traffic[before:])
                             if attribute=='aria-selected':
                                 selected=page.locator(selector+'[aria-selected="true"]')
                                 assert selected.get_attribute('tabindex')=='0'
@@ -2032,6 +2039,15 @@ def test_navigation_filter_markers_focus_and_noop_mutations(browser_https,applic
                                 assert buttons.last.evaluate("""e=>getComputedStyle(e).outlineStyle!=='none'""")
                                 buttons.last.press('ArrowRight')
                                 expect(buttons.first).to_have_attribute('aria-selected','true')
+                                buttons.first.press('ArrowLeft')
+                                expect(buttons.last).to_be_focused()
+                                expect(buttons.last).to_have_attribute('aria-selected','true')
+                                buttons.last.press('Tab')
+                                assert not buttons.evaluate_all('bs=>bs.includes(document.activeElement)')
+                                page.keyboard.press('Shift+Tab')
+                                expect(buttons.last).to_be_focused()
+                                buttons.last.press('Home')
+                                expect(buttons.first).to_be_focused()
                                 assert_group(selector,attribute)
                         # Warm navigation must retain the existing header and
                         # previously rendered owner views. No new page request.
@@ -2062,17 +2078,21 @@ def test_navigation_filter_markers_focus_and_noop_mutations(browser_https,applic
                             assert page.evaluate("window.__auditCards.every((node,i)=>node===document.querySelectorAll('[data-occasion]')[i])")
                             assert page.locator('[data-occasion][hidden]').count()==0
                             assert page.evaluate("document.documentElement.scrollWidth<=innerWidth+2")
-                            if width in (375,1440):
-                                page.locator('.wishlist-filters').screenshot(path=str(out/f'{engine}-{touch}-{width}-filters.png'),animations='disabled')
+                            page.locator('.wishlist-filters').screenshot(path=str(out/f'{engine}-{touch}-{width}-filters.png'),animations='disabled')
                             exercise('.wishlist-view-tabs button','aria-selected',[1,0])
                             expect(page.locator('#wishlist-view-content')).to_have_attribute('aria-labelledby','wishlist-tab-mine')
+                            before=len(traffic)
                             page.evaluate("nav('/santas')")
                             expect(page.locator('.santa-state-tabs')).to_be_visible()
+                            assert not [r for r in traffic[before:] if r[1] == '/api/santas'], (engine,touch,width,traffic[before:])
                             exercise('.santa-state-tabs button','aria-selected',[1,0])
                             expect(page.locator('#santa-state-panel')).to_have_attribute('aria-labelledby','santa-tab-current')
                             expect(page.locator('[data-santa-card-state="finished"]:not([hidden])')).to_have_count(0)
+                            before=len(traffic)
                             page.evaluate("nav('/lists')")
                             expect(page.locator('.wishlist-view-tabs')).to_be_visible()
+                            assert not [r for r in traffic[before:] if r[1] == '/api/lists'], (engine,touch,width,traffic[before:])
+                            results.append({'engine':engine,'touch':touch,'width':width,'navigation':'passed'})
                         page.evaluate("id=>nav('/santa/'+id)",eid)
                         expect(page.locator('#game-chat')).to_be_visible()
                         expect(page.locator('header .nav a[data-nav="/santas"]')).to_have_attribute('aria-current','location')
@@ -2087,6 +2107,8 @@ def test_navigation_filter_markers_focus_and_noop_mutations(browser_https,applic
                             page.set_viewport_size({'width':width,'height':844})
                             exercise('.notification-tabs button','aria-selected',[1,2,3,0])
                             assert page.locator('.notification-tabs').evaluate('e=>e.getBoundingClientRect().width<=innerWidth+1')
+                            page.locator('.notification-tabs').screenshot(path=str(out/f'{engine}-{touch}-{width}-notifications.png'),animations='disabled')
+                            next(r for r in results if r['engine']==engine and r['touch']==touch and r['width']==width)['notifications']='passed'
                         page.keyboard.press('Escape')
                         expect(bell).to_have_attribute('aria-expanded','false')
                         expect(bell).to_be_focused()
@@ -2094,3 +2116,6 @@ def test_navigation_filter_markers_focus_and_noop_mutations(browser_https,applic
                         ctx.close()
             finally:
                 browser.close()
+
+    assert len(results)==36 and all(r.get('notifications')=='passed' for r in results)
+    (out/'matrix.json').write_text(json.dumps(results,indent=2),encoding='utf-8')
