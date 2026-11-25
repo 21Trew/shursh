@@ -2985,7 +2985,21 @@ def test_browser_reveal_for_account_member_owner_and_guest(browser_http,applicat
                 button=page.locator('button[data-action="reveal"]')
                 expect(button).to_be_visible()
                 expect(page.locator('.secret-card .recipient')).to_have_count(0)
+                # The reveal must patch only its card, not rebuild the game or chat.
+                page.locator('[data-chat-room="to-recipient"]').click()
+                page.locator('#game-chat-input').fill('Unsent draft')
+                button.evaluate("(el)=>el.scrollIntoView({block:'center',behavior:'instant'})")
+                page.evaluate("""() => {
+                    window.__revealMain=document.querySelector('main');
+                    window.__revealChat=document.querySelector('#game-chat');
+                    window.__revealPreferences=document.querySelector('#santa-preferences-form');
+                    window.__revealScroll=window.scrollY;
+                }""")
+                assert page.evaluate('window.__revealScroll>0')
                 requests=[]
+                detail_reads=[]
+                page.on('request',lambda req: detail_reads.append(True)
+                        if req.method=='GET' and req.url==browser_http+endpoint else None)
                 page.on('request',lambda req: requests.append(req.url.rsplit('/reveal',1)[0]==browser_http+endpoint)
                         if req.method=='POST' and req.url.endswith('/reveal') else None)
                 with page.expect_response(lambda res: res.url==browser_http+endpoint+'/reveal' and res.request.method=='POST') as pending:
@@ -2995,6 +3009,14 @@ def test_browser_reveal_for_account_member_owner_and_guest(browser_http,applicat
                 assert assigned['revealed'] is True
                 expect(page.locator('.secret-card .recipient')).to_have_text(assigned['receiver_name'])
                 assert requests==[True]
+                assert not detail_reads
+                assert page.evaluate("""() => window.__revealMain===document.querySelector('main')
+                    && window.__revealChat===document.querySelector('#game-chat')
+                    && window.__revealPreferences===document.querySelector('#santa-preferences-form')""")
+                expect(page.locator('#game-chat-input')).to_have_value('Unsent draft')
+                expect(page.locator('[data-chat-room="to-recipient"]')).to_have_attribute('aria-pressed','true')
+                assert page.evaluate("""() => window.scrollY>0 && Math.abs(window.scrollY-
+                    Math.min(window.__revealScroll,document.documentElement.scrollHeight-innerHeight))<=8""")
                 page.reload()
                 expect(page.locator('.secret-card .recipient')).to_have_text(assigned['receiver_name'])
                 context.close()

@@ -19,8 +19,8 @@ function wishesMarkup(wishes,source='own'){
   '</div><div class="game-gifts-track" tabindex="0" role="region" aria-label="Подарки — горизонтальная лента">'+
   wishes.map(w=>gameWishCard(w,source)).join('')+'</div></div>';
 }
-function setupGameGiftOverflow(){
- document.querySelectorAll('.game-gifts-carousel').forEach(carousel=>{
+function setupGameGiftOverflow(root=document){
+ root.querySelectorAll('.game-gifts-carousel').forEach(carousel=>{
   const track=carousel.querySelector('.game-gifts-track'),arrows=carousel.querySelector('.game-gifts-arrows');
   if(!track||!arrows)return;
   const update=()=>{

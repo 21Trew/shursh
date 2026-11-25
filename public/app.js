@@ -2112,8 +2112,23 @@ async function dispatch(action,el){try{
   if(!state?.base||el.disabled||!el.isConnected)return;
   el.disabled=true;
   try{
-   await api(state.base+'/reveal',{method:'POST',body:{}});
-   if(activeGameContext===state){notice('Секрет раскрыт!');await render();}
+   const result=await api(state.base+'/reveal',{method:'POST',body:{}});
+   if(activeGameContext!==state||!el.isConnected)return;
+   const assignment=result.assignment;
+   if(!assignment?.revealed)throw new Error('Не удалось раскрыть получателя. Попробуй ещё раз');
+   const card=el.closest('.secret-card');
+   if(!card)return;
+   const template=document.createElement('template');
+   template.innerHTML=secretCard(assignment);
+   const revealed=template.content.firstElementChild;
+   const scrollY=window.scrollY;
+   state.recipient=assignment.wish_cards||[];
+   if(!state.memberView&&loadedSanta?.event.id===state.event.id)loadedSanta.my_assignment=assignment;
+   // Update only the secret card. Keep the game, chat, drafts and scroll intact.
+   card.replaceWith(revealed);
+   setupGameGiftOverflow(revealed);
+   if(Math.abs(window.scrollY-scrollY)>1)window.scrollTo({top:scrollY,behavior:'instant'});
+   notice('Секрет раскрыт!');
   }finally{if(el.isConnected)el.disabled=false;}
   return;
  }
