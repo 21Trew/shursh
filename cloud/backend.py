@@ -10,7 +10,7 @@ from uuid import UUID
 from flask import g
 
 from server import Handler, ApiError, req, token, token_hash, decode_image, LIMIT_BYTES
-from cloud import auth, db, social, password_policy
+from cloud import auth, db, social, password_policy, referrals
 
 SESSION_SECONDS = 24 * 60 * 60
 REMEMBER_SESSION_SECONDS = 30 * SESSION_SECONDS
@@ -212,12 +212,22 @@ class CloudRequest(Handler):
         payload = {'email': email, 'password': password}
         if action == 'register':
             payload['data'] = {'name': valid_signup_name(data.get('name'))}
+        intent=None
+        if action=='register' and data.get('invite_code'):
+            with db.transaction() as con:
+                intent=referrals.prepare_signup(con,data['invite_code'])
+            db.close_request_connection()
+            payload['data']['shursh_signup_nonce']=intent[1]
         started_auth = time.perf_counter()
         try:
             result = auth.auth_request(action, **payload)
         finally:
             # Duration only. Never log provider response, email or tokens.
             g.shursh_auth_ms = (time.perf_counter() - started_auth) * 1000
+        if intent:
+            with db.transaction(write=True) as con:
+                referrals.record_signup(con,intent,result.get('user'),email)
+            db.close_request_connection()
         # A confirmation-required signup deliberately never establishes a session.
         if action == 'register' and not result.get('access_token'):
             return None
@@ -253,8 +263,9 @@ class CloudRequest(Handler):
         ttl=REMEMBER_SESSION_SECONDS if remember and not is_admin else SESSION_SECONDS
         con.execute('INSERT INTO app_sessions(token_hash,user_id,email,expires_at) VALUES(?,?,?,?)',
                     (token_hash(value),uid,verified_email,now+ttl))
+        invite_path=referrals.claim(con,uid) if referrals.ready(con) else None
         return 200, {'user': {**granted,'email':verified_email,
-                 'is_admin':is_admin}}, self.send_cookie(value,ttl)
+                 'is_admin':is_admin}, **({'invite_path':invite_path} if invite_path else {})}, self.send_cookie(value,ttl)
 
     def handle_api(self, method, path, con):
         if method == 'GET' and path == '/api/me':

@@ -14,6 +14,7 @@ NOTIFY_KIND_FIELD={
 }
 PROFILE_EMOJIS = frozenset(["🎁","🎄","🐱","🦊","🐻","🐼","🐸","🦄","🐰","🧸","✨","🌸","🌼","🌙","⭐","🎮","🎨","📚","🎵","🚀","☕","🍓","💚"])
 from server import ApiError, req, optional, token_hash
+from cloud import referrals
 
 def _uuid(value):
     try:
@@ -75,8 +76,47 @@ def _member(con, handler, event_id):
         raise ApiError(404,'Игра не найдена')
     return participant
 
+def request_friend(con, user, other, *, invitation=False):
+    a,b=_pair(user['id'],other)
+    where='(discoverable OR allow_friend_invites)' if invitation else 'discoverable=true'
+    target=con.execute('SELECT id FROM profiles WHERE id=? AND '+where,(other,)).fetchone()
+    if not target:
+        raise ApiError(404,'Профиль не найден')
+    old=con.execute('SELECT status,requested_by FROM friendships WHERE user_low=? AND user_high=?',(a,b)).fetchone()
+    if old and old['status']=='accepted':
+        raise ApiError(409,'Вы уже друзья')
+    if old and old['status']=='pending' and old['requested_by']==user['id']:
+        raise ApiError(409,'Заявка уже отправлена')
+    if old and old['status']=='pending' and old['requested_by']==other:
+        con.execute("UPDATE friendships SET status='accepted',updated_at=now() WHERE user_low=? AND user_high=?",(a,b))
+        _notify(con,other,'friend_accept','Заявка в друзья принята',f'/users/{user["id"]}',user['id'])
+    else:
+        con.execute("""INSERT INTO friendships(user_low,user_high,requested_by,status)
+              VALUES(?,?,?,'pending') ON CONFLICT(user_low,user_high) DO UPDATE
+              SET requested_by=excluded.requested_by,status='pending',updated_at=now()""",(a,b,user['id']))
+        _notify(con,other,'friend_request','Тебе отправили заявку в друзья','/friends',user['id'])
+
 def handle(handler, method, path, con):
     """Return an API response triple or None for non-social endpoints."""
+    if path=='/api/friend-invites/me' and method in ('POST','DELETE'):
+        user=handler.auth(con)
+        referrals.require_ready(con)
+        if method=='DELETE':
+            con.execute('UPDATE user_invites SET revoked_at=now() WHERE owner_id=? AND revoked_at IS NULL',(user['id'],))
+            return 200,{'ok':True},None
+        return 200,referrals.own_invite(con,user['id'],handler.request.host_url),None
+    invite=re.fullmatch(r'/api/friend-invites/([A-Za-z0-9_-]{24})(/friend)?',path)
+    if invite and ((method=='GET' and not invite.group(2)) or (method=='POST' and invite.group(2))):
+        referrals.require_ready(con)
+        p=referrals.active(con,invite.group(1))
+        if method=='POST':
+            user=handler.auth(con)
+            request_friend(con,user,p['owner_id'],invitation=True)
+            return 200,{'ok':True},None
+        user=handler.user(con)
+        return 200,{'inviter':{'id':p['owner_id'],'name':p['name'],'handle':p['handle'],
+                               'avatar_emoji':p['avatar_emoji']},
+                    'relationship':_relationship(con,user['id'],p['owner_id']) if user else 'guest'},None
     if path=='/api/santas' and method=='GET':
         user=handler.auth(con)
         rows=con.execute('''SELECT e.*,count(p.id) AS participant_count,
@@ -104,6 +144,8 @@ def handle(handler, method, path, con):
         # Admin hub only needs actionable totals; do not scan unrelated private tables.
         counts={'users':con.execute('SELECT count(*) AS n FROM profiles').fetchone()['n']}
         counts['new_feedback']=con.execute("SELECT count(*) AS n FROM developer_feedback WHERE status='new'").fetchone()['n']
+        if referrals.ready(con):
+            counts['referrals']=con.execute('SELECT count(*) AS n FROM referral_attributions').fetchone()['n']
         return 200,{'stats':counts},None
 
     if path == '/api/admin/users' and method == 'GET':
@@ -144,6 +186,7 @@ def handle(handler, method, path, con):
 
     if path == '/api/profile/me' and method in ('GET','PATCH'):
         user=handler.auth(con)
+        enabled=referrals.ready(con)
         if method=='PATCH':
             data=handler.body()
             fields={}
@@ -151,11 +194,20 @@ def handle(handler, method, path, con):
                 fields['name']=req(data['name'],'Имя',40)
             if 'bio' in data:
                 fields['bio']=optional(data['bio'],'О себе',500)
+            for key,label in (('last_name','Фамилия'),('patronymic','Отчество')):
+                if key in data:
+                    if not enabled: raise ApiError(503,'Настройки пока недоступны')
+                    fields[key]=optional(data[key],label,60)
+            for key in ('show_full_name','allow_friend_invites'):
+                if key in data:
+                    if not enabled: raise ApiError(503,'Настройки пока недоступны')
+                    if not isinstance(data[key],bool): raise ApiError(400,'Неверная настройка видимости')
+                    fields[key]=data[key]
             if 'handle' in data:
                 handle=data['handle']
                 if not isinstance(handle,str):
                     raise ApiError(400,'Неверный никнейм')
-                handle=handle.strip().lower()
+                handle=handle.strip().lower().removeprefix('@')
                 if handle and not re.fullmatch(r'[a-z][a-z0-9_]{2,19}',handle):
                     raise ApiError(400,'Никнейм: 3–20 латинских символов, цифры и _; первая — буква')
                 if handle and con.execute('SELECT 1 FROM profiles WHERE lower(handle)=? AND id<>?',(handle,user['id'])).fetchone():
@@ -180,29 +232,58 @@ def handle(handler, method, path, con):
                 raise ApiError(400,'Нет изменений')
             con.execute('UPDATE profiles SET '+', '.join(k+'=?' for k in fields)+' WHERE id=?',
                         (*fields.values(),user['id']))
-        p=con.execute('SELECT id,name,bio,discoverable,handle,avatar_emoji,city,notify_friends,notify_santa,notify_gifts,notify_system FROM profiles WHERE id=?',(user['id'],)).fetchone()
+        extra=',last_name,patronymic,show_full_name,allow_friend_invites' if enabled else ''
+        p=con.execute('SELECT id,name,bio,discoverable,handle,avatar_emoji,city,notify_friends,notify_santa,notify_gifts,notify_system'+extra+' FROM profiles WHERE id=?',(user['id'],)).fetchone()
+        if enabled and method=='PATCH' and not (p['discoverable'] or p['allow_friend_invites']):
+            con.execute('UPDATE user_invites SET revoked_at=now() WHERE owner_id=? AND revoked_at IS NULL',(user['id'],))
         lists=con.execute("""SELECT l.id,l.title,l.description,l.occasion,l.theme,l.share_key,
                             count(w.id) AS wish_count FROM wishlists l
                             LEFT JOIN wishes w ON w.list_id=l.id
                             WHERE l.owner_id=? AND l.visibility='link'
                             GROUP BY l.id ORDER BY l.id DESC""",(user['id'],)).fetchall()
-        return 200,{'profile':{**dict(p),'email':user['email']},'lists':[dict(l) for l in lists]},None
+        count=con.execute('SELECT count(*) AS n FROM referral_attributions WHERE referrer_id=?',(user['id'],)).fetchone()['n'] if enabled else 0
+        return 200,{'profile':{**dict(p),'email':user['email']},'lists':[dict(l) for l in lists],'invites_enabled':enabled,'referral_count':count},None
 
     if path == '/api/users/search' and method=='GET':
         user=handler.auth(con)
-        q=(handler.request.args.get('q') or '').strip()
-        if len(q)<2 or len(q)>40:
+        q=' '.join((handler.request.args.get('q') or '').split())
+        if len(q)<2 or len(q)>120:
             return 200,{'users':[]},None
-        rows=con.execute('''SELECT p.id,p.name,p.handle,p.avatar_emoji FROM profiles p
-              WHERE p.discoverable=true AND p.id<>? AND (p.name ILIKE ? OR p.handle ILIKE ?)
-              ORDER BY lower(p.name),p.id LIMIT 20''',(user['id'],'%'+q+'%','%'+q.lstrip('@')+'%'))
+        exact=q.startswith('@')
+        if '@' in q and not exact:
+            return 200,{'users':[]},None
+        term=q[1:].lower() if exact else q.lower()
+        if exact and not re.fullmatch(r'[a-z][a-z0-9_]{2,19}',term):
+            return 200,{'users':[]},None
+        escaped=term.replace('!','!!').replace('%','!%').replace('_','!_')
+        enabled=referrals.ready(con)
+        full=("CASE WHEN p.show_full_name THEN concat_ws(' ',nullif(p.last_name,''),p.name,nullif(p.patronymic,'')) ELSE p.name END"
+              if enabled else 'p.name')
+        cols=("CASE WHEN p.show_full_name THEN p.last_name ELSE '' END AS last_name,"
+              "CASE WHEN p.show_full_name THEN p.patronymic ELSE '' END AS patronymic," if enabled else '')
+        base="""SELECT p.id,p.name,p.handle,p.avatar_emoji,"""+cols+"""
+             CASE WHEN f.status='accepted' THEN 'friends'
+                  WHEN f.status='pending' AND f.requested_by=? THEN 'outgoing'
+                  WHEN f.status='pending' THEN 'incoming' ELSE 'none' END AS relationship
+             FROM profiles p LEFT JOIN friendships f ON
+             ((f.user_low=? AND f.user_high=p.id) OR (f.user_high=? AND f.user_low=p.id))
+             WHERE p.discoverable=true AND p.id<>? AND """
+        uid=user['id']
+        if exact:
+            rows=con.execute(base+'lower(p.handle)=? LIMIT 1',(uid,uid,uid,uid,term))
+        else:
+            rows=con.execute(base+'('+full+" ILIKE ? ESCAPE '!' OR p.name ILIKE ? ESCAPE '!' OR p.handle ILIKE ? ESCAPE '!') "
+                +'ORDER BY CASE WHEN lower(p.handle)=? THEN 0 WHEN lower('+full+')=? OR lower(p.name)=? THEN 1 '
+                + "WHEN "+full+" ILIKE ? ESCAPE '!' OR p.name ILIKE ? ESCAPE '!' THEN 2 ELSE 3 END,lower(p.name),p.id LIMIT 20",
+                (uid,uid,uid,uid,'%'+escaped+'%','%'+escaped+'%','%'+escaped+'%',term,term,term,escaped+'%',escaped+'%'))
         return 200,{'users':[dict(p) for p in rows]},None
 
     match=re.fullmatch(r'/api/users/([0-9a-fA-F-]{36})',path)
     if match and method=='GET':
         user=handler.auth(con)
         uid=_uuid(match.group(1))
-        profile=con.execute('SELECT id,name,bio,discoverable,handle,avatar_emoji,city FROM profiles WHERE id=?',(uid,)).fetchone()
+        enabled=referrals.ready(con)
+        profile=con.execute('SELECT id,name,bio,discoverable,handle,avatar_emoji,city'+(',last_name,patronymic,show_full_name' if enabled else '')+' FROM profiles WHERE id=?',(uid,)).fetchone()
         state=_relationship(con,user['id'],uid)
         if not profile:
             raise ApiError(404,'Профиль не найден')
@@ -233,7 +314,7 @@ def handle(handler, method, path, con):
                                 JOIN participants b ON b.event_id=e.id AND b.user_id=?
                                 ORDER BY e.id DESC LIMIT 40""",(user['id'],uid))
             shared_games=[dict(row) for row in rows]
-        return 200,{'profile':{'id':profile['id'],'name':profile['name'],'bio':profile['bio'],'handle':profile['handle'],'avatar_emoji':profile['avatar_emoji'],'city':profile['city']},
+        return 200,{'profile':{'id':profile['id'],'name':profile['name'],'bio':profile['bio'],'handle':profile['handle'],'avatar_emoji':profile['avatar_emoji'],'city':profile['city'], **({'last_name':profile['last_name'],'patronymic':profile['patronymic']} if enabled and (state=='self' or profile['show_full_name']) else {})},
                     'relationship':state,'lists':lists,'shared_games':shared_games},None
 
     if path=='/api/friends/wishlists' and method=='GET':
@@ -254,42 +335,27 @@ def handle(handler, method, path, con):
 
     if path=='/api/friends' and method=='GET':
         user=handler.auth(con)
+        enabled=referrals.ready(con)
         rows=con.execute('''SELECT f.user_low,f.user_high,f.requested_by,f.status,
-                    p.id AS other_id,p.name AS other_name,p.handle AS other_handle,p.avatar_emoji AS other_avatar_emoji
+                    p.id AS other_id,p.name AS other_name,p.handle AS other_handle,p.avatar_emoji AS other_avatar_emoji'''+(",CASE WHEN p.show_full_name THEN p.last_name ELSE '' END AS other_last_name,CASE WHEN p.show_full_name THEN p.patronymic ELSE '' END AS other_patronymic" if enabled else '')+'''
                     FROM friendships f
                     JOIN profiles p ON p.id=(CASE WHEN f.user_low=? THEN f.user_high ELSE f.user_low END)
                     WHERE f.user_low=? OR f.user_high=?
                     ORDER BY f.updated_at DESC''',(user['id'],user['id'],user['id']))
         friends=[];incoming=[];outgoing=[]
         for item in rows:
-            data={'id':item['other_id'],'name':item['other_name'],'handle':item['other_handle'],'avatar_emoji':item['other_avatar_emoji']}
+            data={'id':item['other_id'],'name':item['other_name'],'handle':item['other_handle'],'avatar_emoji':item['other_avatar_emoji'],**({'last_name':item['other_last_name'],'patronymic':item['other_patronymic']} if enabled else {})}
             if item['status']=='accepted':
                 friends.append(data)
             elif item['status']=='pending':
                 (outgoing if item['requested_by']==user['id'] else incoming).append(data)
-        return 200,{'friends':friends,'incoming':incoming,'outgoing':outgoing},None
+        return 200,{'friends':friends,'incoming':incoming,'outgoing':outgoing,'invites_enabled':enabled},None
 
     match=re.fullmatch(r'/api/friends/([0-9a-fA-F-]{36})',path)
     if match and method in ('POST','PATCH','DELETE'):
         user=handler.auth(con);other=_uuid(match.group(1));a,b=_pair(user['id'],other)
         if method=='POST':
-            target=con.execute('SELECT id FROM profiles WHERE id=? AND discoverable=true',(other,)).fetchone()
-            if not target:
-                raise ApiError(404,'Профиль не найден')
-            old=con.execute('SELECT status,requested_by FROM friendships WHERE user_low=? AND user_high=?',(a,b)).fetchone()
-            if old and old['status']=='accepted':
-                raise ApiError(409,'Вы уже друзья')
-            if old and old['status']=='pending' and old['requested_by']==user['id']:
-                raise ApiError(409,'Заявка уже отправлена')
-            if old and old['status']=='pending' and old['requested_by']==other:
-                con.execute("UPDATE friendships SET status='accepted',updated_at=now() WHERE user_low=? AND user_high=?",(a,b))
-                _notify(con,other,'friend_accept','Заявка в друзья принята',f'/users/{user["id"]}',user['id'])
-            else:
-                con.execute('''INSERT INTO friendships(user_low,user_high,requested_by,status)
-                      VALUES(?,?,?,'pending')
-                      ON CONFLICT(user_low,user_high) DO UPDATE SET requested_by=excluded.requested_by,
-                      status='pending',updated_at=now()''',(a,b,user['id']))
-                _notify(con,other,'friend_request','Тебе отправили заявку в друзья',f'/friends',user['id'])
+            request_friend(con,user,other)
         elif method=='PATCH':
             data=handler.body()
             choice=data.get('action')

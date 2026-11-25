@@ -152,7 +152,8 @@ function clearOwnerDataCache(){
 }
 function invalidateOwnerDataForMutation(path){
  // A social write may change one section, but must not discard unrelated views.
- const isFriendWrite=/^\/api\/friends\//.test(path);
+ const isFriendWrite=/^\/api\/friends\//.test(path)||/^\/api\/friend-invites\/[A-Za-z0-9_-]{24}\/friend$/.test(path);
+ if(path==='/api/friend-invites/me')return;
  const isNotificationWrite=/^\/api\/notifications\/(?:\d+\/read|read-all)$/.test(path);
  const isAccountWrite=path==='/api/profile/me'||/^\/api\/account\/(?:email|password)$/.test(path);
  if(isFriendWrite||isNotificationWrite||isAccountWrite){
@@ -2127,8 +2128,8 @@ async function authSuccess(result,register){
   return;
  }
  notice(register?'Аккаунт создан!':'С возвращением!');
- const landing=currentPath();
- nav((/^\/join\/([A-Za-z0-9_-]+|p\/[A-Za-z0-9_-]{43})$/.test(landing)||/^\/w\/[A-Za-z0-9_-]+$/.test(landing))?landing:'/',{force:true});
+ const landing=result.invite_path||currentPath();
+ nav((/^\/join\/([A-Za-z0-9_-]+|p\/[A-Za-z0-9_-]{43})$/.test(landing)||/^\/w\/[A-Za-z0-9_-]+$/.test(landing)||/^\/i\/[A-Za-z0-9_-]{24}$/.test(landing))?landing:'/',{force:true});
 }
 function loginModal(mode='login',email=''){
  const register=mode==='register';
@@ -2153,6 +2154,8 @@ function loginModal(mode='login',email=''){
    const payload=readForm(form);
    delete payload.confirm_password;
    if(!register)payload.remember=!!form.elements.remember?.checked;
+   const invite=currentPath().match(/^\/i\/([A-Za-z0-9_-]{24})$/)?.[1];
+   if(register&&invite)payload.invite_code=invite;
    const result=await api(register?'/api/register':'/api/login',{method:'POST',body:payload});
    if(result.pending_confirmation){if(register)persistSignupClaim();if(form.isConnected)confirmationModal(payload.email);return;}
    if(!register&&result.user)offerLoginCredential(payload.email,payload.password);
@@ -2514,7 +2517,7 @@ async function render(){stopGameLifecycle();const marker=++lastRenderToken;try{
   (/^\/santa\/\d+$/.test(path)?'/api/santas/'+path.split('/')[2]:
    /^\/list\/\d+$/.test(path)?'/api/lists/'+path.split('/')[2]:null);
  if(!routeApi||!cachedOwnerValue(routeApi))loading();
- if(path==='/friends')await socialFriendsPage(marker);else if(path==='/profile')await socialOwnProfilePage(marker);else if(/^\/users\/[0-9a-fA-F-]{36}$/.test(path))await socialProfilePage(path.split('/')[2],marker);else if(path==='/notifications')await socialNotificationsPage(marker);else if(path==='/admin')await socialAdminPage(marker);else if(path==='/admin/users')await socialAdminUsersPage(marker);else if(path==='/lists')await listsPage();else if(/^\/list\/\d+$/.test(path))await ownerListPage(path.split('/')[2]);else if(/^\/w\/[A-Za-z0-9_-]+$/.test(path))await publicListPage(path.split('/')[2]);else if(/^\/r\/[A-Za-z0-9_-]+$/.test(path))await reservationPage(path.split('/')[2]);else if(path==='/santas')await santasPage();else if(path==='/admin/feedback')await adminFeedbackPage();else if(/^\/santa\/\d+$/.test(path))await santaAdminPage(path.split('/')[2]);else if(/^\/join\/p\/[A-Za-z0-9_-]{43}$/.test(path))await invitePage(path.split('/')[3],marker,true);else if(/^\/join\/[A-Za-z0-9_-]+$/.test(path))await invitePage(path.split('/')[2]);else if(/^\/p\/[A-Za-z0-9_-]+$/.test(path))await participantPage(path.split('/')[2]);else errorView(new Error('Похоже, такой страницы ещё нет'),'Страница потерялась');
+ if(/^\/i\/[A-Za-z0-9_-]{24}$/.test(path))await socialFriendInvitePage(path.split('/')[2],marker);else if(path==='/friends')await socialFriendsPage(marker);else if(path==='/profile')await socialOwnProfilePage(marker);else if(/^\/users\/[0-9a-fA-F-]{36}$/.test(path))await socialProfilePage(path.split('/')[2],marker);else if(path==='/notifications')await socialNotificationsPage(marker);else if(path==='/admin')await socialAdminPage(marker);else if(path==='/admin/users')await socialAdminUsersPage(marker);else if(path==='/lists')await listsPage();else if(/^\/list\/\d+$/.test(path))await ownerListPage(path.split('/')[2]);else if(/^\/w\/[A-Za-z0-9_-]+$/.test(path))await publicListPage(path.split('/')[2]);else if(/^\/r\/[A-Za-z0-9_-]+$/.test(path))await reservationPage(path.split('/')[2]);else if(path==='/santas')await santasPage();else if(path==='/admin/feedback')await adminFeedbackPage();else if(/^\/santa\/\d+$/.test(path))await santaAdminPage(path.split('/')[2]);else if(/^\/join\/p\/[A-Za-z0-9_-]{43}$/.test(path))await invitePage(path.split('/')[3],marker,true);else if(/^\/join\/[A-Za-z0-9_-]+$/.test(path))await invitePage(path.split('/')[2]);else if(/^\/p\/[A-Za-z0-9_-]+$/.test(path))await participantPage(path.split('/')[2]);else errorView(new Error('Похоже, такой страницы ещё нет'),'Страница потерялась');
  }catch(err){if(marker===lastRenderToken){
   if(!renderStarted){
    shell('<main class="container page"><div class="error-page"><h1>Не получилось загрузить Шурш</h1>'+
@@ -2571,6 +2574,7 @@ if(!isPreview)(async()=>{
    const result=await api('/api/auth/complete',{method:'POST',body:{access_token:token}});
    clearOwnerDataCache();currentUser=result.user;broadcastSessionChange();
    authReturnNotice='Почта подтверждена! Ты вошёл в аккаунт';
+   if(result.invite_path&&!pendingGameClaim)history.replaceState(null,'',result.invite_path);
    if(pendingGameClaim){
     const claim=pendingGameClaim;
     try{
