@@ -35,6 +35,7 @@ function setupGameGiftOverflow(root=document){
   observer?.observe(track);
   for(const card of track.children)observer?.observe(card);
   track.addEventListener('scroll',update,{passive:true});
+  gameLifecycleCleanup.push(()=>{observer?.disconnect();track.removeEventListener('scroll',update);});
   requestAnimationFrame(update);
   if(document.fonts?.ready)void document.fonts.ready.then(update);
  });
@@ -44,7 +45,7 @@ async function refreshGameOwnWishes(state){
  const root=document.querySelector('.my-wishes-list');
  if(!root)return;
  const result=await api(state.base+(state.base.startsWith('/api/santas/')?'/my-wishes':'/wishes'));
- if(!root.isConnected||activeGameContext!==state)return;
+ if(disposed||!root.isConnected||activeGameContext!==state)return;
  const wishes=result.wishes||[];
  const scrollY=window.scrollY,trackX=root.querySelector('.game-gifts-track')?.scrollLeft||0;
  state.own=wishes;
@@ -108,93 +109,109 @@ function gameGiftModal(edit=null){
 }
 function setupGameChat(state){
  const root=document.querySelector('#game-chat');if(!root)return;
- if(gameChatTimer){clearInterval(gameChatTimer);gameChatTimer=null;}
- let room='general',renderedKey='';
- const tabs=Array.from(root.querySelectorAll('button[data-chat-room]'));
- // The room is the sole selection state. Never use hover or a second
- // active class as an independent indicator of the visible conversation.
- const syncRoomTabs=()=>{
-  for(const tab of tabs){
-   const pressed=String(tab.dataset.chatRoom===room);
-   if(tab.getAttribute('aria-pressed')!==pressed)tab.setAttribute('aria-pressed',pressed);
-  }
- };
- const roomCache=new Map(),inflight=new Map();
- const list=root.querySelector('.game-chat-messages');
- const markup=m=>'<div class="chat-message '+(m.mine?'chat-mine':'')+'"><div class="chat-meta">'+
-   esc(m.author)+'</div><p>'+esc(m.message)+'</p></div>';
- const showRoom=(name)=>{
-  const entry=roomCache.get(name);
-  const key=name+':'+(entry?.signature||'pending');
-  if(renderedKey===key)return;
-  renderedKey=key;
-  list.innerHTML=entry?(entry.messages.length?entry.messages.map(markup).join(''):
-   '<p class="note">Сообщений пока нет. Начни разговор!</p>'):
+ let room='general',displayedRoom=null,disposed=false,delay=15000;
+ const controller=new AbortController(),rooms=new Map(),inflight=new Map();
+ const list=root.querySelector('.game-chat-messages'),tabs=[...root.querySelectorAll('[data-chat-room]')];
+ const alive=()=>!disposed&&root.isConnected&&activeGameContext===state;
+ const syncRoomTabs=()=>{for(const tab of tabs)setAttrIfChanged(tab,'aria-pressed',String(tab.dataset.chatRoom===room));};
+ const markup=m=>'<div class="chat-message '+(m.mine?'chat-mine':'')+'" data-message-id="'+attr(m.id)+'"><div class="chat-meta">'+esc(m.author)+'</div><p>'+esc(m.message)+'</p></div>';
+ const entryFor=name=>rooms.get(name);
+ function merge(name,records,meta={}){
+  const before=entryFor(name)||{messages:[],hasOlder:false,fetchedAt:0};
+  const merged=new Map(before.messages.map(m=>[m.id,m]));
+  for(const m of records)merged.set(m.id,m);
+  const entry={...before,...meta,messages:[...merged.values()].sort((a,b)=>a.id-b.id)};
+  rooms.set(name,entry);return entry;
+ }
+ function showRoom(name,{bottom=false,prepend=false}={}){
+  if(!alive()||name!==room)return;
+  const entry=entryFor(name),same=displayedRoom===name;
+  const top=list.scrollTop,oldHeight=list.scrollHeight,nearBottom=oldHeight-top-list.clientHeight<48;
+  const next=list.cloneNode(false);
+  next.innerHTML=entry?
+   (entry.hasOlder?'<button type="button" class="btn btn-soft btn-small" data-chat-older>Ранее</button>':'')+
+   (entry.messages.length?entry.messages.map(markup).join(''):'<p class="note">Сообщений пока нет. Начни разговор!</p>'):
    '<div class="chat-loading" role="status"><span class="skeleton-bar"></span><span class="skeleton-bar"></span></div>';
-  if(entry)list.scrollTop=list.scrollHeight;
- };
- const load=({force=false}={})=>{
-  if(!root.isConnected)return Promise.resolve();
-  const requestedRoom=room,existing=roomCache.get(requestedRoom);
-  // Room switching must never wait for a different room's slow request.
-  // A warm room reopens synchronously from its own memory snapshot.
-  if(!force&&existing&&Date.now()-existing.fetchedAt<12000)return Promise.resolve();
-  if(inflight.has(requestedRoom))return inflight.get(requestedRoom);
+  if(!same)list.replaceChildren(...next.childNodes);
+  else patchOwnerNode(list,next);
+  displayedRoom=name;
+  if(entry){
+   if(prepend&&same)list.scrollTop=top+list.scrollHeight-oldHeight;
+   else if(bottom||!same||nearBottom)list.scrollTop=list.scrollHeight;
+  }
+ }
+ function schedule(){
+  clearTimeout(gameChatTimer);gameChatTimer=null;
+  if(alive()&&!document.hidden)gameChatTimer=setTimeout(async()=>{await load({force:true});schedule();},delay);
+ }
+ function load({force=false,older=false}={}){
+  if(!alive())return Promise.resolve();
+  const name=room,existing=entryFor(name);
+  if(!force&&!older&&existing&&Date.now()-existing.fetchedAt<12000)return Promise.resolve();
+  if(older&&!existing?.hasOlder)return Promise.resolve();
+  if(inflight.has(name))return inflight.get(name);
   const request=(async()=>{
    try{
-    const result=await api(state.base+'/messages/'+requestedRoom);
-    if(!root.isConnected||result.room!==requestedRoom)return;
-    const messages=Array.isArray(result.messages)?result.messages:[];
-    const signature=JSON.stringify(messages.map(m=>[m.id,m.author,m.message,m.mine]));
-    roomCache.set(requestedRoom,{messages,signature,fetchedAt:Date.now()});
-    if(room===requestedRoom)showRoom(room);
-   }catch(err){
-    if(root.isConnected&&room===requestedRoom&&!roomCache.has(requestedRoom)){
-     list.innerHTML='<p class="note">Не удалось загрузить сообщения. Попробуй обновить чат</p>';
-     notice(err.message,true);
+    const cursor=older?existing?.messages[0]?.id:existing?.cursor;
+    const suffix=!isPreview&&cursor?'?'+(older?'before':'after')+'='+cursor:'';
+    const result=await api(state.base+'/messages/'+name+suffix,{signal:controller.signal});
+    if(!alive()||result.room!==name)return;
+    const records=Array.isArray(result.messages)?result.messages:[];
+    const latest=entryFor(name);
+    const initial=!existing||!suffix;
+    const oldCursor=latest?.cursor||0;
+    const meta=older?{hasOlder:!!result.has_more}:{
+     fetchedAt:Date.now(),cursor:Math.max(oldCursor,...records.map(m=>m.id),0),
+     ...(initial?{hasOlder:!!result.has_more}:{}),moreNew:!initial&&!!result.has_more};
+    merge(name,records,meta);
+    if(name===room){
+     showRoom(name,{prepend:older});
+     if(!older)delay=records.length?15000:Math.min(60000,delay*2);
     }
+   }catch(err){
+    if(!alive()||err.name==='AbortError')return;
+    delay=Math.min(60000,delay*2);
+    if(room===name&&!entryFor(name)){list.innerHTML='<p class="note">Не удалось загрузить сообщения</p><button type="button" class="btn btn-soft btn-small" data-chat-refresh>Повторить</button>';}
    }
   })();
-  inflight.set(requestedRoom,request);
-  void request.finally(()=>{if(inflight.get(requestedRoom)===request)inflight.delete(requestedRoom);});
+  inflight.set(name,request);
+  void request.finally(()=>{
+   if(inflight.get(name)===request)inflight.delete(name);
+   if(alive()&&room===name&&entryFor(name)?.moreNew){entryFor(name).moreNew=false;void load({force:true});}
+  });
   return request;
- };
+ }
+ const visibility=()=>{if(!alive())return;if(document.hidden){clearTimeout(gameChatTimer);gameChatTimer=null;}else{delay=15000;void load({force:true}).finally(schedule);}};
+ document.addEventListener('visibilitychange',visibility);
+ gameLifecycleCleanup.push(()=>{disposed=true;controller.abort();document.removeEventListener('visibilitychange',visibility);rooms.clear();inflight.clear();});
  root.addEventListener('click',ev=>{
   const tab=ev.target.closest('[data-chat-room]');
   if(tab&&tabs.includes(tab)){
-   const next=tab.dataset.chatRoom;
-   if(next===room)return;
-   room=next;
-   syncRoomTabs();
-   showRoom(room);void load();
+   const next=tab.dataset.chatRoom;if(next===room)return;
+   room=next;delay=15000;syncRoomTabs();showRoom(room);void load().finally(schedule);
   }
-  if(ev.target.closest('[data-chat-refresh]'))void load({force:true});
+  if(ev.target.closest('[data-chat-refresh]'))void load({force:true}).finally(schedule);
+  if(ev.target.closest('[data-chat-older]'))void load({older:true});
  });
  root.querySelector('#game-chat-form').addEventListener('submit',async ev=>{
-  ev.preventDefault();
-  const form=ev.currentTarget,button=form.querySelector('button'),data=readForm(form);
+  ev.preventDefault();const form=ev.currentTarget,button=form.querySelector('button'),data=readForm(form);
   if(!data.message?.trim())return;
-  const targetRoom=room;
-  button.disabled=true;
+  const name=room;button.disabled=true;
   try{
-   const sent=await api(state.base+'/messages/'+targetRoom,{method:'POST',body:data});
+   const sent=await api(state.base+'/messages/'+name,{method:'POST',body:data,signal:controller.signal});
+   if(!alive())return;
    form.reset();
-   if(root.isConnected&&sent.message){
-    const before=roomCache.get(targetRoom)?.messages||[];
-    if(!before.some(m=>m.id===sent.message.id)){
-     const messages=[...before,sent.message].slice(-60);
-     roomCache.set(targetRoom,{messages,signature:JSON.stringify(messages.map(m=>[m.id,m.author,m.message,m.mine])),fetchedAt:Date.now()});
-    }
-    if(room===targetRoom)showRoom(room);
-   }else if(root.isConnected)void load({force:true});
-  }catch(err){notice(err.message,true)}
+   if(sent.message){
+    // Do not advance the polling cursor on a local acknowledgement: a
+    // concurrent message could have arrived between the GET and POST.
+    merge(name,[sent.message]);
+    if(room===name)showRoom(name,{bottom:true});
+   }
+   delay=15000;void load({force:true}).finally(schedule);
+  }catch(err){if(alive()&&err.name!=='AbortError')notice(err.message,true);}
   finally{button.disabled=false;}
  });
- syncRoomTabs();showRoom(room);void load();
- gameChatTimer=setInterval(()=>{
-  if(!root.isConnected){clearInterval(gameChatTimer);gameChatTimer=null;return;}
-  if(document.visibilityState==='visible')void load({force:true});
- },15000);
+ syncRoomTabs();showRoom(room);void load().finally(schedule);
 }
 
 /* Small read-only poll: update the roster without reloading game details or
@@ -204,7 +221,7 @@ function santaRosterPerson(p,state){
  const mine=state.memberView&&p.id===state.memberId;
  const adminActions=!state.memberView&&state.event.status==='open'&&!organizer;
  const profile=!!currentUser&&!!p.user_id;
- return '<div class="person-row"'+(profile?' data-santa-profile="'+attr(p.user_id)+'" role="link" tabindex="0" aria-label="Открыть профиль участника '+attr(p.name)+'"':'')+'><div class="avatar">'+esc(p.name.slice(0,1).toUpperCase())+
+ return '<div class="person-row" data-person-id="'+attr(p.id)+'"'+(profile?' data-santa-profile="'+attr(p.user_id)+'" role="link" tabindex="0" aria-label="Открыть профиль участника '+attr(p.name)+'"':'')+'><div class="avatar">'+esc(p.name.slice(0,1).toUpperCase())+
   '</div><div class="person-main"><div class="person-topline"><strong class="person-name">'+esc(p.name)+'</strong>'+
   (mine?'<span class="chip">Ты</span>':'')+
   (organizer?'<span class="chip chip-peach organizer-label">Организатор</span>':'')+'</div><small>'+
@@ -215,11 +232,11 @@ function santaRosterPerson(p,state){
 }
 function setupSantaRoster(state){
  const root=document.querySelector('[data-santa-roster]');if(!root)return;
- if(gameRosterTimer){clearInterval(gameRosterTimer);gameRosterTimer=null;}
+ if(gameRosterTimer){clearTimeout(gameRosterTimer);gameRosterTimer=null;}
  const route=state.base+'/roster';
- let running=false,previous=JSON.stringify((state.participants||[]).map(p=>[p.id,p.name,p.wish_count,p.is_organizer,p.user_id])),failures=0;
+ let disposed=false,delay=15000,running=false,previous=JSON.stringify((state.participants||[]).map(p=>[p.id,p.name,p.wish_count,p.is_organizer,p.user_id])),failures=0;
  const update=async()=>{
-  if(!root.isConnected){clearInterval(gameRosterTimer);gameRosterTimer=null;return;}
+  if(disposed||!root.isConnected)return;
   if(document.visibilityState==='hidden'||running)return;
   running=true;
   try{
@@ -227,14 +244,14 @@ function setupSantaRoster(state){
    if(!root.isConnected||activeGameContext!==state)return;
    failures=0;
    if(info.status!==state.event.status){
-    if(state.base.startsWith('/api/santas/'))ownerDataCache.delete(state.base);
+    if(state.base.startsWith('/api/santas/'))dropOwnerRead(state.base);
     await render();
     return;
    }
    const signature=JSON.stringify(info.participants.map(p=>[p.id,p.name,p.wish_count,p.is_organizer,p.user_id]));
-   if(signature===previous)return;
-   previous=signature;
-   root.innerHTML=info.participants.map(p=>santaRosterPerson(p,state)).join('');
+   if(signature===previous){delay=Math.min(60000,delay*2);return;}
+   delay=15000;previous=signature;
+   const next=root.cloneNode(false);next.innerHTML=info.participants.map(p=>santaRosterPerson(p,state)).join('');patchOwnerNode(root,next);
    document.querySelectorAll('[data-santa-roster-count], [data-santa-event-count]').forEach(node=>{
     node.textContent=String(info.participants.length);
    });
@@ -244,12 +261,16 @@ function setupSantaRoster(state){
    if(draw&&info.status==='open')draw.disabled=info.participants.length<3;
    if(!state.memberView&&loadedSanta)loadedSanta.participants=info.participants;
   }catch(err){
-   failures++;
+   failures++;delay=Math.min(60000,delay*2);
    // Polling failure never hides the existing list. Manual actions still work.
    if(failures===3)console.warn('Santa roster refresh unavailable');
   }finally{running=false;}
  };
- gameRosterTimer=setInterval(update,15000);
+ const schedule=()=>{clearTimeout(gameRosterTimer);gameRosterTimer=null;if(!disposed&&root.isConnected&&!document.hidden)gameRosterTimer=setTimeout(async()=>{await update();schedule();},delay);};
+ const visibility=()=>{if(disposed)return;if(document.hidden){clearTimeout(gameRosterTimer);gameRosterTimer=null;}else{delay=15000;void update().finally(schedule);}};
+ document.addEventListener('visibilitychange',visibility);
+ gameLifecycleCleanup.push(()=>{disposed=true;document.removeEventListener('visibilitychange',visibility);});
+ schedule();
 }
 
 document.addEventListener('click',event=>{const row=event.target.closest('[data-santa-profile]');if(!row||event.target.closest('button,a,input,select,textarea'))return;event.preventDefault();nav('/users/'+row.dataset.santaProfile);});
