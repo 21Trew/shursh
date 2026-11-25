@@ -284,7 +284,8 @@
  content:none;opacity:0;animation:none;transition:none
 }
 :is(.wishlist-view-tabs,.notification-tabs,.santa-state-tabs,.wishlist-filters,.game-chat-tabs) button:focus-visible,
-.site-header .nav a:focus-visible{
+ .site-header .nav a:focus-visible,
+:is(.wishlist-view-tabs,.notification-tabs,.santa-state-tabs) button[data-keyboard-focus]:focus{
  outline:2px solid var(--focus-color);outline-offset:-2px
 }
 :is(.wishlist-view-tabs,.notification-tabs,.santa-state-tabs,.wishlist-filters,.game-chat-tabs) button{
