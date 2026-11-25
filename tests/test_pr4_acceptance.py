@@ -2117,3 +2117,116 @@ def test_navigation_filter_markers_focus_and_noop_mutations(browser_https,applic
 
     assert len(results)==36 and all(r.get('notifications')=='passed' for r in results)
     (out/'matrix.json').write_text(json.dumps(results,indent=2),encoding='utf-8')
+
+
+@pytest.mark.browser
+@pytest.mark.parametrize("engine", ["chromium","webkit"])
+def test_owner_cache_revalidation_lru_session_and_dom(browser_https,application,engine):
+    from test_cloud import login, call
+    from uuid import uuid4
+    owner=login(application)
+    first='Cache first '+uuid4().hex[:8]
+    second='Cache second '+uuid4().hex[:8]
+    lid=call(owner,'POST','/api/lists',{'title':first,'occasion':'День рождения'},201).json['id']
+    with sync_playwright() as play:
+        browser=getattr(play,engine).launch(headless=True)
+        try:
+            context=browser.new_context(ignore_https_errors=True,viewport={'width':390,'height':844})
+            page=context.new_page()
+            page.goto(browser_https+'/')
+            browser_login(page)
+            page.wait_for_function("ownerWarmupReady && !socialUnreadBusy")
+            page.evaluate("nav('/lists')")
+            expect(page.get_by_text(first,exact=True)).to_be_visible()
+            page.evaluate("""id=>{
+              window.cacheMain=document.querySelector('#page-view main');
+              window.cacheHeader=document.querySelector('header');
+              window.cacheCard=document.querySelector('a[data-nav="/list/'+id+'"]').closest('article');
+            }""",lid)
+            page.locator('[data-wishlist-filter="День рождения"]').click()
+            page.locator('[data-wishlist-filter="День рождения"]').focus()
+            traffic=[]
+            page.on('request',lambda r: traffic.append(urlsplit(r.url).path) if '/api/' in r.url else None)
+            call(owner,'POST','/api/lists',{'title':second,'occasion':'День рождения'},201)
+            page.evaluate("""async()=>{
+              const entry=ownerDataCache.get('/api/lists');entry.expires=0;
+              await Promise.all([revalidateOwnerRead('/api/lists',entry),revalidateOwnerRead('/api/lists',entry)]);
+            }""")
+            expect(page.get_by_text(second,exact=True)).to_be_visible()
+            assert traffic.count('/api/lists')==1
+            assert page.evaluate("""id=>cacheMain===document.querySelector('#page-view main') &&
+              cacheHeader===document.querySelector('header') &&
+              cacheCard===document.querySelector('a[data-nav="/list/'+id+'"]').closest('article') &&
+              document.activeElement?.dataset.wishlistFilter==='День рождения' &&
+              document.activeElement?.getAttribute('aria-pressed')==='true'""",lid)
+            assert page.evaluate("""async()=>{
+              const observer=new MutationObserver(()=>{});
+              observer.observe(cacheMain,{subtree:true,childList:true,attributes:true,characterData:true});
+              await revalidateOwnerRead('/api/lists',ownerDataCache.get('/api/lists'));
+              const count=observer.takeRecords().length;observer.disconnect();return count;
+            }""")==0
+            # Check the actual cache implementation, without issuing synthetic HTTP requests.
+            result=page.evaluate("""()=>{
+              for(let i=1;i<=100;i++)seedOwnerCache('/api/lists/'+(90000+i),{id:i});
+              const size=ownerDataCache.size;
+              const firstGone=!ownerDataCache.has('/api/lists/90001');
+              ownerEntry('/api/lists/90100');
+              for(let i=101;i<=110;i++)seedOwnerCache('/api/lists/'+(90000+i),{id:i});
+              const recentKept=ownerDataCache.has('/api/lists/90100');
+              const original=Date.now;Date.now=()=>original()+11*60*1000;
+              try{pruneOwnerData();return {size,firstGone,recentKept,remaining:[...ownerDataCache.keys()].filter(k=>!ownerPinned(k)).length,pinned:ownerDataCache.has('/api/lists')};}
+              finally{Date.now=original;}
+            }""")
+            assert result['size']<=32 and result['firstGone'] and result['recentKept']
+            assert result['remaining']==0 and result['pinned']
+            # Stale network response may not cross even a same-user session epoch.
+            assert page.evaluate("""async()=>{
+              const original=window.fetch;let resolve;
+              window.fetch=()=>new Promise(r=>resolve=r);
+              try{
+               const pending=api('/api/lists/99999').then(()=>false,e=>e.name==='AbortError');
+               clearOwnerDataCache();
+               resolve(new Response(JSON.stringify({private:'old-session'}),{status:200}));
+               return await pending && !ownerDataCache.has('/api/lists/99999');
+              }finally{window.fetch=original;}
+            }""")
+        finally:
+            browser.close()
+
+
+@pytest.mark.browser
+@pytest.mark.parametrize("engine", ["chromium","webkit"])
+def test_chat_incremental_history_and_cleanup(browser_https,application,engine):
+    from test_cloud import login,call
+    from cloud import db
+    owner=login(application)
+    eid=call(owner,'POST','/api/santas',{'title':'Chat performance regression'},201).json['id']
+    with db.transaction(write=True) as con:
+        pid=con.execute('SELECT id FROM participants WHERE event_id=?',(eid,)).fetchone()['id']
+        for i in range(65):
+            con.execute("INSERT INTO santa_messages(event_id,sender_id,room,message,created_at) VALUES(?,?,'general',?,now())",(eid,pid,f'perf-message-{i}'))
+    with sync_playwright() as play:
+        browser=getattr(play,engine).launch(headless=True)
+        try:
+            page=browser.new_context(ignore_https_errors=True,viewport={'width':390,'height':844}).new_page()
+            page.goto(browser_https+'/')
+            browser_login(page)
+            page.evaluate("id=>nav('/santa/'+id)",eid)
+            expect(page.locator('.chat-message')).to_have_count(60)
+            page.evaluate("window.chatLast=document.querySelector('.chat-message:last-child')")
+            page.locator('[data-chat-older]').click()
+            expect(page.locator('.chat-message')).to_have_count(65)
+            assert page.evaluate("chatLast===document.querySelector('.chat-message:last-child')")
+            with db.transaction(write=True) as con:
+                con.execute("INSERT INTO santa_messages(event_id,sender_id,room,message,created_at) VALUES(?,?,'general',?,now())",(eid,pid,'perf-live-new'))
+            requests=[]
+            page.on('request',lambda r: requests.append(r.url) if '/messages/' in r.url else None)
+            page.evaluate("document.dispatchEvent(new Event('visibilitychange'))")
+            expect(page.get_by_text('perf-live-new',exact=True)).to_be_visible()
+            assert any('?after=' in r for r in requests)
+            assert page.evaluate("chatLast.isConnected")
+            page.evaluate("nav('/lists')")
+            expect(page.locator('.wishlists-page')).to_be_visible()
+            assert page.evaluate("gameChatTimer===null && gameRosterTimer===null && gameLifecycleCleanup.length===0")
+        finally:
+            browser.close()
