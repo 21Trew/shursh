@@ -25,11 +25,11 @@
 .wishlist-view-tabs{margin-bottom:25px}
 .wishlist-view-tabs button,.notification-tabs button{border:1px solid var(--border);border-radius:100px;background:#fffefa;color:var(--ink);padding:11px 16px;min-height:44px;font-weight:750;position:relative;transition:background .18s ease,transform .18s ease,border-color .18s ease}
 .wishlist-view-tabs button:hover,.notification-tabs button:hover{background:#faf0d5;transform:translateY(-1px)}
-.wishlist-view-tabs button.active,.notification-tabs button.active{background:var(--yellow);border-color:#e4cf8c}
+.wishlist-view-tabs button[aria-selected="true"],.notification-tabs button[aria-selected="true"]{background:var(--yellow);border-color:#e4cf8c}
 .wishlist-filters{display:flex;flex-wrap:wrap;gap:8px;margin:0 0 19px}
 .filter-chip{border:1px solid var(--border);border-radius:100px;background:#fffefa;padding:9px 14px;min-height:44px;font-size:13px;font-weight:750;transition:background .18s ease}
 .filter-chip:hover{background:#f7f0df}
-.filter-chip.active{background:var(--mint);border-color:#a8c8b7}
+.filter-chip[aria-pressed="true"]{background:var(--mint);border-color:#a8c8b7}
 .friend-wishlist-grid .list-info .section-label{font-size:11px}
 .friend-wishlist-grid .list-info h3{margin-top:8px}
 .priority-nice{background:#f1ecdf;color:#65594f}
@@ -84,10 +84,7 @@
 
 /* 21 Nov follow-up: unified marker navigation, overlays and compact gifts. */
 .site-header .nav a::before{transition:opacity .14s ease,transform .25s ease}
-.site-header .nav a:not(.active):hover::before,.site-header .nav a:not(.active):focus-visible::before{
- opacity:.48;transform:translateY(-50%) rotate(-1deg) scaleX(1)
-}
-.site-header .nav a.active::before{animation:shursh-marker-stroke .35s cubic-bezier(.2,.7,.17,1) both}
+.site-header .nav a[aria-current]::before{animation:shursh-marker-stroke .35s cubic-bezier(.2,.7,.17,1) both}
 @keyframes shursh-marker-stroke{
  0%{clip-path:polygon(0 0,0 0,0 0,0 0);opacity:.35;transform:translateY(-50%) rotate(-1deg) scaleX(.85)}
  48%{clip-path:polygon(0 0,100% 0,28% 100%,0 100%)}
@@ -101,19 +98,16 @@
  transform:scaleX(.84);transform-origin:left center;pointer-events:none;
  transition:opacity .16s ease,transform .24s ease;
 }
-.wishlist-view-tabs button.active,.notification-tabs button.active,.filter-chip.active,.game-chat-tabs button[aria-pressed="true"]{
+.wishlist-view-tabs button[aria-selected="true"],.notification-tabs button[aria-selected="true"],.filter-chip[aria-pressed="true"],.game-chat-tabs button[aria-pressed="true"]{
  background:transparent!important;color:#29272b;border-color:#e5d3b5;
 }
-.wishlist-view-tabs button.active::before,.notification-tabs button.active::before,.filter-chip.active::before,.game-chat-tabs button[aria-pressed="true"]::before{
+.wishlist-view-tabs button[aria-selected="true"]::before,.notification-tabs button[aria-selected="true"]::before,.filter-chip[aria-pressed="true"]::before,.game-chat-tabs button[aria-pressed="true"]::before{
  opacity:.97;transform:scaleX(1);animation:shursh-tab-paint .34s cubic-bezier(.2,.7,.17,1) both;
 }
 @keyframes shursh-tab-paint{
  0%{clip-path:polygon(0 0,0 0,0 0,0 0);opacity:.3}
  50%{clip-path:polygon(0 0,100% 0,30% 100%,0 100%)}
  100%{clip-path:polygon(0 0,100% 0,100% 100%,0 100%);opacity:.97}
-}
-.wishlist-view-tabs button:not(.active):hover::before,.notification-tabs button:not(.active):hover::before,.filter-chip:not(.active):hover::before{
- opacity:.42;transform:scaleX(1)
 }
 .wishlist-view-tabs button:hover,.notification-tabs button:hover,.filter-chip:hover{background:transparent;transform:translateY(-1px)}
 .wishlist-filters{margin-top:8px}
@@ -207,8 +201,8 @@
  .friend-stack-heading .text-link svg{width:19px;height:19px}
 }
 @media(prefers-reduced-motion:reduce){
- .site-header .nav a.active::before,.wishlist-view-tabs button.active::before,
- .notification-tabs button.active::before,.filter-chip.active::before,
+ .site-header .nav a[aria-current]::before,.wishlist-view-tabs button[aria-selected="true"]::before,
+ .notification-tabs button[aria-selected="true"]::before,.filter-chip[aria-pressed="true"]::before,
  .game-chat-tabs button[aria-pressed="true"]::before{animation:none!important;clip-path:none!important}
  .scroll-to-top,.game-gift-overlay-actions{transition:none!important}
 }
@@ -269,28 +263,36 @@
  clip-path:polygon(0 7%,97% 0,100% 78%,90% 100%,3% 93%);
  transition:transform .3s cubic-bezier(.18,.74,.24,1),opacity .16s ease
 }
-.wishlist-view-tabs button.active::before,.notification-tabs button.active::before,
-.wishlist-filters .filter-chip.active::before,.game-chat-tabs button[aria-pressed="true"]::before,
-.santa-state-tabs button.active::before{
+.wishlist-view-tabs button[aria-selected="true"]::before,.notification-tabs button[aria-selected="true"]::before,
+.wishlist-filters .filter-chip[aria-pressed="true"]::before,.game-chat-tabs button[aria-pressed="true"]::before,
+.santa-state-tabs button[aria-selected="true"]::before{
  opacity:.98;transform:translateY(-50%) rotate(-1deg) scaleX(1);
  animation:shursh-marker-stroke .35s cubic-bezier(.2,.7,.17,1) both
-}
-.wishlist-view-tabs button:not(.active):hover::before,.notification-tabs button:not(.active):hover::before,
-.wishlist-filters .filter-chip:not(.active):hover::before,
-.santa-state-tabs button:not(.active):hover::before{
- opacity:.45;transform:translateY(-50%) rotate(-1deg) scaleX(1)
 }
 .wishlist-view-tabs button:hover,.notification-tabs button:hover,.wishlist-filters .filter-chip:hover,
 .game-chat-tabs button:hover,.santa-state-tabs button:hover{
  transform:none!important;background:transparent!important;box-shadow:none!important
 }
-.wishlist-view-tabs button.active,.notification-tabs button.active,.wishlist-filters .filter-chip.active,
-.game-chat-tabs button[aria-pressed="true"],.santa-state-tabs button.active{border:0!important}
-/* Chat selection is exclusive on every pointer type. Remove the actual
-   pseudo-element on inactive rooms, rather than fading it out: sticky
-   touch hover and animation fill must never resemble a selected room. */
+.wishlist-view-tabs button[aria-selected="true"],.notification-tabs button[aria-selected="true"],.wishlist-filters .filter-chip[aria-pressed="true"],
+.game-chat-tabs button[aria-pressed="true"],.santa-state-tabs button[aria-selected="true"]{border:0!important}
+/* Selection paint is exclusive. Focus is a separate outline and hover
+   never creates a second selected marker, including sticky iOS hover. */
+.site-header .nav a:not([aria-current])::before,
+:is(.wishlist-view-tabs,.notification-tabs,.santa-state-tabs) button:not([aria-selected="true"])::before,
+.wishlist-filters button:not([aria-pressed="true"])::before,
 .game-chat-tabs button:not([aria-pressed="true"])::before{
  content:none;opacity:0;animation:none;transition:none
+}
+:is(.wishlist-view-tabs,.notification-tabs,.santa-state-tabs,.wishlist-filters,.game-chat-tabs) button:focus-visible,
+.site-header .nav a:focus-visible{
+ outline:2px solid var(--focus-color);outline-offset:-2px
+}
+:is(.wishlist-view-tabs,.notification-tabs,.santa-state-tabs,.wishlist-filters,.game-chat-tabs) button{
+ max-width:100%;white-space:normal;overflow-wrap:anywhere;min-height:44px
+}
+@media(hover:none),(pointer:coarse){
+ .header-bell:hover:not(.active):not(:focus-visible):not(:has(.nav-unread:not([hidden]))){opacity:.48;background:transparent!important;color:var(--ink)!important}
+ .header-avatar:hover{background:#f3eae0;transform:none}
 }
 .santa-state-tabs .tab-count{font-size:11px;font-weight:800;color:#655c57}
 .santa-state-empty{text-align:center;padding:46px 18px;border-radius:24px;border:1px dashed #ded4c7;background:#fcf8ef}
@@ -351,9 +353,9 @@
  .santa-state-tabs button{padding-inline:10px}
 }
 @media(prefers-reduced-motion:reduce){
- .wishlist-view-tabs button.active::before,.notification-tabs button.active::before,
- .wishlist-filters .filter-chip.active::before,.game-chat-tabs button[aria-pressed="true"]::before,
- .santa-state-tabs button.active::before{animation:none!important;clip-path:none!important}
+ .wishlist-view-tabs button[aria-selected="true"]::before,.notification-tabs button[aria-selected="true"]::before,
+ .wishlist-filters .filter-chip[aria-pressed="true"]::before,.game-chat-tabs button[aria-pressed="true"]::before,
+ .santa-state-tabs button[aria-selected="true"]::before{animation:none!important;clip-path:none!important}
  .site-header{transition:none!important}
 }
 

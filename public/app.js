@@ -68,10 +68,7 @@ function restoreOwnerTab(path){
  const view=app.querySelector('#page-view');if(!view)return false;
  ownerTabViews.delete(path);view.replaceChildren(saved.node);
  view.removeAttribute('aria-busy');app.classList.remove('route-loading');
- app.querySelectorAll('.site-header .nav [data-nav]').forEach(link=>{
-  const href=link.dataset.nav;link.classList.toggle('active',href===path);
- });
- const bell=app.querySelector('.header-bell');if(bell)bell.classList.toggle('active',path==='/notifications');
+ syncNavigationSelection(path);
  renderedOwnerTab=path;
  const refreshPath=ownerApiForTab(path);
  const stale=refreshPath&&ownerDataCache.get(refreshPath);
@@ -617,14 +614,63 @@ function heroArt(){return `<svg viewBox="0 0 570 535" aria-hidden="true" role="p
  </g><g fill="#edc76c" stroke="#29292c" stroke-width="2"><path d="m161 343 7 19 20 6-20 7-7 20-7-20-20-7 20-6Z"/><path d="m444 310 6 14 14 6-14 6-6 15-5-15-15-6 15-6Z"/></g><path d="M130 252c-12-24-4-36 10-29 8 4 9 13 9 13s12-13 23-4c13 14-5 27-23 40Z" fill="#e98e86"/><path d="m460 212 13-3m-9-15 11-9" stroke="#27272b" stroke-width="3" stroke-linecap="round"/></svg>`;}
 function santaArt(){return `<svg viewBox="0 0 600 430" aria-hidden="true"><path d="M5 210c70-180 229-206 353-138s202 176 220 266v92H0Z" fill="#f3d1c2"/><g transform="translate(60 70) rotate(-12 110 145)"><rect x="25" y="32" width="195" height="232" rx="17" fill="#f5e8ce" stroke="#2c292b" stroke-width="4"/><path d="M45 72h150m-150 31h105m-105 31h130" stroke="#d5baa5" stroke-width="6" stroke-linecap="round"/><circle cx="122" cy="195" r="33" fill="#eeb5a0" stroke="#2c292b" stroke-width="3"/><path d="m106 197 12 12 24-26" stroke="#2c292b" stroke-width="5" fill="none"/></g><g transform="translate(310 91) rotate(13 110 125)"><rect x="18" y="25" width="202" height="230" rx="17" fill="#d4c5ef" stroke="#2c292b" stroke-width="4"/><path d="M19 45 119 139 219 45M19 250l71-91m129 91-72-91" stroke="#2c292b" stroke-width="4" fill="none"/><circle cx="118" cy="150" r="33" fill="#f8c18a" stroke="#2c292b" stroke-width="4"/><path d="M107 152c0-9 7-12 11-4 4-8 12-5 11 4-2 7-11 12-11 12s-11-5-11-12" fill="#fff"/></g><path d="M277 47v29m-14-14h29m204 217 7 17 17 8-17 7-7 17-8-17-17-7 17-8Z" stroke="#2c292b" stroke-width="3" fill="#f2d990"/></svg>`;}
 function stepArt(num){if(num===1)return `<svg viewBox="0 0 130 112">${fallbackArt('book').replace(/viewBox="[^"]*"/,'viewBox="0 0 170 160"')}</svg>`;if(num===2)return `<svg viewBox="0 0 130 112"><rect x="13" y="28" width="104" height="67" rx="10" fill="#fff" stroke="#29292b" stroke-width="3"/><path d="m15 40 50 38 50-38" stroke="#29292b" stroke-width="3" fill="none"/><circle cx="67" cy="73" r="15" fill="#e5bcf0" stroke="#29292b" stroke-width="2"/><path d="M62 72c1-5 5-5 6-1 4-6 9-2 7 3l-7 7Z" fill="#e27f9a"/></svg>`;return `<svg viewBox="0 0 130 112"><rect x="23" y="36" width="86" height="65" fill="#f1b0ac" stroke="#29292b" stroke-width="3"/><rect x="16" y="27" width="100" height="18" fill="#ffdc98" stroke="#29292b" stroke-width="3"/><path d="M65 28v72M65 28c-27 1-25-24-12-23 10 1 12 20 12 23Zm0 0c25-1 24-24 11-23-9 1-11 20-11 23Z" fill="#e5d1f4" stroke="#29292b" stroke-width="3"/></svg>`;}
-function header(){const path=currentPath();return `<header class="site-header"><div class="container topbar"><a class="logo" href="/" data-nav="/" aria-label="Шурш! Главная">шурш<span>!</span></a>${currentUser?`<nav class="nav" aria-label="Главная навигация"><a href="/" data-nav="/" class="${path==='/'?'active':''}">${currentUser?'Кабинет':'Главная'}</a><a href="/lists" data-nav="/lists" class="${path.startsWith('/lists')||path.startsWith('/list/')?'active':''}">Вишлисты</a><a href="/santas" data-nav="/santas" class="${path.startsWith('/santas')||path.startsWith('/santa/')?'active':''}">Тайный Санта</a>${!isPreview?`<a href="/friends" data-nav="/friends" class="${path==='/friends'?'active':''}">Друзья</a><a href="/profile" data-nav="/profile" class="${path==='/profile'||path.startsWith('/users/')?'active':''}">Профиль</a>${currentUser.is_admin?`<a href="/admin" data-nav="/admin" class="${path.startsWith('/admin')?'active':''}">Админка</a>`:''}`:''}</nav>`:""}<div class="header-actions">${currentUser?`<button class="header-bell ${path==='/notifications'?'active':''}" type="button" data-social-action="open-notifications" title="Уведомления" aria-label="Уведомления">${ico('bell',21)}<span class="nav-unread" data-notification-count hidden></span></button><button class="header-avatar" type="button" data-nav="/profile" aria-label="Открыть профиль" title="Открыть профиль">${esc(currentUser.avatar_emoji||"🎁")}</button><button class="btn btn-ghost" data-action="logout" title="Выйти">${ico('logout')} Выйти</button>`:`<button class="btn btn-ghost" data-open="login">Войти</button>`}</div></div></header>${isPreview?`<div class="preview-ribbon"><div class="container">Интерактивное демо · данные хранятся только в этом браузере · ссылки не работают на других устройствах <button type="button" data-action="reset-preview">Сбросить демо</button></div></div>`:''}`;}
+function navigationSection(path){
+ if(path==='/lists'||path.startsWith('/list/')||path.startsWith('/w/'))return '/lists';
+ if(path==='/santas'||path.startsWith('/santa/'))return '/santas';
+ if(path==='/profile')return '/profile';
+ if(path==='/friends'||path.startsWith('/users/'))return '/friends';
+ if(path==='/admin'||path.startsWith('/admin/'))return '/admin';
+ return path==='/'?'/':null;
+}
+function setAttrIfChanged(node,key,value){
+ if(node.getAttribute(key)!==value)node.setAttribute(key,value);
+}
+function syncNavigationSelection(path=currentPath()){
+ const section=navigationSection(path);
+ for(const link of app.querySelectorAll('.site-header .nav [data-nav]')){
+  const href=link.dataset.nav,selected=href===section;
+  if(link.classList.contains('active')!==selected)link.classList.toggle('active',selected);
+  if(selected)setAttrIfChanged(link,'aria-current',href===path?'page':'location');
+  else if(link.hasAttribute('aria-current'))link.removeAttribute('aria-current');
+ }
+ const bell=app.querySelector('.header-bell');
+ if(bell&&bell.classList.contains('active')!==(path==='/notifications'))bell.classList.toggle('active',path==='/notifications');
+}
+function syncSelection(group,chosen,attribute){
+ const buttons=group.querySelectorAll(attribute==='aria-selected'?'[role="tab"]':'button[aria-pressed]');
+ for(const b of buttons){
+  const selected=b===chosen;
+  if(b.classList.contains('active')!==selected)b.classList.toggle('active',selected);
+  setAttrIfChanged(b,attribute,String(selected));
+  if(attribute==='aria-selected'&&b.tabIndex!==(selected?0:-1))b.tabIndex=selected?0:-1;
+ }
+ if(attribute==='aria-selected'){
+  const panel=chosen.getAttribute('aria-controls');
+  const region=panel&&document.getElementById(panel);
+  if(region)setAttrIfChanged(region,'aria-labelledby',chosen.id);
+ }
+}
+// Automatic activation for the existing local tablists; native links retain
+// their browser keyboard semantics. Focus is separate from selected paint.
+document.addEventListener('keydown',event=>{
+ const tab=event.target.closest('[role="tab"]');
+ const group=tab?.closest('[role="tablist"]');
+ if(!group||event.altKey||event.ctrlKey||event.metaKey||event.shiftKey)return;
+ const buttons=[...group.querySelectorAll('[role="tab"]:not(:disabled)')],index=buttons.indexOf(tab);
+ if(index<0)return;
+ const key=event.key;
+ const next=key==='Home'?0:key==='End'?buttons.length-1:key==='ArrowRight'?(index+1)%buttons.length:key==='ArrowLeft'?(index+buttons.length-1)%buttons.length:-1;
+ if(next<0)return;
+ event.preventDefault();buttons[next].focus();buttons[next].click();
+});
+function header(){const path=currentPath();return `<header class="site-header"><div class="container topbar"><a class="logo" href="/" data-nav="/" aria-label="Шурш! Главная">шурш<span>!</span></a>${currentUser?`<nav class="nav" aria-label="Главная навигация"><a href="/" data-nav="/" class="${navigationSection(path)==='/'?'active':''}"${navigationSection(path)==='/'?' aria-current="'+(path==='/'?'page':'location')+'"':''}>${currentUser?'Кабинет':'Главная'}</a><a href="/lists" data-nav="/lists" class="${navigationSection(path)==='/lists'?'active':''}"${navigationSection(path)==='/lists'?' aria-current="'+(path==='/lists'?'page':'location')+'"':''}>Вишлисты</a><a href="/santas" data-nav="/santas" class="${navigationSection(path)==='/santas'?'active':''}"${navigationSection(path)==='/santas'?' aria-current="'+(path==='/santas'?'page':'location')+'"':''}>Тайный Санта</a>${!isPreview?`<a href="/friends" data-nav="/friends" class="${navigationSection(path)==='/friends'?'active':''}"${navigationSection(path)==='/friends'?' aria-current="'+(path==='/friends'?'page':'location')+'"':''}>Друзья</a><a href="/profile" data-nav="/profile" class="${navigationSection(path)==='/profile'?'active':''}"${navigationSection(path)==='/profile'?' aria-current="'+(path==='/profile'?'page':'location')+'"':''}>Профиль</a>${currentUser.is_admin?`<a href="/admin" data-nav="/admin" class="${navigationSection(path)==='/admin'?'active':''}"${navigationSection(path)==='/admin'?' aria-current="'+(path==='/admin'?'page':'location')+'"':''}>Админка</a>`:''}`:''}</nav>`:""}<div class="header-actions">${currentUser?`<button class="header-bell ${path==='/notifications'?'active':''}" type="button" data-social-action="open-notifications" title="Уведомления" aria-label="Уведомления">${ico('bell',21)}<span class="nav-unread" data-notification-count hidden></span></button><button class="header-avatar" type="button" data-nav="/profile" aria-label="Открыть профиль" title="Открыть профиль">${esc(currentUser.avatar_emoji||"🎁")}</button><button class="btn btn-ghost" data-action="logout" title="Выйти">${ico('logout')} Выйти</button>`:`<button class="btn btn-ghost" data-open="login">Войти</button>`}</div></div></header>${isPreview?`<div class="preview-ribbon"><div class="container">Интерактивное демо · данные хранятся только в этом браузере · ссылки не работают на других устройствах <button type="button" data-action="reset-preview">Сбросить демо</button></div></div>`:''}`;}
 function footer(){return `<footer class="container footer"><div><a class="logo" data-nav="/" href="/">шурш<span>!</span></a><small>Место для хотелок и сюрпризов</small></div><p class="footer-credit">Сделано с заботой о сюрпризах <span aria-hidden="true">·</span> <button class="footer-developer" type="button" data-action="contact-developer">L-code</button></p></footer>`;}
 let shellUserSignature='';
 let headerScrollQueued=false;
 let headerIsCondensed=false;
 function updateScrollTopButton(){
  const btn=document.getElementById('scroll-to-top');
- if(btn){const visible=scrollY>440;btn.classList.toggle('is-visible',visible);btn.tabIndex=visible?0:-1;btn.setAttribute('aria-hidden',String(!visible));}
+ if(btn){const visible=scrollY>440;if(btn.classList.contains('is-visible')!==visible)btn.classList.toggle('is-visible',visible);if(btn.tabIndex!==(visible?0:-1))btn.tabIndex=visible?0:-1;setAttrIfChanged(btn,'aria-hidden',String(!visible));}
 }
 // A fixed overlay cannot change document scroll height. Hysteresis prevents
 // flip-flopping near the collapse threshold without any extra DOM reads.
@@ -656,8 +702,9 @@ function attachNavigationScrollCue(){
  let scheduled=false;
  const sync=()=>{
   const remaining=Math.max(0,nav.scrollWidth-nav.clientWidth);
-  nav.classList.toggle('nav-scroll-more-right',remaining>2&&nav.scrollLeft<remaining-2);
-  nav.classList.toggle('nav-scroll-more-left',remaining>2&&nav.scrollLeft>2);
+  const right=remaining>2&&nav.scrollLeft<remaining-2,left=remaining>2&&nav.scrollLeft>2;
+  if(nav.classList.contains('nav-scroll-more-right')!==right)nav.classList.toggle('nav-scroll-more-right',right);
+  if(nav.classList.contains('nav-scroll-more-left')!==left)nav.classList.toggle('nav-scroll-more-left',left);
  };
  const schedule=()=>{
   if(scheduled)return;
@@ -700,20 +747,9 @@ function shell(body){
   if(head)head.outerHTML=header();
   app.querySelector('.site-header')?.classList.toggle('is-condensed',headerIsCondensed);
   shellUserSignature=identity;
- }else{
-  const path=currentPath();
-  app.querySelectorAll('.site-header .nav [data-nav]').forEach(link=>{
-   const href=link.dataset.nav;
-   const active=href==='/'?path==='/':
-     href==='/lists'?(path==='/lists'||path.startsWith('/list/')):
-     href==='/santas'?(path==='/santas'||path.startsWith('/santa/')):
-     href==='/profile'?(path==='/profile'||path.startsWith('/users/')):
-     href==='/admin'?path.startsWith('/admin'):href===path;
-   link.classList.toggle('active',active);
-  });
  }
+ syncNavigationSelection();
  attachNavigationScrollCue();
- const bell=app.querySelector('.header-bell');if(bell)bell.classList.toggle('active',currentPath()==='/notifications');
   closeUiSelect();view.innerHTML=body;enhanceSelects(view);view.removeAttribute('aria-busy');app.classList.remove('route-loading');
  renderedOwnerTab=ownerTab(currentPath())?currentPath():null;
  document.title='Шурш! - вишлисты и Тайный Санта';
@@ -795,6 +831,7 @@ function loading(){
  if(view&&renderStarted){
   // The old view has been detached. Render a lightweight loading skeleton
   // rather than leaving a blank screen for the duration of the API call.
+  syncNavigationSelection();
   app.classList.add('route-loading');
   view.setAttribute('aria-busy','true');
   view.innerHTML='<main class="container page route-skeleton" role="status" aria-label="Загружаем страницу">'+
@@ -851,8 +888,8 @@ async function listsPage(marker=lastRenderToken){
  const {lists}=await api('/api/lists');if(marker!==lastRenderToken)return;
  currentOwnedWishlists=lists;wishlistTabGeneration++;
  shell('<main class="container page wishlists-page"><div class="page-hero"><div><div class="section-label">Коллекция желаний</div><h1>Вишлисты</h1><p>Мои желания и открытые списки друзей</p></div><div class="btn-row"><button class="btn btn-dark" data-open="list">Новый список '+ico('plus')+'</button></div></div>'+
- '<div class="wishlist-view-tabs" role="tablist" aria-label="Вишлисты"><button type="button" role="tab" aria-selected="true" class="active" data-wishlist-view="mine">Мои вишлисты</button><button type="button" role="tab" aria-selected="false" data-wishlist-view="friends">Вишлисты друзей</button></div>'+
- '<div id="wishlist-view-content" role="tabpanel">'+
+ '<div class="wishlist-view-tabs" role="tablist" aria-label="Вишлисты"><button type="button" role="tab" id="wishlist-tab-mine" aria-controls="wishlist-view-content" aria-selected="true" tabindex="0" class="active" data-wishlist-view="mine">Мои вишлисты</button><button type="button" role="tab" id="wishlist-tab-friends" aria-controls="wishlist-view-content" aria-selected="false" tabindex="-1" data-wishlist-view="friends">Вишлисты друзей</button></div>'+
+ '<div id="wishlist-view-content" role="tabpanel" aria-labelledby="wishlist-tab-mine">'+
  ownWishlistTiles(lists)+
  '</div></main>');
 }
@@ -860,8 +897,8 @@ document.addEventListener('click',async event=>{
  const tab=event.target.closest('[data-wishlist-view]');
  if(tab){
   event.preventDefault();const tabs=tab.closest('[role="tablist"]');
-  if(tab.classList.contains('active'))return;
-  for(const el of tabs.querySelectorAll('[data-wishlist-view]')){const selected=el===tab;el.classList.toggle('active',selected);el.setAttribute('aria-selected',String(selected));}
+  if(tab.getAttribute('aria-selected')==='true')return;
+  syncSelection(tabs,tab,'aria-selected');
   const region=document.getElementById('wishlist-view-content');
   if(!region)return;
   const generation=++wishlistTabGeneration;
@@ -881,11 +918,16 @@ document.addEventListener('click',async event=>{
  if(filter){
   event.preventDefault();
   const panel=filter.closest('#wishlist-view-content');if(!panel)return;
-  for(const item of panel.querySelectorAll('[data-wishlist-filter]')){const selected=item===filter;item.classList.toggle('active',selected);item.setAttribute('aria-pressed',String(selected));}
-  for(const tile of panel.querySelectorAll('[data-occasion]'))
-   tile.hidden=filter.dataset.wishlistFilter!=='Все'&&tile.dataset.occasion!==filter.dataset.wishlistFilter;
-  for(const stack of panel.querySelectorAll('[data-friend-stack]'))
-   stack.hidden=![...stack.querySelectorAll('[data-occasion]')].some(tile=>!tile.hidden);
+  if(filter.getAttribute('aria-pressed')==='true')return;
+  syncSelection(filter.closest('.wishlist-filters'),filter,'aria-pressed');
+  for(const tile of panel.querySelectorAll('[data-occasion]')){
+   const hidden=filter.dataset.wishlistFilter!=='Все'&&tile.dataset.occasion!==filter.dataset.wishlistFilter;
+   if(tile.hidden!==hidden)tile.hidden=hidden;
+  }
+  for(const stack of panel.querySelectorAll('[data-friend-stack]')){
+   const hidden=![...stack.querySelectorAll('[data-occasion]')].some(tile=>!tile.hidden);
+   if(stack.hidden!==hidden)stack.hidden=hidden;
+  }
  }
 });
 function listCard(l){return `<article class="list-card"><a class="card-hitarea" href="/list/${l.id}" data-nav="/list/${l.id}" aria-label="Открыть вишлист ${attr(l.title)}"></a><div class="list-cover cover-${attr(l.theme)}"><span class="cover-stamp">${esc(l.occasion)}</span>${fallbackArt('gift')}</div><div class="list-info"><h3>${esc(l.title)}</h3><p>${esc(l.description||'Место для твоих желаний')}</p><div class="list-bottom"><span>${ruCount(l.wish_count,'желание','желания','желаний')}</span><button class="text-link" data-nav="/list/${l.id}">Открыть ${ico('arrow')}</button></div></div></article>`;}
@@ -1022,9 +1064,9 @@ async function santasPage(marker=lastRenderToken){if(!currentUser){shell(`<main 
  const pending=invitations.length?'<section class="panel santa-pending"><h2>Приглашения <span class="chip">'+invitations.length+'</span></h2>'+
   invitations.map(i=>'<article class="santa-pending-row"><div><strong>'+esc(i.title)+'</strong><p class="note">'+dateRu(i.exchange_date)+' · '+money(i.budget_cents,i.currency)+'</p></div><button type="button" class="btn btn-peach btn-small" data-action="accept-santa-invite" data-key="'+attr(i.invite_key)+'">Присоединиться</button></article>').join('')+'</section>':'';
  shell(`<main class="container page"><div class="page-hero"><div><div class="section-label">Секретная служба подарков</div><h1>Тайный Санта</h1><p>Здесь живут все твои секретные обмены подарками</p></div><div class="btn-row santa-actions-row"><button class="btn btn-soft" data-action="connect-game">Привязать игру по ссылке</button><button class="btn btn-peach" data-open="santa">Новая игра ${ico('plus')}</button></div></div>${pending}
- <div class="santa-state-tabs" role="tablist" aria-label="Статус игр"><button type="button" role="tab" aria-selected="true" class="active" data-santa-state="current">Текущие <span class="tab-count">${currentEvents.length}</span></button>
- <button type="button" role="tab" aria-selected="false" data-santa-state="finished">Завершённые <span class="tab-count">${finishedEvents.length}</span></button></div>
- <div id="santa-state-panel" role="tabpanel"><div class="santa-grid">${events.map(e=>`<div class="santa-list-card santa-tone-${santaTone(e.id)}" data-santa-card-state="${e.status==='finished'?'finished':'current'}" ${e.status==='finished'?'hidden':''}><a class="card-hitarea" href="/santa/${e.id}" data-nav="/santa/${e.id}" aria-label="Открыть игру ${attr(e.title)}"></a><span class="sparkle-deco" aria-hidden="true">${ico("spark",72)}</span><div class="section-label">${e.status==='finished'?'Игра завершена':e.status==='drawn'?'Жеребьёвка проведена':'Собираем компанию'}</div><h3>${esc(e.title)}</h3><p>${esc(e.description||'Собираем друзей для хороших сюрпризов')}</p><div class="list-bottom"><span>${ico('users')} ${ruCount(e.participant_count,'участник','участника','участников')} · ${dateRu(e.exchange_date)}</span><button class="text-link" data-nav="/santa/${e.id}">Открыть ${ico('arrow')}</button></div></div>`).join('')}</div>
+ <div class="santa-state-tabs" role="tablist" aria-label="Статус игр"><button type="button" role="tab" id="santa-tab-current" aria-controls="santa-state-panel" aria-selected="true" tabindex="0" class="active" data-santa-state="current">Текущие <span class="tab-count">${currentEvents.length}</span></button>
+ <button type="button" role="tab" id="santa-tab-finished" aria-controls="santa-state-panel" aria-selected="false" tabindex="-1" data-santa-state="finished">Завершённые <span class="tab-count">${finishedEvents.length}</span></button></div>
+ <div id="santa-state-panel" role="tabpanel" aria-labelledby="santa-tab-current"><div class="santa-grid">${events.map(e=>`<div class="santa-list-card santa-tone-${santaTone(e.id)}" data-santa-card-state="${e.status==='finished'?'finished':'current'}" ${e.status==='finished'?'hidden':''}><a class="card-hitarea" href="/santa/${e.id}" data-nav="/santa/${e.id}" aria-label="Открыть игру ${attr(e.title)}"></a><span class="sparkle-deco" aria-hidden="true">${ico("spark",72)}</span><div class="section-label">${e.status==='finished'?'Игра завершена':e.status==='drawn'?'Жеребьёвка проведена':'Собираем компанию'}</div><h3>${esc(e.title)}</h3><p>${esc(e.description||'Собираем друзей для хороших сюрпризов')}</p><div class="list-bottom"><span>${ico('users')} ${ruCount(e.participant_count,'участник','участника','участников')} · ${dateRu(e.exchange_date)}</span><button class="text-link" data-nav="/santa/${e.id}">Открыть ${ico('arrow')}</button></div></div>`).join('')}</div>
  <div class="santa-state-empty" ${currentEvents.length?'hidden':''}><h3>Пока нет текущих игр</h3><p>Создай игру или загляни в завершённые</p></div>
  </div></main>`);
 }
@@ -1034,17 +1076,16 @@ document.addEventListener('click',event=>{
  event.preventDefault();
  const panel=document.getElementById('santa-state-panel');if(!panel)return;
  const state=tab.dataset.santaState;
- for(const b of document.querySelectorAll('[data-santa-state]')){
-  const active=b===tab;b.classList.toggle('active',active);b.setAttribute('aria-selected',String(active));
- }
+ if(tab.getAttribute('aria-selected')==='true')return;
+ syncSelection(tab.closest('[role="tablist"]'),tab,'aria-selected');
  let visible=0;
  for(const card of panel.querySelectorAll('[data-santa-card-state]')){
   const match=card.dataset.santaCardState===state;
-  card.hidden=!match;if(match)visible++;
+  if(card.hidden===match)card.hidden=!match;if(match)visible++;
  }
  const empty=panel.querySelector('.santa-state-empty');
  if(empty){
-  empty.hidden=visible>0;
+  if(empty.hidden!==(visible>0))empty.hidden=visible>0;
   empty.innerHTML=state==='finished'?'<h3>Пока нет завершённых игр</h3><p>Законченные игры появятся здесь</p>':
    '<h3>Пока нет текущих игр</h3><p>Создай игру или загляни в завершённые</p>';
  }
@@ -2311,7 +2352,7 @@ document.addEventListener('click',async ev=>{
   }catch(err){notice(err.message,true)}
   return;
  }
- const n=ev.target.closest('[data-nav]');if(n){ev.preventDefault();nav(n.dataset.nav);return;}const op=ev.target.closest('[data-open]');if(op){ev.preventDefault();const key=op.dataset.open;if(key==='login'||key==='register'||key==='resend'){const email=op.closest('.modal')?.querySelector('#fld-email')?.value||op.dataset.email||'';if(key==='resend')resendConfirmationModal(email);else loginModal(key,email);}if(key==='list')listModal();if(key==='wish')wishModal();if(key==='santa')santaModal();return;}const a=ev.target.closest('[data-action]');if(a){ev.preventDefault();await dispatch(a.dataset.action,a);}});
+ const n=ev.target.closest('[data-nav]');if(n){if(n.tagName==='A'&&(ev.ctrlKey||ev.metaKey||ev.shiftKey||ev.altKey||ev.button!==0))return;ev.preventDefault();nav(n.dataset.nav);return;}const op=ev.target.closest('[data-open]');if(op){ev.preventDefault();const key=op.dataset.open;if(key==='login'||key==='register'||key==='resend'){const email=op.closest('.modal')?.querySelector('#fld-email')?.value||op.dataset.email||'';if(key==='resend')resendConfirmationModal(email);else loginModal(key,email);}if(key==='list')listModal();if(key==='wish')wishModal();if(key==='santa')santaModal();return;}const a=ev.target.closest('[data-action]');if(a){ev.preventDefault();await dispatch(a.dataset.action,a);}});
 window.addEventListener('popstate',()=>{rememberOwnerTab();if(restoreOwnerTab(currentPath()))lastRenderToken++;else render();});window.addEventListener('hashchange',()=>{if(isPreview)render();});
 if(!isPreview)(async()=>{
  if(confirmationToken&&!authReturnError){

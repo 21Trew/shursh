@@ -195,10 +195,8 @@ function notificationCategory(item){
 function renderNotificationModalTab(tab=notificationModalTab){
  const panel=modalRoot.querySelector('#notification-modal-list');if(!panel)return;
  notificationModalTab=tab;
- for(const button of modalRoot.querySelectorAll('[data-notification-tab]')){
-  const chosen=button.dataset.notificationTab===tab;
-  button.classList.toggle('active',chosen);button.setAttribute('aria-selected',String(chosen));
- }
+ const chosen=Array.from(modalRoot.querySelectorAll('[data-notification-tab]')).find(button=>button.dataset.notificationTab===tab);
+ if(chosen)syncSelection(chosen.closest('[role="tablist"]'),chosen,'aria-selected');
  const items=notificationModalItems.filter(item=>
   tab==='new'?!item.read_at:
   tab==='read'?!!item.read_at:
@@ -220,9 +218,9 @@ async function socialNotificationsModal(){
  const tabs=[['new','Новое'],['friends','Друзья'],['system','Системные'],['read','Прочитано']];
  modal({title:'Уведомления',subtitle:'Новости друзей, подарков и игр',
   content:'<div class="notification-dialog"><div class="notification-dialog-toolbar"><div class="notification-tabs" role="tablist" aria-label="Фильтр уведомлений">'+
-  tabs.map(([id,label])=>'<button type="button" role="tab" data-notification-tab="'+id+'" aria-selected="'+(id==='new'?'true':'false')+'" class="'+(id==='new'?'active':'')+'">'+label+'</button>').join('')+
+  tabs.map(([id,label])=>'<button type="button" role="tab" data-notification-tab="'+id+'" id="notification-tab-'+id+'" aria-controls="notification-modal-list" tabindex="'+(id==='new'?'0':'-1')+'" aria-selected="'+(id==='new'?'true':'false')+'" class="'+(id==='new'?'active':'')+'">'+label+'</button>').join('')+
   '</div><button type="button" class="notification-read-all" data-social-action="read-all-notifications" aria-label="Прочесть все" title="Прочесть все">'+ico('check')+'</button></div>'+
-  '<div id="notification-modal-list" role="tabpanel" aria-live="polite"></div></div>'});
+  '<div id="notification-modal-list" role="tabpanel" aria-labelledby="notification-tab-new" aria-live="polite"></div></div>'});
  const anchor=document.querySelector('header .header-bell')?.getBoundingClientRect();
  const overlay=modalRoot.querySelector('.modal-backdrop');
  if(overlay&&anchor){
@@ -241,7 +239,7 @@ async function socialNotificationsModal(){
 }
 document.addEventListener('click',event=>{
  const tab=event.target.closest('[data-notification-tab]');
- if(tab){event.preventDefault();renderNotificationModalTab(tab.dataset.notificationTab);}
+ if(tab){event.preventDefault();if(tab.getAttribute('aria-selected')!=='true')renderNotificationModalTab(tab.dataset.notificationTab);}
 });
 async function socialNotificationsPage(marker=lastRenderToken){
  if(!currentUser){loginModal();return;}
