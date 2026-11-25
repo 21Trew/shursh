@@ -183,10 +183,10 @@ function invalidateOwnerDataForMutation(path){
       (santaMutation&&key.startsWith('/api/santas')))dropOwnerRead(key);
  }
 }
-function seedOwnerCache(path,value){
+function seedOwnerCache(path,value,{derive=true}={}){
  if(!cacheableOwnerRead(path))return;
  putOwnerEntry(path,{value,expires:Date.now()+ownerCacheTTL(path)});
- if(path==='/api/dashboard'&&value?.user){
+ if(derive&&path==='/api/dashboard'&&value?.user){
   if(Array.isArray(value.lists)&&!ownerDataCache.has('/api/lists'))putOwnerEntry('/api/lists',{value:{lists:value.lists},expires:Date.now()+ownerCacheTTL('/api/lists')});
   if(Array.isArray(value.events)&&!ownerDataCache.has('/api/santas'))putOwnerEntry('/api/santas',{value:{events:value.events,invitations:value.invitations||[]},expires:Date.now()+ownerCacheTTL('/api/santas')});
  }
@@ -209,12 +209,12 @@ function patchOwnerNode(old,next){
   old.replaceWith(next.cloneNode(true));return;
  }
  if(old.nodeType!==1){old.nodeValue=next.nodeValue;return;}
- if(old.matches('form#social-search-form,#social-search-results'))return;
+ if(old.matches('form#social-search-form,#social-search-results,[data-notification-history],[data-notification-pagination][data-loaded]'))return;
  if(old.matches('input,textarea,select')){
   if(old.type==='checkbox'&&old.checked===old.defaultChecked){old.checked=next.checked;old.defaultChecked=next.defaultChecked;}
   return;
  }
- for(const a of [...old.attributes])if(!next.hasAttribute(a.name))old.removeAttribute(a.name);
+ for(const a of [...old.attributes])if(!next.hasAttribute(a.name)&&!(a.name==='data-keyboard-focus'&&old===document.activeElement))old.removeAttribute(a.name);
  for(const a of next.attributes)if(old.getAttribute(a.name)!==a.value)old.setAttribute(a.name,a.value);
  const key=n=>n.nodeType===1?(n.id||n.getAttribute('data-nav')||n.getAttribute('data-wishlist-filter')||n.getAttribute('data-santa-state')||n.getAttribute('data-message-id')||n.getAttribute('data-notification-id')||n.getAttribute('data-person-id')||n.querySelector(':scope > [data-nav]')?.getAttribute('data-nav')||(n.matches('section.panel')?n.querySelector(':scope > h2')?.firstChild?.textContent:null)||null):null;
  let cursor=old.firstChild;
@@ -248,7 +248,12 @@ function updateOwnerView(path,value){
  if(!tab)return;
  const root=renderedOwnerTab===tab&&currentPath()===tab?app.querySelector('#page-view > main'):ownerTabViews.get(tab)?.node;
  if(path==='/api/notifications'&&modalRoot.querySelector('.notification-dialog')){
-  notificationModalItems=value.items||[];renderNotificationModalTab(notificationModalTab);
+  const recent=value.items||[];
+  const oldest=recent.at(-1)?.id??0;
+  const older=notificationModalItems.filter(n=>n.id<oldest);
+  notificationModalItems=mergeNotificationItems(recent,older);
+  if(!older.length)notificationModalMore=!!value.has_more;
+  notificationModalUnread=value.unread||0;renderNotificationModalTab(notificationModalTab);
  }
  if(tab==='/lists'&&path==='/api/lists')currentOwnedWishlists=value.lists||[];
  if(!root)return;
@@ -276,6 +281,7 @@ function revalidateOwnerRead(path,entry){
    if(!response.ok){
     if((response.status===401||response.status===403||response.status===404)&&epoch===ownerSessionEpoch&&ownerDataCache.get(path)===entry){
      dropOwnerRead(path);
+     if(response.status===401){clearOwnerDataCache();currentUser=null;renderStarted=false;closeModal();void render();return;}
      if(!ownerPinned(path))return;
      const tab=['/','/lists','/santas','/friends','/profile','/notifications'].find(t=>ownerApiForTab(t)===path);
      if(tab)clearOwnerTabViews([tab]);
@@ -283,10 +289,13 @@ function revalidateOwnerRead(path,entry){
     return;
    }
    const value=await response.json();
-   if(path==='/api/dashboard'&&value.user?.id!==identity)return;
+   if(path==='/api/dashboard'&&value.user?.id!==identity){
+    if(epoch===ownerSessionEpoch&&currentUser?.id===identity){clearOwnerDataCache();currentUser=null;renderStarted=false;closeModal();void render();}
+    return;
+   }
    if(epoch!==ownerSessionEpoch||currentUser?.id!==identity||ownerDataCache.get(path)!==entry)return;
    const changed=JSON.stringify(value)!==JSON.stringify(entry.value);
-   seedOwnerCache(path,value);
+   seedOwnerCache(path,value,{derive:false});
    if(changed)updateOwnerView(path,value);
   }catch{
    // A network outage must not destroy a previously rendered private page.
@@ -350,7 +359,7 @@ async function api(path,opts={}){
  if(cached){
   const pending={request,version,epoch};ownerPending.set(path,pending);
   request.then(value=>{
-   if(ownerSessionEpoch===epoch&&currentUser?.id===identity&&ownerPending.get(path)===pending)seedOwnerCache(path,value);
+   if(ownerSessionEpoch===epoch&&currentUser?.id===identity&&ownerPending.get(path)===pending)seedOwnerCache(path,value,{derive:ownerCacheVersion===version});
   },()=>{}).finally(()=>{if(ownerPending.get(path)===pending)ownerPending.delete(path);});
  }
  return request;
