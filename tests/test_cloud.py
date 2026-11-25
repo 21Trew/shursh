@@ -2519,6 +2519,11 @@ def test_admin_directory_profile_link_does_not_bypass_private_content(applicatio
     manager=login(application)
     hidden=login(application,'other@example.test')
     uid=str(IDS['other@example.test'])
+    # The integration suite shares its disposable DB; explicitly establish
+    # non-friend access before testing the administrator exception.
+    call(manager,'DELETE','/api/friends/'+uid,{})
+    call(hidden,'PATCH','/api/profile/me',{'discoverable':True})
+    assert call(manager,'GET','/api/users/'+uid).json['relationship']=='none'
     call(hidden,'PATCH','/api/profile/me',{'discoverable':False,'bio':'Private bio','city':'Private city'})
     call(hidden,'POST','/api/lists',{'title':'Hidden wish list','visibility':'private'},201)
     call(hidden,'POST','/api/santas',{'title':'Hidden game'},201)
@@ -2535,6 +2540,7 @@ def test_admin_directory_profile_link_does_not_bypass_private_content(applicatio
     assert not any(u['id']==uid for u in call(manager,'GET','/api/users/search?q=Other').json['users'])
     monkeypatch.delenv('SHURSH_ADMIN_EMAILS')
     call(manager,'GET',path,status=404)
+    call(hidden,'PATCH','/api/profile/me',{'discoverable':True,'bio':'','city':''})
 
 
 def test_cross_user_wishlist_santa_and_capability_isolation(application):
