@@ -71,8 +71,12 @@ function restoreOwnerTab(path){
  syncNavigationSelection(path);
  renderedOwnerTab=path;
  const refreshPath=ownerApiForTab(path);
- const stale=refreshPath&&ownerDataCache.get(refreshPath);
+ const stale=refreshPath&&ownerEntry(refreshPath);
  if(stale&&stale.expires<=Date.now())void revalidateOwnerRead(refreshPath,stale);
+ if(path==='/lists'&&view.querySelector('[data-wishlist-view="friends"][aria-selected="true"]')){
+  const friends=ownerEntry('/api/friends/wishlists');
+  if(friends&&friends.expires<=Date.now())void revalidateOwnerRead('/api/friends/wishlists',friends);
+ }
  return true;
 }
 
@@ -89,6 +93,34 @@ function nav(path,{force=false}={}){
 }
 // Cache only authenticated owner data in RAM, never public bearer-link data.
 const ownerDataCache=new Map();
+const OWNER_DATA_LIMIT=32;
+const OWNER_DETAIL_RETENTION=10*60*1000;
+const ownerPending=new Map();
+let ownerSessionEpoch=0;
+function ownerPinned(path){return !/^\/api\/(?:lists|santas)\/\d+$/.test(path);}
+function pruneOwnerData(){
+ const now=Date.now();
+ for(const [key,entry] of ownerDataCache)
+  if(!ownerPinned(key)&&!entry.promise&&entry.retainUntil<=now)ownerDataCache.delete(key);
+ while(ownerDataCache.size>OWNER_DATA_LIMIT){
+  const key=[...ownerDataCache.keys()].find(key=>!ownerPinned(key));
+  if(!key)break;
+  ownerDataCache.delete(key);
+ }
+}
+function ownerEntry(path){
+ pruneOwnerData();
+ const entry=ownerDataCache.get(path);
+ if(entry){ownerDataCache.delete(path);ownerDataCache.set(path,entry);}
+ return entry;
+}
+function putOwnerEntry(path,entry){
+ ownerDataCache.delete(path);
+ ownerDataCache.set(path,{...entry,retainUntil:Date.now()+OWNER_DETAIL_RETENTION});
+ pruneOwnerData();
+ return ownerDataCache.get(path);
+}
+function sessionChangedError(){const error=new Error('Сессия изменилась');error.name='AbortError';return error;}
 let ownerCacheVersion=0;
 function ownerCacheTTL(path){return /^\/api\/(?:santas|lists)\/\d+/.test(path)?30000:45000;}
 function cacheableOwnerRead(path){
@@ -97,7 +129,7 @@ function cacheableOwnerRead(path){
   /^\/api\/(?:lists|santas)\/\d+$/.test(path));
 }
 function clearOwnerDataCache(){
- ownerCacheVersion++;ownerDataCache.clear();clearOwnerTabViews();ownerRevalidating.clear();
+ ownerCacheVersion++;ownerSessionEpoch++;ownerDataCache.clear();clearOwnerTabViews();ownerRevalidating.clear();ownerPending.clear();renderedOwnerTab=null;wishlistTabGeneration++;
  ownerWarmupIdentity=null;ownerWarmupReady=false;ownerWarmupPromise=null;
 }
 function invalidateOwnerDataForMutation(path){
@@ -146,20 +178,76 @@ function invalidateOwnerDataForMutation(path){
 }
 function seedOwnerCache(path,value){
  if(!cacheableOwnerRead(path))return;
- ownerDataCache.set(path,{value,expires:Date.now()+ownerCacheTTL(path)});
+ putOwnerEntry(path,{value,expires:Date.now()+ownerCacheTTL(path)});
  if(path==='/api/dashboard'&&value?.user){
-  if(Array.isArray(value.lists))ownerDataCache.set('/api/lists',{value:{lists:value.lists},expires:Date.now()+ownerCacheTTL('/api/lists')});
-  if(Array.isArray(value.events))ownerDataCache.set('/api/santas',{value:{events:value.events,invitations:value.invitations||[]},expires:Date.now()+ownerCacheTTL('/api/santas')});
+  if(Array.isArray(value.lists)&&!ownerDataCache.has('/api/lists'))putOwnerEntry('/api/lists',{value:{lists:value.lists},expires:Date.now()+ownerCacheTTL('/api/lists')});
+  if(Array.isArray(value.events)&&!ownerDataCache.has('/api/santas'))putOwnerEntry('/api/santas',{value:{events:value.events,invitations:value.invitations||[]},expires:Date.now()+ownerCacheTTL('/api/santas')});
  }
 }
 function cachedOwnerValue(path){
- const entry=ownerDataCache.get(path);
+ const entry=ownerEntry(path);
  return entry&&Object.hasOwn(entry,'value')?entry.value:null;
 }
 function ownerApiForTab(path){
  return ({'/':'/api/dashboard','/lists':'/api/lists','/santas':'/api/santas',
   '/friends':'/api/friends','/profile':'/api/profile/me',
   '/notifications':'/api/notifications'})[path]||null;
+}
+// Patch the existing tree, not the shell. Equal subtrees and live form
+// controls survive; route-specific renderers supply trusted escaped markup.
+let ownerPatchRoot=null;
+function patchOwnerNode(old,next){
+ if(old.isEqualNode(next))return;
+ if(old.nodeType!==next.nodeType||old.nodeName!==next.nodeName){
+  old.replaceWith(next.cloneNode(true));return;
+ }
+ if(old.nodeType!==1){old.nodeValue=next.nodeValue;return;}
+ if(old.matches('input,textarea,select,form#social-search-form,#social-search-results'))return;
+ for(const a of [...old.attributes])if(!next.hasAttribute(a.name))old.removeAttribute(a.name);
+ for(const a of next.attributes)if(old.getAttribute(a.name)!==a.value)old.setAttribute(a.name,a.value);
+ const key=n=>n.nodeType===1?(n.id||n.getAttribute('data-nav')||n.querySelector(':scope > [data-nav]')?.getAttribute('data-nav')||null):null;
+ let cursor=old.firstChild;
+ for(const child of [...next.childNodes]){
+  const k=key(child);
+  const match=k?[...old.childNodes].find(n=>key(n)===k):cursor;
+  if(!match){old.insertBefore(child.cloneNode(true),cursor);continue;}
+  if(match!==cursor)old.insertBefore(match,cursor);
+  const after=match.nextSibling;
+  patchOwnerNode(match,child);cursor=after;
+ }
+ while(cursor){const after=cursor.nextSibling;cursor.remove();cursor=after;}
+}
+function refreshOwnerWishlistPanel(root,lists,mode){
+ const panel=root.querySelector('#wishlist-view-content');if(!panel)return;
+ const selected=panel.querySelector('[data-wishlist-filter][aria-pressed="true"]')?.dataset.wishlistFilter||'Все';
+ const next=panel.cloneNode(false);
+ next.innerHTML=mode==='friends'?friendWishlistTiles(lists):ownWishlistTiles(lists);
+ const filter=[...next.querySelectorAll('[data-wishlist-filter]')].find(n=>n.dataset.wishlistFilter===selected)||next.querySelector('[data-wishlist-filter]');
+ if(filter){
+  for(const b of next.querySelectorAll('[data-wishlist-filter]')){b.classList.toggle('active',b===filter);b.setAttribute('aria-pressed',String(b===filter));}
+  for(const tile of next.querySelectorAll('[data-occasion]'))tile.hidden=filter.dataset.wishlistFilter!=='Все'&&tile.dataset.occasion!==filter.dataset.wishlistFilter;
+  for(const stack of next.querySelectorAll('[data-friend-stack]'))stack.hidden=![...stack.querySelectorAll('[data-occasion]')].some(tile=>!tile.hidden);
+ }
+ patchOwnerNode(panel,next);
+}
+function updateOwnerView(path,value){
+ const tab=path==='/api/friends/wishlists'?'/lists':['/','/lists','/santas','/friends','/profile','/notifications'].find(t=>ownerApiForTab(t)===path);
+ if(!tab)return;
+ const root=renderedOwnerTab===tab&&currentPath()===tab?app.querySelector('#page-view > main'):ownerTabViews.get(tab)?.node;
+ if(!root)return;
+ if(tab==='/lists'){
+  if(path==='/api/lists')currentOwnedWishlists=value.lists||[];
+  const mode=root.querySelector('[data-wishlist-view][aria-selected="true"]')?.dataset.wishlistView;
+  if(mode===(path==='/api/lists'?'mine':'friends'))refreshOwnerWishlistPanel(root,value.lists||[],mode);
+  return;
+ }
+ // Render only the affected owner page using the response already in RAM.
+ // shell() intercepts the markup and patches the existing main.
+ const renderers={'/':()=>dashboardContent(value),'/santas':()=>santasPage(lastRenderToken,value),
+  '/friends':()=>socialFriendsPage(lastRenderToken,value),'/profile':()=>socialOwnProfilePage(lastRenderToken,value),
+  '/notifications':()=>socialNotificationsPage(lastRenderToken,value)};
+ ownerPatchRoot=root;
+ try{renderers[tab]?.();}finally{ownerPatchRoot=null;}
 }
 const ownerRevalidating=new Map();
 function revalidateOwnerRead(path,entry){
@@ -171,18 +259,11 @@ function revalidateOwnerRead(path,entry){
    const response=await fetch(path,{credentials:'same-origin',headers:{Accept:'application/json'}});
    if(!response.ok)return;
    const value=await response.json();
+   if(path==='/api/dashboard'&&value.user?.id!==identity)return;
    if(version!==ownerCacheVersion||currentUser?.id!==identity||ownerDataCache.get(path)!==entry)return;
    const changed=JSON.stringify(value)!==JSON.stringify(entry.value);
    seedOwnerCache(path,value);
-   if(changed){
-    const tab=Object.keys({'/':'/api/dashboard','/lists':'/api/lists',
-     '/santas':'/api/santas','/friends':'/api/friends','/profile':'/api/profile/me',
-     '/notifications':'/api/notifications'}).find(tab=>ownerApiForTab(tab)===path);
-    if(tab){
-     clearOwnerTabViews([tab]);
-     if(renderedOwnerTab===tab)renderedOwnerTab=null;
-    }
-   }
+   if(changed)updateOwnerView(path,value);
   }catch{
    // A network outage must not destroy a previously rendered private page.
   }
@@ -207,9 +288,11 @@ function scheduleOwnerWarmup(){
 async function api(path,opts={}){
  if(isPreview)return window.previewApi(path,opts);
  const method=opts.method||'GET',cached=method==='GET'&&cacheableOwnerRead(path);
+ const epoch=ownerSessionEpoch,identity=currentUser?.id;
  if(cached){
-  const entry=ownerDataCache.get(path);
-  if(entry?.promise)return entry.promise;
+  const pending=ownerPending.get(path);
+  if(pending?.version===ownerCacheVersion&&pending.epoch===epoch)return pending.request;
+  const entry=ownerEntry(path);
   if(entry&&Object.hasOwn(entry,'value')){
    if(entry.expires<=Date.now())void revalidateOwnerRead(path,entry);
    return entry.value;
@@ -226,16 +309,15 @@ async function api(path,opts={}){
    signal:opts.signal});
   const data=await response.json().catch(()=>({error:'Не удалось прочитать ответ сервера'}));
   if(!response.ok){const err=new Error(data.error||'Произошла ошибка');err.status=response.status;throw err;}
+  if(epoch!==ownerSessionEpoch||currentUser?.id!==identity)throw sessionChangedError();
   if(method!=='GET')invalidateOwnerDataForMutation(path);
   return data;
  })();
  if(cached){
-  ownerDataCache.set(path,{promise:request,expires:Date.now()+ownerCacheTTL(path)});
+  const pending={request,version,epoch};ownerPending.set(path,pending);
   request.then(value=>{
-   if(ownerCacheVersion===version&&ownerDataCache.get(path)?.promise===request)seedOwnerCache(path,value);
-  },()=>{
-   if(ownerDataCache.get(path)?.promise===request)ownerDataCache.delete(path);
-  });
+   if(ownerCacheVersion===version&&ownerSessionEpoch===epoch&&currentUser?.id===identity&&ownerPending.get(path)===pending)seedOwnerCache(path,value);
+  },()=>{}).finally(()=>{if(ownerPending.get(path)===pending)ownerPending.delete(path);});
  }
  return request;
 }
@@ -742,6 +824,24 @@ function ensureCookieNotice(){
  document.body.appendChild(node);
 }
 function shell(body){
+ if(ownerPatchRoot){
+  const template=document.createElement('template');template.innerHTML=body;
+  const next=template.content.firstElementChild;
+  if(next){
+   const santaState=ownerPatchRoot.querySelector('[data-santa-state][aria-selected="true"]')?.dataset.santaState;
+   if(santaState==='finished'){
+    for(const tab of next.querySelectorAll('[data-santa-state]')){
+     const active=tab.dataset.santaState===santaState;
+     tab.classList.toggle('active',active);tab.setAttribute('aria-selected',String(active));tab.tabIndex=active?0:-1;
+    }
+    const panel=next.querySelector('#santa-state-panel');if(panel)panel.setAttribute('aria-labelledby','santa-tab-finished');
+    for(const card of next.querySelectorAll('[data-santa-card-state]'))card.hidden=card.dataset.santaCardState!==santaState;
+    const empty=next.querySelector('.santa-state-empty');if(empty){empty.hidden=!!next.querySelector('[data-santa-card-state="finished"]');empty.innerHTML='<h3>Пока нет завершённых игр</h3><p>Законченные игры появятся здесь</p>';}
+   }
+   patchOwnerNode(ownerPatchRoot,next);
+  }
+  return;
+ }
  ensureCookieNotice();
  const identity=(currentUser?.id??'guest')+':'+(currentUser?.name??'')+':'+(currentUser?.avatar_emoji??'')+':'+!!currentUser?.is_admin+':'+isDemo+':'+isPreview;
  let view=app.querySelector('#page-view');
@@ -827,7 +927,6 @@ async function dashboardPage(marker=lastRenderToken){
  const data=isPreview?await Promise.all([api('/api/lists'),api('/api/santas')]).then(([a,b])=>({user:currentUser,lists:a.lists,events:b.events})):await api('/api/dashboard');
  if(marker!==lastRenderToken)return;
  if(!isPreview&&!data.user){clearOwnerDataCache();currentUser=null;home();return;}
- if(!isPreview)seedOwnerCache('/api/dashboard',data);
  dashboardContent(data);
 }
 function home(){shell(`<main><section class="container hero"><div class="hero-copy"><div class="eyebrow">${ico('spark')} Сервис хороших сюрпризов</div><h1>Подарки, о которых <em>не нужно</em> догадываться</h1><p class="hero-description">Собирай желания, делись ими с близкими и устраивай Тайного Санту без бумажек и путаницы</p><div class="btn-row"><button class="btn btn-dark" data-open="list">Создать вишлист ${ico('arrow')}</button><button class="btn btn-peach" data-open="santa">Играть в Тайного Санту ${ico('gift')}</button></div></div><div class="hero-visual">${heroArt()}<div class="tiny-bubble bubble-heart">${ico('heart')} кое-кто уже мечтает</div><div class="tiny-bubble bubble-gift">сюрприз на подходе</div></div></section>
@@ -923,7 +1022,7 @@ document.addEventListener('click',async event=>{
   region.innerHTML='<p class="note" role="status">Загружаем вишлисты друзей…</p>';
   try{
    const result=await api('/api/friends/wishlists');
-   if(generation!==wishlistTabGeneration)return;
+   if(generation!==wishlistTabGeneration||!region.isConnected)return;
    region.innerHTML=friendWishlistTiles(result.lists||[]);
   }catch(err){if(generation===wishlistTabGeneration)region.innerHTML='<p class="note">'+esc(err.message)+'</p>';}
   return;
@@ -1071,8 +1170,8 @@ async function adminFeedbackPage(marker=lastRenderToken){
    '" data-status="'+(item.status==='resolved'?'new':'resolved')+'">'+(item.status==='resolved'?'Вернуть в новые':'Отметить решённым')+'</button></div></article>'
   ).join('')+'</div>':'<div class="panel"><p>Сообщений пока нет</p></div>')+'</main>');
 }
-async function santasPage(marker=lastRenderToken){if(!currentUser){shell(`<main class="container page"><div class="page-hero"><div><div class="section-label">Под прикрытием</div><h1>Тайный Санта</h1><p>Чтобы организовать игру, нужно войти. Участникам тоже потребуется зарегистрироваться</p></div><button class="btn btn-dark" data-open="login">Войти ${ico('arrow')}</button></div>${emptyState('Собери компанию','Укажи бюджет, зови друзей и проведи честную жеребьёвку','Создать игру','santa')}</main>`);return;}
- const {events,invitations=[]}=await api('/api/santas');if(marker!==lastRenderToken)return;
+async function santasPage(marker=lastRenderToken,snapshot=null){if(!currentUser){shell(`<main class="container page"><div class="page-hero"><div><div class="section-label">Под прикрытием</div><h1>Тайный Санта</h1><p>Чтобы организовать игру, нужно войти. Участникам тоже потребуется зарегистрироваться</p></div><button class="btn btn-dark" data-open="login">Войти ${ico('arrow')}</button></div>${emptyState('Собери компанию','Укажи бюджет, зови друзей и проведи честную жеребьёвку','Создать игру','santa')}</main>`);return;}
+ const {events,invitations=[]}=snapshot||await api('/api/santas');if(marker!==lastRenderToken)return;
  const currentEvents=events.filter(e=>e.status!=='finished');
  const finishedEvents=events.filter(e=>e.status==='finished');
  const pending=invitations.length?'<section class="panel santa-pending"><h2>Приглашения <span class="chip">'+invitations.length+'</span></h2>'+
@@ -1924,7 +2023,7 @@ function offerLoginCredential(email,password){
  try{void navigator.credentials.store(new window.PasswordCredential({id:email,password})).catch(()=>{});}catch{}
 }
 async function authSuccess(result,register){
- currentUser=result.user;broadcastSessionChange();
+ clearOwnerDataCache();currentUser=result.user;broadcastSessionChange();
  if(pendingGameClaim){
   const claim=pendingGameClaim;
   try{await claimPersonalGame(claim);}
@@ -2374,7 +2473,7 @@ if(!isPreview)(async()=>{
   try{
    const token=confirmationToken;confirmationToken=null;
    const result=await api('/api/auth/complete',{method:'POST',body:{access_token:token}});
-   currentUser=result.user;broadcastSessionChange();
+   clearOwnerDataCache();currentUser=result.user;broadcastSessionChange();
    authReturnNotice='Почта подтверждена! Ты вошёл в аккаунт';
    if(pendingGameClaim){
     const claim=pendingGameClaim;
