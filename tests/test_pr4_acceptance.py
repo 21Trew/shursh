@@ -2179,6 +2179,24 @@ def test_owner_cache_revalidation_lru_session_and_dom(browser_https,application,
             }""")
             assert result['size']<=32 and result['firstGone'] and result['recentKept']
             assert result['remaining']==0 and result['pinned']
+            assert page.evaluate("""()=>{
+              seedOwnerCache('/api/lists/99998',{large:'x'.repeat(5*1024*1024)});
+              return !ownerDataCache.has('/api/lists/99998');
+            }""")
+            # A GET started before a write cannot overwrite the newer result.
+            assert page.evaluate("""async()=>{
+              const original=window.fetch;const callbacks=[];
+              window.fetch=()=>new Promise(resolve=>callbacks.push(resolve));
+              try{
+               const old=api('/api/lists/99997');
+               invalidateOwnerDataForMutation('/api/lists/99997');
+               const fresh=api('/api/lists/99997');
+               callbacks[1](new Response(JSON.stringify({value:'fresh'}),{status:200}));
+               await fresh;
+               callbacks[0](new Response(JSON.stringify({value:'old'}),{status:200}));
+               return (await old).value==='fresh'&&ownerDataCache.get('/api/lists/99997').value.value==='fresh'&&callbacks.length===2;
+              }finally{window.fetch=original;}
+            }""")
             # Stale network response may not cross even a same-user session epoch.
             assert page.evaluate("""async()=>{
               const original=window.fetch;let resolve;
@@ -2227,6 +2245,31 @@ def test_chat_incremental_history_and_cleanup(browser_https,application,engine):
             assert page.evaluate("chatLast.isConnected")
             page.evaluate("nav('/lists')")
             expect(page.locator('.wishlists-page')).to_be_visible()
-            assert page.evaluate("gameChatTimer===null && gameRosterTimer===null && gameLifecycleCleanup.length===0")
+            assert page.evaluate("gameChatTimer===null && gameRosterTimer===null && gameLifecycleCleanup.length===0 && gameGiftDisposers.size===0")
+            # Repeated route lifecycle, not a heap-size claim: every exit
+            # must release timers, listeners and observers.
+            for _ in range(3):
+                page.evaluate("id=>nav('/santa/'+id)",eid)
+                expect(page.locator('#game-chat')).to_be_visible()
+                page.evaluate("nav('/lists')")
+                expect(page.locator('.wishlists-page')).to_be_visible()
+                assert page.evaluate("gameChatTimer===null && gameRosterTimer===null && gameLifecycleCleanup.length===0 && gameGiftDisposers.size===0")
+            from test_cloud import IDS
+            with db.transaction(write=True) as con:
+                for i in range(65):
+                    con.execute("INSERT INTO social_notifications(recipient_id,kind,message,target_path) VALUES(?,'wishlist_new',?,'/')",
+                                (IDS['owner@example.test'],f'perf-{engine}-notice-{i}'))
+            page.evaluate("dropOwnerRead('/api/notifications');nav('/notifications',{force:true})")
+            expect(page.get_by_text(f'perf-{engine}-notice-64',exact=True)).to_be_visible()
+            page.evaluate("window.noticeFirst=document.querySelector('[data-notification-id]')")
+            page.locator('[data-notification-pagination] [data-social-action="notification-older"]').click()
+            expect(page.get_by_text(f'perf-{engine}-notice-0',exact=True)).to_be_visible()
+            assert page.evaluate("noticeFirst===document.querySelector('[data-notification-id]')")
+            page.locator('header .header-bell').click()
+            expect(page.locator('.notification-dialog')).to_be_visible()
+            page.locator('.notification-dialog [data-social-action="notification-older"]').click()
+            expect(page.locator('.notification-dialog').get_by_text(f'perf-{engine}-notice-0',exact=True)).to_be_visible()
+            page.locator('.modal-close').click()
+            assert page.evaluate("notificationModalItems.length===0")
         finally:
             browser.close()
