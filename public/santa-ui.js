@@ -48,7 +48,7 @@ async function refreshGameOwnWishes(state){
  const root=document.querySelector('.my-wishes-list');
  if(!root)return;
  const result=await api(state.base+(state.base.startsWith('/api/santas/')?'/my-wishes':'/wishes'));
- if(disposed||!root.isConnected||activeGameContext!==state)return;
+ if(!root.isConnected||activeGameContext!==state)return;
  const wishes=result.wishes||[];
  const scrollY=window.scrollY,trackX=root.querySelector('.game-gifts-track')?.scrollLeft||0;
  state.own=wishes;
@@ -166,8 +166,9 @@ function setupGameChat(state){
   }
  }
  function schedule(){
+  if(!alive())return;
   clearTimeout(gameChatTimer);gameChatTimer=null;
-  if(alive()&&!document.hidden)gameChatTimer=setTimeout(async()=>{await load({force:true});schedule();},delay);
+  if(!document.hidden)gameChatTimer=setTimeout(async()=>{await load({force:true});schedule();},delay);
  }
  function load({force=false,older=false}={}){
   if(!alive())return Promise.resolve();
@@ -258,15 +259,15 @@ function santaRosterPerson(p,state){
 function setupSantaRoster(state){
  const root=document.querySelector('[data-santa-roster]');if(!root)return;
  if(gameRosterTimer){clearTimeout(gameRosterTimer);gameRosterTimer=null;}
- const route=state.base+'/roster';
+ const route=state.base+'/roster',controller=new AbortController();
  let disposed=false,delay=15000,running=false,previous=JSON.stringify((state.participants||[]).map(p=>[p.id,p.name,p.wish_count,p.is_organizer,p.user_id])),failures=0;
  const update=async()=>{
   if(disposed||!root.isConnected)return;
   if(document.visibilityState==='hidden'||running)return;
   running=true;
   try{
-   const info=await api(route);
-   if(!root.isConnected||activeGameContext!==state)return;
+   const info=await api(route,{signal:controller.signal});
+   if(disposed||!root.isConnected||activeGameContext!==state)return;
    failures=0;
    if(info.status!==state.event.status){
     if(state.base.startsWith('/api/santas/'))dropOwnerRead(state.base);
@@ -286,15 +287,16 @@ function setupSantaRoster(state){
    if(draw&&info.status==='open')draw.disabled=info.participants.length<3;
    if(!state.memberView&&loadedSanta)loadedSanta.participants=info.participants;
   }catch(err){
+   if(disposed||err.name==='AbortError')return;
    failures++;delay=Math.min(60000,delay*2);
    // Polling failure never hides the existing list. Manual actions still work.
    if(failures===3)console.warn('Santa roster refresh unavailable');
   }finally{running=false;}
  };
- const schedule=()=>{clearTimeout(gameRosterTimer);gameRosterTimer=null;if(!disposed&&root.isConnected&&!document.hidden)gameRosterTimer=setTimeout(async()=>{await update();schedule();},delay);};
+ const schedule=()=>{if(disposed||!root.isConnected)return;clearTimeout(gameRosterTimer);gameRosterTimer=null;if(!document.hidden)gameRosterTimer=setTimeout(async()=>{await update();schedule();},delay);};
  const visibility=()=>{if(disposed)return;if(document.hidden){clearTimeout(gameRosterTimer);gameRosterTimer=null;}else{delay=15000;void update().finally(schedule);}};
  document.addEventListener('visibilitychange',visibility);
- gameLifecycleCleanup.push(()=>{disposed=true;document.removeEventListener('visibilitychange',visibility);});
+ gameLifecycleCleanup.push(()=>{disposed=true;controller.abort();document.removeEventListener('visibilitychange',visibility);});
  schedule();
 }
 
