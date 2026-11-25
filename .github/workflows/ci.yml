@@ -43,7 +43,9 @@ jobs:
       - run: node --check tools/perf-browser.js
       - run: node --check tools/release-smoke.mjs
       - run: node --check tools/publish-production.mjs
-      - run: node --test tests/publish-production.test.mjs
+      - run: node --check tools/release-control.mjs
+      - run: node --check tools/release-dispatch.mjs
+      - run: node --test tests/publish-production.test.mjs tests/release-control.test.mjs
       - run: node --check tools/ru-network-probe.mjs
 
   public-release-smoke:

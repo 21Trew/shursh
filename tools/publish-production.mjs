@@ -1,9 +1,10 @@
 import {createHash} from 'node:crypto';
-import {readFileSync,writeFileSync,renameSync,openSync,closeSync,unlinkSync,mkdirSync} from 'node:fs';
+import {openSync,closeSync,unlinkSync,mkdirSync} from 'node:fs';
 import {homedir} from 'node:os';
 import {join,resolve} from 'node:path';
 import {pathToFileURL} from 'node:url';
 import {setTimeout as sleep} from 'node:timers/promises';
+import {validateIntent,validateWorkflow,checkApproval,openCentralJournal,assertJournalBaseline} from './release-control.mjs';
 
 export const REPO='21Trew/shursh', TEAM='team_JwJahAWZHQGMIoWnWAS0YWw3', PROJECT='prj_IRKWRDtNSrL0VXF0rPGmM358whHs';
 export const ASSETS=['app.js','santa-ui.js','social-ui.js','styles.css','polish.css','fonts.css'];
@@ -52,7 +53,8 @@ export function assertProjectIdle(project,{publishing=false}={}){
  assert(!last||terminal.has(last.jobStatus),'Another promotion/rollback is pending or its status is unknown');
  if(publishing)assert(project.autoAssignCustomDomains===false,'Disable automatic Production domain assignment before staging or publishing (setting missing or enabled)');
 }
-const receiptKey=r=>r&&[r.type,r.toDeploymentId,r.requestedAt,r.jobStatus].join('|');
+const receiptKey=r=>r?[r.type,r.toDeploymentId,r.requestedAt,r.jobStatus].join('|'):null;
+const safeReceipt=r=>r?{type:r.type,toDeploymentId:r.toDeploymentId,requestedAt:r.requestedAt,jobStatus:r.jobStatus}:null;
 export function assertReceipt(project,receipt){
  assertProjectIdle(project);
  assert(receipt&&terminal.has(receipt.jobStatus)&&receiptKey(project.lastAliasRequest)===receiptKey(receipt),'Project transition changed; manual recovery required');
@@ -115,7 +117,7 @@ export async function api(origin,path,token,method='GET',body){
  // mutation response as JSON; the project status is the source of truth.
  return method==='POST'?{status:res.status}:await res.json();
 }
-const gh=(p)=>api('https://api.github.com','/repos/'+REPO+p,process.env.GH_TOKEN);
+const gh=(p,method='GET',body)=>api('https://api.github.com','/repos/'+REPO+p,process.env.GH_TOKEN,method,body);
 const vercel=(p,method='GET',body)=>api('https://api.vercel.com',p+(p.includes('?')?'&':'?')+'teamId='+TEAM,process.env.VERCEL_TOKEN,method,body);
 async function getCI(prNumber,runId,sha){
  const [pr,run,jobs]=await Promise.all([gh('/pulls/'+prNumber),gh('/actions/runs/'+runId),gh('/actions/runs/'+runId+'/jobs?filter=latest&per_page=100')]);
@@ -213,13 +215,23 @@ function parse(argv){
  else assert(Object.keys(options).length===2,'Rollback uses last journal; no overrides');
  return options;
 }
-async function main(){
- const opts=parse(process.argv.slice(2));
+export async function main(argv=process.argv.slice(2)){
+ const opts=parse(argv),central=process.env.GITHUB_ACTIONS==='true';
+ // No local mutation path: all actual writes use the same workflow lock.
+ assert(!opts.apply||central,'Local Production mutation is disabled');
+ if(central){
+   validateWorkflow(process.env,{apply:opts.apply});
+   assert(equal(validateIntent(process.env),argv),'Dispatch parameters differ from command');
+   if(opts.apply)await checkApproval(gh,process.env);
+ }
+ const store=central?await openCentralJournal(gh,process.env,{apply:opts.apply}):null;
+ assert(opts.action!=='rollback'||store,'Rollback requires the centralized journal');
  const dir=join(homedir(),'.shursh-release');mkdirSync(dir,{recursive:true,mode:0o700});
- const journal=join(dir,'journal.json'),lock=join(dir,'lock');
- const fd=openSync(lock,'wx',0o600);
- const read=()=>JSON.parse(readFileSync(journal,'utf8'));
- const save=(data)=>{const temp=journal+'.tmp';writeFileSync(temp,JSON.stringify(data,null,2)+'\n',{mode:0o600});renameSync(temp,journal)};
+ const lock=join(dir,'lock'),fd=openSync(lock,'wx',0o600);
+ const read=()=>store?.read();
+ const save=data=>store.save(data);
+ const assertCurrent=async()=>{if(store)await store.assertCurrent()};
+ const expectedLive=process.env.RELEASE_EXPECTED_LIVE;
  let receipt;
  const activate=async id=>{receipt=await runTransition('promote',id);assert(receipt.jobStatus==='succeeded','Promotion did not succeed')};
  const rollback=async id=>{receipt=await runTransition('rollback',id);assert(receipt.jobStatus==='succeeded','Rollback did not succeed')};
@@ -239,6 +251,7 @@ async function main(){
    if(opts.action==='rollback'){
      const j=read();
      assert(['published','prepared','rollback-required'].includes(j.state)&&equal(j.inventory,inv),'No valid rollback journal or changed domain inventory');
+     assert(process.env.DISPATCH_SHA===j.previousSHA&&expectedLive===j.candidate,'Rollback confirmation differs from central journal');
      assert(depOK(j.previous)&&depOK(j.candidate)&&j.previous!==j.candidate&&shaOK(j.previousSHA)&&shaOK(j.sha),'Invalid journal');
      const previous=await getDeployment(j.previous);validateDeployment(previous,j.previousSHA);
      assert(equal(j.baseline?.hashes,await sourceHashes(j.previousSHA)),'Rollback baseline differs from Git');
@@ -246,17 +259,23 @@ async function main(){
      const state=await snapshot();
      assert(inv.direct.every(d=>[j.previous,j.candidate].includes(state[d])),'Unexpected concurrent release');
      const last=project.lastAliasRequest;
-     assert(last&&terminal.has(last.jobStatus)&&
-       ((last.type==='promote'&&last.toDeploymentId===j.candidate)||(last.type==='rollback'&&last.toDeploymentId===j.previous)),
-       'No confirmed matching project transition; inspect Production manually');
+     const allPrevious=inv.direct.every(d=>state[d]===j.previous);
+     const unchanged=receiptKey(last)===receiptKey(j.priorReceipt);
+     const matching=last&&terminal.has(last.jobStatus)&&!unchanged&&
+       ((last.type==='promote'&&last.toDeploymentId===j.candidate)||(last.type==='rollback'&&last.toDeploymentId===j.previous&&allPrevious));
+     assert(matching||(allPrevious&&unchanged),'No confirmed matching project transition; inspect Production manually');
      console.log('Rollback plan:',j.previous,j.previousSHA);
      if(!opts.apply)return;
      assert(equal(await domains(),inv),'Domain inventory changed');
-     assertReceipt(await getProject(),last);
+     const sameReceipt=async()=>{const current=await getProject();assertProjectIdle(current);assert(receiptKey(current.lastAliasRequest)===receiptKey(receipt??last),'Transition changed')};
+     await checkApproval(gh,process.env);
+     await assertCurrent();await sameReceipt();
      assert(equal(await snapshot(),state),'Production changed during rollback preflight');
+     await save({...j,state:'rollback-required'});
      try{
-       if(!inv.direct.every(d=>state[d]===j.previous))await rollback(j.previous);
-       await settle(async()=>{assertReceipt(await getProject(),receipt??last);assert(equal(await domains(),inv),'Domain inventory changed');assertAliasSnapshot(await snapshot(),j.previous,inv.direct);await liveSmoke(inv,j.baseline);assertAliasSnapshot(await snapshot(),j.previous,inv.direct)});
+       await assertCurrent();await sameReceipt();
+       if(!allPrevious)await rollback(j.previous);
+       await settle(async()=>{await sameReceipt();assert(equal(await domains(),inv),'Domain inventory changed');assertAliasSnapshot(await snapshot(),j.previous,inv.direct);await liveSmoke(inv,j.baseline);await sameReceipt();assertAliasSnapshot(await snapshot(),j.previous,inv.direct)});
        save({...j,state:'rolled-back'});console.log('Rollback verified');return;
      }catch(error){save({...j,state:'rollback-required'});throw error;}
    }
@@ -268,6 +287,7 @@ async function main(){
    const state=await snapshot(),previous=state['shursh.fun'];
    assertAliasSnapshot(state,previous,inv.direct);assert(candidate!==previous,'Candidate already live');
    const prior=await getDeployment(previous),previousSHA=prior.meta?.githubCommitSha;validateDeployment(prior,previousSHA);
+   if(central){assert(expectedLive===previous,'Expected live deployment changed');assertJournalBaseline(read(),previous,previousSHA)}
    const delta=await gh('/compare/'+previousSHA+'...'+sha+'?per_page=100');
    assert(['ahead','identical'].includes(delta.status)&&Array.isArray(delta.files)&&delta.files.length<300,'Cannot establish forward-only release diff');
    assert(!delta.files.some(f=>[f.filename,f.previous_filename].some(n=>n?.startsWith('supabase/migrations/'))),'Release requires separate migration approval');
@@ -278,13 +298,13 @@ async function main(){
    assert(equal(expected.hashes,await sourceHashes(sha)),'Staged asset bytes differ from exact Git SHA');
    console.log('Release plan:',JSON.stringify({sha,pr,run,candidate,previous,previousSHA,inventory:inv,version:expected.version}));
    if(!opts.apply)return;
-   let old;try{old=read()}catch(e){if(e.code!=='ENOENT')throw e}
-   assert(!old||!['prepared','rollback-required'].includes(old.state),'Unresolved earlier transaction; recover first');
-   const j={previous,previousSHA,candidate,sha,inventory:inv,baseline,expected};
+   const projectBefore=await getProject();assertProjectIdle(projectBefore,{publishing:true});
+   const priorReceipt=safeReceipt(projectBefore.lastAliasRequest);
+   const j={previous,previousSHA,candidate,sha,inventory:inv,baseline,expected,priorReceipt,startedAt:Date.now(),runId:process.env.GITHUB_RUN_ID};
    await transact({previous,candidate,domains:inv.direct,snapshot,
-     inspect:async()=>{await ci();assertProjectIdle(await getProject(),{publishing:true});assert(equal(await domains(),inv),'Domain inventory changed');validateDeployment(await getDeployment(candidate),sha)},
-     activate,rollback,save:state=>save({...j,state}),
-     guardRollback:async()=>{assert(equal(await domains(),inv),'Domain inventory changed');assertReceipt(await getProject(),receipt)},
+     inspect:async()=>{await checkApproval(gh,process.env);await ci();const p=await getProject();assertProjectIdle(p,{publishing:true});assert(receiptKey(p.lastAliasRequest??null)===receiptKey(priorReceipt),'Project changed');assert(equal(await domains(),inv),'Domain inventory changed');validateDeployment(await getDeployment(candidate),sha);await assertCurrent()},
+     activate:async id=>{await assertCurrent();assertAliasSnapshot(await snapshot(),previous,inv.direct);const p=await getProject();assertProjectIdle(p,{publishing:true});assert(receiptKey(p.lastAliasRequest??null)===receiptKey(priorReceipt),'Project changed');await activate(id)},rollback,save:state=>save({...j,state}),
+     guardRollback:async()=>{await assertCurrent();assert(equal(await domains(),inv),'Domain inventory changed');assertReceipt(await getProject(),receipt)},
      verify:id=>settle(async()=>{assertReceipt(await getProject(),receipt);assert(equal(await domains(),inv),'Domain inventory changed');assertAliasSnapshot(await snapshot(),id,inv.direct);await liveSmoke(inv,id===candidate?expected:baseline);assertReceipt(await getProject(),receipt);assertAliasSnapshot(await snapshot(),id,inv.direct)})});
    console.log('Production release verified');
    // Some Vercel promotion/rollback operations change auto-assignment.

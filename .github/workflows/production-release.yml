@@ -1,0 +1,105 @@
+name: Manual Production release
+run-name: Shursh ${{ inputs.operation }} · ${{ inputs.apply && 'APPLY' || 'DRY RUN' }} · ${{ inputs.sha }} · ${{ inputs.expected_live }}
+on:
+  workflow_dispatch:
+    inputs:
+      operation:
+        description: Operation (audit is read-only)
+        type: choice
+        options: [audit, publish, rollback]
+        default: audit
+      apply:
+        description: Apply after independent environment approval (false = dry-run)
+        type: boolean
+        default: false
+      sha:
+        description: Exact 40-character target SHA (rollback = previous SHA)
+        type: string
+        default: ''
+      pr:
+        description: Open PR number (publish only)
+        type: string
+        default: ''
+      ci_run:
+        description: Successful GitHub Actions run ID (publish only)
+        type: string
+        default: ''
+      deployment:
+        description: READY staged Production deployment ID (publish only)
+        type: string
+        default: ''
+      expected_live:
+        description: Expected live deployment ID (rollback = journal candidate)
+        type: string
+        default: ''
+      confirmation:
+        description: APPLY requires PUBLISH or ROLLBACK followed by exact target SHA
+        type: string
+        default: ''
+permissions: {}
+concurrency:
+  group: shursh-production-release
+  cancel-in-progress: false
+env:
+  DISPATCH_ACTION: ${{ inputs.operation }}
+  DISPATCH_SHA: ${{ inputs.sha }}
+  DISPATCH_PR: ${{ inputs.pr }}
+  DISPATCH_RUN: ${{ inputs.ci_run }}
+  DISPATCH_DEPLOYMENT: ${{ inputs.deployment }}
+  RELEASE_EXPECTED_LIVE: ${{ inputs.expected_live }}
+  RELEASE_CONFIRM: ${{ inputs.confirmation }}
+jobs:
+  plan:
+    if: github.repository == '21Trew/shursh' && github.ref == 'refs/heads/main' && github.ref_protected && github.run_attempt == 1
+    runs-on: ubuntu-24.04
+    timeout-minutes: 15
+    environment: shursh-release-read
+    permissions:
+      contents: read
+      actions: read
+      pull-requests: read
+    steps:
+      - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683
+        with:
+          ref: ${{ github.sha }}
+          persist-credentials: false
+      - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020
+        with:
+          node-version: '22'
+      - name: Test trusted controller without credentials
+        run: node --test tests/publish-production.test.mjs tests/release-control.test.mjs
+      - name: Validate read-only release plan
+        run: node tools/release-dispatch.mjs
+        env:
+          DISPATCH_APPLY: 'false'
+          GH_TOKEN: ${{ github.token }}
+          VERCEL_TOKEN: ${{ secrets.VERCEL_RELEASE_READ_TOKEN }}
+          VERCEL_AUTOMATION_BYPASS_SECRET: ${{ secrets.VERCEL_AUTOMATION_BYPASS_SECRET }}
+  apply:
+    needs: plan
+    if: needs.plan.result == 'success' && inputs.apply && inputs.operation != 'audit' && github.repository == '21Trew/shursh' && github.ref == 'refs/heads/main' && github.ref_protected && github.run_attempt == 1
+    runs-on: ubuntu-24.04
+    timeout-minutes: 60
+    environment: shursh-production
+    permissions:
+      contents: write
+      actions: read
+      pull-requests: read
+    steps:
+      - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683
+        with:
+          ref: ${{ github.sha }}
+          persist-credentials: false
+      - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020
+        with:
+          node-version: '22'
+      - name: Test trusted controller without credentials
+        run: node --test tests/publish-production.test.mjs tests/release-control.test.mjs
+      - name: Revalidate and apply approved release
+        run: node tools/release-dispatch.mjs
+        env:
+          DISPATCH_APPLY: 'true'
+          SHURSH_RELEASE_ENABLED: ${{ vars.SHURSH_RELEASE_ENABLED }}
+          GH_TOKEN: ${{ github.token }}
+          VERCEL_TOKEN: ${{ secrets.VERCEL_RELEASE_WRITE_TOKEN }}
+          VERCEL_AUTOMATION_BYPASS_SECRET: ${{ secrets.VERCEL_AUTOMATION_BYPASS_SECRET }}
