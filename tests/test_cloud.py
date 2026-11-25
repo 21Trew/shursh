@@ -978,11 +978,22 @@ def test_browser_register_wishlist_reservation_and_isolation(browser_http):
             guest.goto(browser_http+'/')
             browser_login(guest,'other@example.test')
             guest.goto(share)
-            guest.evaluate("window.__wishlistMain=document.querySelector('main')")
-            guest.locator('button[data-action="reserve"]').click()
+            expect(guest.locator('main h1')).to_have_text(title)
+            reserve=guest.locator('.wishlist-grid button[data-action="reserve"]')
+            expect(reserve).to_have_text('Забронировать')
+            guest.evaluate("""() => {
+                window.__wishlistMain=document.querySelector('main');
+                window.__wishlistGrid=document.querySelector('.wishlist-grid');
+            }""")
+            reads=[]
+            guest.on('request',lambda req: reads.append(req.url)
+                     if req.method=='GET' and req.url==browser_http+'/api/public/'+key else None)
+            reserve.click()
             expect(guest).to_have_url(share)
-            expect(guest.locator('button[data-action="reserve"]')).to_contain_text('Отменить бронь')
-            assert guest.evaluate("window.__wishlistMain===document.querySelector('main')")
+            expect(reserve).to_contain_text('Отменить бронь')
+            assert guest.evaluate("""() => window.__wishlistMain===document.querySelector('main')
+                && window.__wishlistGrid===document.querySelector('.wishlist-grid')""")
+            assert not reads, 'Reservation must not re-fetch the shared wishlist'
             assert guest.locator('#fld-guest_name').count()==0
             assert guest.locator('.modal').count()==0
             assert not guest.evaluate("Object.keys(localStorage).some(k=>k.startsWith('shursh-reservation-v2:'))")
