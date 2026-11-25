@@ -2372,15 +2372,24 @@ def test_performance_soak_real_polling_session_and_retention(browser_https, appl
                 return result
 
             def cycle():
-                page.evaluate("id=>nav('/santa/'+id)",eid)
-                expect(page.locator('#game-chat')).to_be_visible()
-                expect(page.get_by_text('soak seed',exact=True)).to_be_visible()
-                page.evaluate("""()=>{
+                # Playwright locator waits can retain their matched DOM in the
+                # injected automation world. Use an in-page readiness probe
+                # returning primitives only; do not export handles to CDP.
+                assert page.evaluate("""async({id,title})=>{
+                  const until=async predicate=>{
+                    const start=performance.now();
+                    while(!predicate()){
+                      if(performance.now()-start>15000)throw Error('soak route not ready');
+                      await new Promise(resolve=>setTimeout(resolve,20));
+                    }
+                  };
+                  nav('/santa/'+id);
+                  await until(()=>[...document.querySelectorAll('.chat-message p')].some(n=>n.textContent==='soak seed'));
                   if(typeof WeakRef==='function')soakRoots.push(new WeakRef(document.querySelector('#game-chat')));
-                }""")
-                page.evaluate("nav('/lists')")
-                expect(page.get_by_text(own_title,exact=True)).to_be_visible()
-                assert page.evaluate("gameChatTimer===null&&gameRosterTimer===null&&gameLifecycleCleanup.length===0&&gameGiftDisposers.size===0")
+                  nav('/lists');
+                  await until(()=>document.querySelector('.wishlists-page')?.textContent.includes(title));
+                  return gameChatTimer===null&&gameRosterTimer===null&&gameLifecycleCleanup.length===0&&gameGiftDisposers.size===0;
+                }""",{'id':eid,'title':own_title})
             for _ in range(3):cycle()
             page.wait_for_timeout(400)
             report['heap_before']=sample_heap()
