@@ -18,7 +18,7 @@ from datetime import datetime, timezone, timedelta
 from http import HTTPStatus
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from pathlib import Path
-from urllib.parse import unquote, urlparse
+from urllib.parse import unquote, urlparse, parse_qs
 
 ROOT = Path(__file__).resolve().parent
 DB_PATH = Path(os.getenv('SHURSH_DB', str(ROOT / 'data' / 'shursh.sqlite3')))
@@ -654,12 +654,27 @@ class Handler(BaseHTTPRequestHandler):
                         'message':{'id':sent['id'],'message':message,'author':'Ты',
                                    'mine':True,'created_at':created}},None
         if method=='GET':
+            # Both the Flask adapter and local HTTP server use the same cursor
+            # validation. Authorization and room scope are resolved above.
+            query=self.request.args if hasattr(self,'request') and hasattr(self.request,'args') else {
+                k:v[-1] for k,v in parse_qs(urlparse(self.path).query,keep_blank_values=True).items()}
+            before,after=query.get('before'),query.get('after')
+            if before is not None and after is not None:
+                raise ApiError(400,'Укажи один курсор')
+            cursor=before if before is not None else after
+            if cursor is not None and (not re.fullmatch(r'[1-9][0-9]{0,18}',cursor) or int(cursor)>9223372036854775807):
+                raise ApiError(400,'Некорректный курсор')
+            extra=(' AND m.id < ?' if before is not None else ' AND m.id > ?') if cursor is not None else ''
+            if cursor is not None: args=(*args,int(cursor))
+            order=' ASC' if after is not None else ' DESC'
             rows=con.execute('''SELECT m.id,m.sender_id,m.message,m.created_at,p.name
                  FROM santa_messages m JOIN participants p ON p.id=m.sender_id
                  WHERE m.event_id=? AND m.room=? AND '''+condition+
-                 ' ORDER BY m.id DESC LIMIT 60',args)
+                 extra+' ORDER BY m.id'+order+' LIMIT 61',args)
+            records=[dict(r) for r in rows];more=len(records)>60;records=records[:60]
+            if after is None: records.reverse()
             items=[]
-            for row in reversed([dict(r) for r in rows]):
+            for row in records:
                 mine=row['sender_id']==pid
                 if topic=='general':
                     author=row['name']
@@ -670,7 +685,7 @@ class Handler(BaseHTTPRequestHandler):
                 items.append({'id':row['id'],'message':row['message'],
                               'created_at':row['created_at'],'mine':mine,
                               'author':'Ты' if mine else author})
-            return 200,{'messages':items,'room':room},None
+            return 200,{'messages':items,'room':room,'has_more':more},None
         raise ApiError(405,'Метод не поддерживается')
 
     def santa_memory(self,con,event_id,method,personal_link=False,member=False):
