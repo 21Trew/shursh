@@ -166,7 +166,7 @@ def test_auth_input_validation_rejects_bad_data_before_upstream(application, mon
     from server import ApiError
 
     assert valid_auth_email(' Name+tag@Example.COM ') == 'name+tag@example.com'
-    for address in ('a_b-c.d+tag@example.com', 'a!b@example.com', 'user@xn--e1afmkfd.xn--p1ai'):
+    for address in ('a_b-c.d+tag@example.com', 'a!b@example.com', '#user@example.com', 'name+tag@gmail.com', 'first.last+tag@gmail.com', 'user@xn--e1afmkfd.xn--p1ai'):
         assert valid_auth_email(address)==address
     assert valid_signup_name('  Анна  ') == 'Анна'
     assert valid_auth_password('secure-passphrase') == 'secure-passphrase'
@@ -181,6 +181,14 @@ def test_auth_input_validation_rejects_bad_data_before_upstream(application, mon
         ('@example.com','Укажи имя почты перед @'),
         ('a@','Укажи домен после @'),
         ('a@example','Укажи домен с точкой, например example.com'),
+        ('12@mail.','Допиши окончание домена, например ru или com'),
+        ('12@#mail','Убери символ # из домена'),
+        ('12@#mail.com','Убери символ # из домена'),
+        ('#username@gmail.com','Убери символ # из имени почты Gmail'),
+        ('user_name@googlemail.com','Убери символ _ из имени почты Gmail'),
+        ('+tag@gmail.com','Укажи имя почты Gmail перед +'),
+        ('a@mail..','Убери лишние точки в домене'),
+        ('a@.mail','Убери лишние точки в домене'),
         ('a@domain..com','Убери лишние точки в домене'),
         ('a@-example.com','Домен не должен начинаться или заканчиваться дефисом'),
         ('a@example.c','Проверь окончание домена, например .ru или .com'),
@@ -284,6 +292,14 @@ def test_browser_auth_inline_validation_and_password_confirmation(browser_http):
                     ('@example.com','Укажи имя почты перед @'),
                     ('a@','Укажи домен после @'),
                     ('a@example','Укажи домен с точкой, например example.com'),
+                    ('12@mail.','Допиши окончание домена, например ru или com'),
+                    ('12@#mail','Убери символ # из домена'),
+                    ('12@#mail.com','Убери символ # из домена'),
+                    ('#username@gmail.com','Убери символ # из имени почты Gmail'),
+                    ('user_name@googlemail.com','Убери символ _ из имени почты Gmail'),
+                    ('+tag@gmail.com','Укажи имя почты Gmail перед +'),
+                    ('a@mail..','Убери лишние точки в домене'),
+                    ('a@.mail','Убери лишние точки в домене'),
                     ('a@domain..com','Убери лишние точки в домене'),
                     ('a@-example.com','Домен не должен начинаться или заканчиваться дефисом'),
                     ('a@example.c','Проверь окончание домена, например .ru или .com'),
@@ -2336,7 +2352,8 @@ def test_mobile_auth_header_marquee_footer_and_warm_focus(browser_http):
                     foot=page.locator('.modal-fixed-footer .form-actions + .modal-foot')
                     expect(foot).to_be_visible()
                     margin=foot.evaluate("el=>parseFloat(getComputedStyle(el).marginTop)")
-                    assert margin>=18,margin
+                    compact=page.locator('.modal[data-auth-screen]').count()>0
+                    assert (10<=margin<=12 if compact else margin>=18),margin
                     assert page.evaluate('document.documentElement.scrollWidth<=innerWidth+2')
 
                 check_auth_footer()

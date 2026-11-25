@@ -34,7 +34,7 @@ Email-format feedback uses matching reason-specific checks in browser and
 hosted backend. The supported address format is unquoted ASCII local part
 and ASCII DNS domain (including punycode); commas, Cyrillic and other
 unsupported characters are rejected. The OTP, not syntax, verifies ownership.
-No DNS lookup or TLD allowlist is added to form validation.
+No DNS lookup or TLD allowlist is added to form validation. A single trailing domain dot is incomplete, not an extra character; invalid domain characters take priority over missing suffixes. Consumer Gmail/Googlemail base usernames allow ASCII letters, digits and dots; plus aliases remain supported. Other providers retain the general local-part character set.
 
 Auth email inputs preserve the raw typed address (`type=text`, `inputmode=email`,
 `autocomplete=email`), preventing browser IDN normalization from hiding Cyrillic

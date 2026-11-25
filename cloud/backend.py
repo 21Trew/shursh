@@ -47,16 +47,22 @@ def valid_auth_email(raw):
     if local.startswith('.') or local.endswith('.') or '..' in local:
         reject('Исправь точки в части почты перед @')
     if not AUTH_LOCAL.fullmatch(local): reject('Проверь символы в части почты перед @')
-    if '.' not in domain: reject('Укажи домен с точкой, например example.com')
+    if '_' in domain: reject('Убери нижнее подчёркивание из домена')
+    bad_domain=re.search(r'[^a-z0-9.-]',domain,re.I|re.ASCII)
+    if bad_domain: reject(f'Убери символ {bad_domain.group()} из домена')
+    if domain.startswith('.') or '..' in domain: reject('Убери лишние точки в домене')
     labels=domain.split('.')
-    if any(not label for label in labels): reject('Убери лишние точки в домене')
     if any(label.startswith('-') or label.endswith('-') for label in labels):
         reject('Домен не должен начинаться или заканчиваться дефисом')
-    if '_' in domain: reject('Убери нижнее подчёркивание из домена')
     if any(len(label)>63 for label in labels): reject('Часть домена между точками слишком длинная')
-    if any(not AUTH_DOMAIN_LABEL.fullmatch(label) for label in labels):
-        reject('После @ используй только латинские буквы, цифры, точки и дефисы')
+    if domain.endswith('.'): reject('Допиши окончание домена, например ru или com')
+    if '.' not in domain: reject('Укажи домен с точкой, например example.com')
     if not AUTH_DOMAIN_END.fullmatch(labels[-1]): reject('Проверь окончание домена, например .ru или .com')
+    if domain.lower() in ('gmail.com','googlemail.com'):
+        base=local.split('+',1)[0]
+        if not base: reject('Укажи имя почты Gmail перед +')
+        bad=re.search(r'[^a-z0-9.]',base,re.I|re.ASCII)
+        if bad: reject(f'Убери символ {bad.group()} из имени почты Gmail')
     if email.lower()=='demo@shursh.local': reject('Этот адрес недоступен для входа')
     return email.lower()
 

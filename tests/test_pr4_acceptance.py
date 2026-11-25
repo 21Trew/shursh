@@ -1459,6 +1459,24 @@ def test_auth_character_highlight_responsive(browser_https):
                         email=page.locator('#fld-email')
                         password=page.locator('#fld-password')
                         toggle=page.locator('.password-field:has(#fld-password) [data-password-visibility]')
+                        # Incomplete syntax must not be painted as an invalid character.
+                        for address,message,marked in (
+                            ('12@mail.','Допиши окончание домена, например ru или com',''),
+                            ('12@#mail','Убери символ # из домена','#'),
+                            ('#username@gmail.com','Убери символ # из имени почты Gmail','#'),
+                            ('a@mail..','Убери лишние точки в домене','.')):
+                            email.fill(address)
+                            expect(page.locator('#auth-error-email')).to_have_text(message)
+                            expect(email).to_have_attribute('aria-invalid','true')
+                            assert email.evaluate("""(input,message)=>{
+                              const ranges=authInvalidCharRanges(input,true,message);
+                              return [...new Set(ranges.flatMap(([a,b])=>[...input.value.slice(a,b)]))].join('');
+                            }""",message)==marked
+                            assert email.evaluate(pixel_test)==bool(marked)
+                        for valid in ('name+tag@gmail.com','first.last+tag@gmail.com','#user@example.com','12@mail.ru'):
+                            email.fill(valid)
+                            expect(page.locator('#auth-error-email')).to_be_hidden()
+                            assert not email.evaluate(pixel_test)
                         for value in ('почта','user@example.123','user@example,com','h@h.ю'):
                             email.fill(value)
                             expect(email).to_have_attribute('aria-invalid','true')

@@ -1545,14 +1545,22 @@ function authEmailIssue(value){
  if(local.length>64)return 'Часть почты перед @ слишком длинная';
  if(local.startsWith('.')||local.endsWith('.')||local.includes('..'))return 'Исправь точки в части почты перед @';
  if(!/^[A-Za-z0-9.!#$%&'*+/=?^_`{|}~-]+$/.test(local))return 'Проверь символы в части почты перед @';
- if(!domain.includes('.'))return 'Укажи домен с точкой, например example.com';
- const labels=domain.split('.');
- if(labels.some(label=>!label))return 'Убери лишние точки в домене';
- if(labels.some(label=>label.startsWith('-')||label.endsWith('-')))return 'Домен не должен начинаться или заканчиваться дефисом';
+ // Reject invalid characters before diagnosing an unfinished domain.
  if(domain.includes('_'))return 'Убери нижнее подчёркивание из домена';
+ const badDomain=domain.match(/[^a-z0-9.-]/i)?.[0];
+ if(badDomain)return 'Убери символ '+badDomain+' из домена';
+ if(domain.startsWith('.')||domain.includes('..'))return 'Убери лишние точки в домене';
+ const labels=domain.split('.');
+ if(labels.some(label=>label.startsWith('-')||label.endsWith('-')))return 'Домен не должен начинаться или заканчиваться дефисом';
  if(labels.some(label=>label.length>63))return 'Часть домена между точками слишком длинная';
- if(labels.some(label=>!/^[a-z0-9-]+$/i.test(label)))return 'После @ используй только латинские буквы, цифры, точки и дефисы';
+ if(domain.endsWith('.'))return 'Допиши окончание домена, например ru или com';
+ if(!domain.includes('.'))return 'Укажи домен с точкой, например example.com';
  if(!/^(?:[a-z]{2,63}|xn--[a-z0-9-]{1,59})$/i.test(labels.at(-1)))return 'Проверь окончание домена, например .ru или .com';
+ if(/^(?:gmail|googlemail)\.com$/i.test(domain)){
+  const base=local.split('+',1)[0],bad=base.match(/[^a-z0-9.]/i)?.[0];
+  if(!base)return 'Укажи имя почты Gmail перед +';
+  if(bad)return 'Убери символ '+bad+' из имени почты Gmail';
+ }
  if(email.toLowerCase()==='demo@shursh.local')return 'Этот адрес недоступен для входа';
  return '';
 }
@@ -1604,10 +1612,15 @@ function authInvalidCharRanges(input,register,message){
  add(domain,/@/g,domainOffset);
  add(local,/[^A-Za-z0-9.!#$%&'*+/=?^_\x60{|}~-]+/gu,offset);
  add(domain,/[^A-Za-z0-9.@-]+/gu,domainOffset);
- const dots=(text,start)=>{
-  for(let i=0;i<text.length;i++)if(text[i]==='.'&&(i===0||i===text.length-1||text[i-1]==='.'))ranges.push([start+i,start+i+1]);
+ const dots=(text,start,allowTrailing=false)=>{
+  for(let i=0;i<text.length;i++)if(text[i]==='.'&&(i===0||(!allowTrailing&&i===text.length-1)||text[i-1]==='.'))ranges.push([start+i,start+i+1]);
  };
- dots(local,offset);dots(domain,domainOffset);
+ dots(local,offset);dots(domain,domainOffset,true);
+ if(/^(?:gmail|googlemail)\.com$/i.test(domain)){
+  const base=local.split('+',1)[0];
+  if(!base)ranges.push([offset,offset+1]);
+  else add(base,/[^a-z0-9.]+/gi,offset);
+ }
  let start=domainOffset;
  for(const label of domain.split('.')){
   if(label.startsWith('-'))ranges.push([start,start+1]);
@@ -1617,7 +1630,7 @@ function authInvalidCharRanges(input,register,message){
  const lastDot=domain.lastIndexOf('.');
  if(lastDot>=0){
   const tld=domain.slice(lastDot+1);
-  if(tld&&!/^(?:[a-z]{2,63}|xn--[a-z0-9-]{1,59})$/i.test(tld))
+  if(tld&&/^[a-z0-9-]+$/i.test(tld)&&!/^(?:[a-z]{2,63}|xn--[a-z0-9-]{1,59})$/i.test(tld))
    ranges.push([domainOffset+lastDot+1,domainOffset+domain.length]);
  }
  return ranges;
