@@ -190,7 +190,8 @@ function shurshCheckbox(name,label,checked){
  return '<label class="shursh-checkbox"><input type="checkbox" name="'+attr(name)+'"'+(checked?' checked':'')+'><span class="shursh-checkbox-mark" aria-hidden="true">'+ico('check',16)+'</span><span>'+esc(label)+'</span></label>';
 }
 let notificationModalItems=[];
-let notificationModalTab='new';
+let notificationModalTab='new',notificationModalMore=false,notificationModalUnread=0;
+function mergeNotificationItems(first,older){const byId=new Map(older.map(n=>[n.id,n]));for(const n of first)byId.set(n.id,n);return [...byId.values()].sort((a,b)=>b.id-a.id);}
 function notificationCategory(item){
  return ['friend_request','friend_accept','wishlist_new','wish_new','wish_request','santa_invitation','santa_joined'].includes(item.kind)?'friends':'system';
 }
@@ -203,19 +204,21 @@ function renderNotificationModalTab(tab=notificationModalTab){
   tab==='new'?!item.read_at:
   tab==='read'?!!item.read_at:
   notificationCategory(item)===tab);
- panel.innerHTML=items.length?items.map(item=>
-  '<div class="notification-item'+(item.read_at?'':' unread')+'">'+
+ const next=panel.cloneNode(false);
+ next.innerHTML=(items.length?items.map(item=>
+  '<div class="notification-item'+(item.read_at?'':' unread')+'" data-notification-id="'+attr(item.id)+'">'+
   '<button class="notification-open" type="button" data-social-action="open-notification" data-id="'+item.id+'" data-path="'+attr(item.target_path)+'">'+
   '<strong>'+esc(item.message)+'</strong><small>'+esc(socialNotificationDate(item.created_at))+'</small></button>'+
   (!item.read_at?'<button class="btn btn-soft btn-small" type="button" data-social-action="read-notification" data-id="'+item.id+'">Прочитано</button>':'')+
-  '</div>').join(''):'<p class="note">Здесь пока пусто</p>';
- const unread=notificationModalItems.filter(i=>!i.read_at).length;
+  '</div>').join(''):'<p class="note">Здесь пока пусто</p>')+(notificationModalMore?'<button type="button" class="btn btn-soft btn-small" data-social-action="notification-older">Ранее</button>':'');
+ patchOwnerNode(panel,next);
+ const unread=notificationModalUnread;
  const all=modalRoot.querySelector('[data-social-action="read-all-notifications"]');if(all)all.disabled=!unread;
 }
 async function socialNotificationsModal(){
  if(!currentUser)return;
  const response=await api('/api/notifications');
- notificationModalItems=response.items||[];
+ notificationModalItems=response.items||[];notificationModalMore=!!response.has_more;notificationModalUnread=response.unread||0;
  notificationModalTab='new';
  const tabs=[['new','Новое'],['friends','Друзья'],['system','Системные'],['read','Прочитано']];
  modal({title:'Уведомления',subtitle:'Новости друзей, подарков и игр',
@@ -245,19 +248,41 @@ document.addEventListener('click',event=>{
  const tab=event.target.closest('[data-notification-tab]');
  if(tab){event.preventDefault();if(tab.getAttribute('aria-selected')!=='true')renderNotificationModalTab(tab.dataset.notificationTab);}
 });
+function notificationPageItem(n){
+ return '<div class="notification-item'+(n.read_at?'':' unread')+'" data-notification-id="'+attr(n.id)+'">'+
+ '<button class="notification-open" data-social-action="open-notification" data-id="'+n.id+'" data-path="'+attr(n.target_path)+'"><strong>'+esc(n.message)+'</strong><small>'+esc(socialNotificationDate(n.created_at))+'</small></button>'+
+ (!n.read_at?'<button class="btn btn-soft btn-small" type="button" data-social-action="read-notification" data-id="'+n.id+'">Прочитано</button>':'')+'</div>';
+}
 async function socialNotificationsPage(marker=lastRenderToken,snapshot=null){
  if(!currentUser){loginModal();return;}
  const res=snapshot||await api('/api/notifications');if(marker!==lastRenderToken)return;
  shell('<main class="container page social-page"><div class="page-hero"><div><div class="section-label">Новости друзей и игр</div>'+
-  '<h1>Уведомления</h1><p>Новые подарки, приглашения и события Тайного Санты</p></div></div>'+
-  '<section class="panel notification-feed">'+(res.items.length?res.items.map(n=>
-   '<div class="notification-item'+(n.read_at?'':' unread')+'">'+
-   '<button class="notification-open" data-social-action="open-notification" data-id="'+n.id+'" data-path="'+attr(n.target_path)+'">'+
-   '<strong>'+esc(n.message)+'</strong><small>'+esc(socialNotificationDate(n.created_at))+'</small></button>'+
-   (!n.read_at?'<button class="btn btn-soft btn-small" data-social-action="read-notification" data-id="'+n.id+'">Прочитано</button>':'')+
-   '</div>').join(''):'<p class="note">Пока всё спокойно. Как только появятся новости, они будут здесь</p>')+
-  '</section></main>');
+ '<h1>Уведомления</h1><p>Новые подарки, приглашения и события Тайного Санты</p></div></div>'+
+ '<section class="panel notification-feed"><div data-notification-recent>'+(res.items.length?res.items.map(notificationPageItem).join(''):'<p class="note">Пока всё спокойно. Как только появятся новости, они будут здесь</p>')+
+ '</div><div data-notification-history id="notification-page-history"></div><div data-notification-pagination>'+
+ (res.has_more?'<button type="button" class="btn btn-soft btn-small" data-social-action="notification-older">Ранее</button>':'')+
+ '</div></section></main>');
  if(!snapshot)socialRefreshBadge();
+}
+async function loadOlderNotifications(target){
+ const epoch=ownerSessionEpoch,modalView=!!target.closest('.notification-dialog');
+ const root=modalView?modalRoot.querySelector('.notification-dialog'):target.closest('.notification-feed');
+ if(!root)return;
+ const ids=modalView?notificationModalItems.map(n=>Number(n.id)):[...root.querySelectorAll('[data-notification-id]')].map(n=>Number(n.dataset.notificationId));
+ if(!ids.length)return;
+ const response=await api('/api/notifications?before='+Math.min(...ids));
+ if(epoch!==ownerSessionEpoch||!root.isConnected)return;
+ if(modalView){
+  notificationModalItems=mergeNotificationItems(notificationModalItems,response.items||[]);
+  notificationModalMore=!!response.has_more;notificationModalUnread=response.unread||0;
+  renderNotificationModalTab();
+ }else{
+  const history=root.querySelector('[data-notification-history]');
+  const seen=new Set([...root.querySelectorAll('[data-notification-id]')].map(n=>String(n.dataset.notificationId)));
+  history.insertAdjacentHTML('beforeend',(response.items||[]).filter(n=>!seen.has(String(n.id))).map(notificationPageItem).join(''));
+  root.querySelector('[data-notification-pagination]').dataset.loaded='true';
+  if(!response.has_more)target.remove();
+ }
 }
 function socialAdminVisitDate(date,now=new Date()){
  const today=new Date(now.getFullYear(),now.getMonth(),now.getDate());
@@ -389,9 +414,10 @@ document.addEventListener('click',async e=>{
  target.disabled=true;
  try{
   if(action==='open-notifications'){await socialNotificationsModal();return;}
+  if(action==='notification-older'){await loadOlderNotifications(target);return;}
   if(action==='read-all-notifications'){
    await api('/api/notifications/read-all',{method:'POST',body:{}});
-   const time=new Date().toISOString();notificationModalItems.forEach(x=>{if(!x.read_at)x.read_at=time;});
+   notificationModalUnread=0;const time=new Date().toISOString();notificationModalItems.forEach(x=>{if(!x.read_at)x.read_at=time;});
    renderNotificationModalTab();socialUnreadLast=0;void socialRefreshBadge(true);return;
   }
   if(action==='edit-profile'){await socialEditProfileModal();return;}
@@ -410,9 +436,9 @@ document.addEventListener('click',async e=>{
    socialUnreadLast=0;
    if(modalRoot.querySelector('.notification-dialog')){
     const item=notificationModalItems.find(x=>String(x.id)===String(target.dataset.id));
-    if(item)item.read_at=new Date().toISOString();
+    if(item&&!item.read_at){item.read_at=new Date().toISOString();notificationModalUnread=Math.max(0,notificationModalUnread-1);}
     renderNotificationModalTab();void socialRefreshBadge(true);
-   }else await socialNotificationsPage();
+   }else if(target.isConnected){const row=target.closest('[data-notification-id]');row?.classList.remove('unread');target.remove();void socialRefreshBadge(true);}
    return;
   }
   if(action==='add'||action==='accept'||action==='decline'||action==='unfriend'||action==='cancel'){
