@@ -263,7 +263,12 @@ function setupSantaRoster(state){
  const root=document.querySelector('[data-santa-roster]');if(!root)return;
  if(gameRosterTimer){clearTimeout(gameRosterTimer);gameRosterTimer=null;}
  const route=state.base+'/roster',controller=new AbortController();
- let disposed=false,delay=15000,running=false,previous=JSON.stringify((state.participants||[]).map(p=>[p.id,p.name,p.wish_count,p.is_organizer,p.user_id])),failures=0;
+ // Detail and polling projections encode organizer differently. Compare the
+ // visible semantics, not the presence of an optional field.
+ const rosterSignature=people=>JSON.stringify(people.map(p=>[
+  p.id,p.name,p.wish_count,!!p.is_organizer||(!state.memberView&&p.user_id===state.currentUserId),p.user_id??null
+ ]));
+ let disposed=false,delay=15000,running=false,previous=rosterSignature(state.participants||[]),failures=0;
  const update=async()=>{
   if(disposed||!root.isConnected)return;
   if(document.visibilityState==='hidden'||running)return;
@@ -277,7 +282,7 @@ function setupSantaRoster(state){
     await render();
     return;
    }
-   const signature=JSON.stringify(info.participants.map(p=>[p.id,p.name,p.wish_count,p.is_organizer,p.user_id]));
+   const signature=rosterSignature(info.participants);
    if(signature===previous){delay=Math.min(60000,delay*2);return;}
    delay=15000;previous=signature;
    const next=root.cloneNode(false);next.innerHTML=info.participants.map(p=>santaRosterPerson(p,state)).join('');patchOwnerNode(root,next);
