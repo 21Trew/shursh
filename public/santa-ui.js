@@ -109,7 +109,7 @@ function gameGiftModal(edit=null){
 }
 function setupGameChat(state){
  const root=document.querySelector('#game-chat');if(!root)return;
- let room='general',displayedRoom=null,disposed=false,delay=15000;
+ let room='general',displayedRoom=null,displayedRevision=-1,disposed=false,delay=15000;
  const controller=new AbortController(),rooms=new Map(),inflight=new Map();
  const list=root.querySelector('.game-chat-messages'),tabs=[...root.querySelectorAll('[data-chat-room]')];
  const alive=()=>!disposed&&root.isConnected&&activeGameContext===state;
@@ -117,24 +117,46 @@ function setupGameChat(state){
  const markup=m=>'<div class="chat-message '+(m.mine?'chat-mine':'')+'" data-message-id="'+attr(m.id)+'"><div class="chat-meta">'+esc(m.author)+'</div><p>'+esc(m.message)+'</p></div>';
  const entryFor=name=>rooms.get(name);
  function merge(name,records,meta={}){
-  const before=entryFor(name)||{messages:[],hasOlder:false,fetchedAt:0};
+  const before=entryFor(name)||{messages:[],hasOlder:false,fetchedAt:0,revision:0};
   const merged=new Map(before.messages.map(m=>[m.id,m]));
-  for(const m of records)merged.set(m.id,m);
-  const entry={...before,...meta,messages:[...merged.values()].sort((a,b)=>a.id-b.id)};
+  let changed=meta.hasOlder!==undefined&&meta.hasOlder!==before.hasOlder;
+  for(const m of records){const previous=merged.get(m.id);if(!previous||previous.author!==m.author||previous.message!==m.message||previous.mine!==m.mine){merged.set(m.id,m);changed=true;}}
+  const entry={...before,...meta,revision:before.revision+(changed?1:0),messages:changed?[...merged.values()].sort((a,b)=>a.id-b.id):before.messages};
   rooms.set(name,entry);return entry;
  }
  function showRoom(name,{bottom=false,prepend=false}={}){
   if(!alive()||name!==room)return;
   const entry=entryFor(name),same=displayedRoom===name;
   const top=list.scrollTop,oldHeight=list.scrollHeight,nearBottom=oldHeight-top-list.clientHeight<48;
-  const next=list.cloneNode(false);
-  next.innerHTML=entry?
-   (entry.hasOlder?'<button type="button" class="btn btn-soft btn-small" data-chat-older>Ранее</button>':'')+
-   (entry.messages.length?entry.messages.map(markup).join(''):'<p class="note">Сообщений пока нет. Начни разговор!</p>'):
-   '<div class="chat-loading" role="status"><span class="skeleton-bar"></span><span class="skeleton-bar"></span></div>';
-  if(!same)list.replaceChildren(...next.childNodes);
-  else patchOwnerNode(list,next);
-  displayedRoom=name;
+  const revision=entry?.revision??-1;
+  if(same&&displayedRevision===revision){if(bottom)list.scrollTop=list.scrollHeight;return;}
+  if(!same||!entry||!list.querySelector('[data-message-id]')){
+   list.innerHTML=entry?
+    (entry.hasOlder?'<button type="button" class="btn btn-soft btn-small" data-chat-older>Ранее</button>':'')+
+    (entry.messages.length?entry.messages.map(markup).join(''):'<p class="note">Сообщений пока нет. Начни разговор!</p>'):
+    '<div class="chat-loading" role="status"><span class="skeleton-bar"></span><span class="skeleton-bar"></span></div>';
+  }else{
+   // Existing messages keep identity. Only build elements for new/changed IDs.
+   let older=list.querySelector('[data-chat-older]');
+   if(entry.hasOlder&&!older){older=document.createElement('button');older.type='button';older.className='btn btn-soft btn-small';older.dataset.chatOlder='';older.textContent='Ранее';list.prepend(older);}
+   else if(!entry.hasOlder&&older){older.remove();older=null;}
+   const existing=new Map([...list.querySelectorAll('[data-message-id]')].map(n=>[n.dataset.messageId,n]));
+   let cursor=older?older.nextSibling:list.firstChild;
+   for(const m of entry.messages){
+    const key=String(m.id);let node=existing.get(key);existing.delete(key);
+    if(!node){const template=document.createElement('template');template.innerHTML=markup(m);node=template.content.firstElementChild;}
+    else{
+     const author=node.querySelector('.chat-meta'),body=node.querySelector('p');
+     if(author.textContent!==m.author)author.textContent=m.author;
+     if(body.textContent!==m.message)body.textContent=m.message;
+     if(node.classList.contains('chat-mine')!==!!m.mine)node.classList.toggle('chat-mine',!!m.mine);
+    }
+    if(node!==cursor)list.insertBefore(node,cursor);
+    cursor=node.nextSibling;
+   }
+   for(const node of existing.values())node.remove();
+  }
+  displayedRoom=name;displayedRevision=revision;
   if(entry){
    if(prepend&&same)list.scrollTop=top+list.scrollHeight-oldHeight;
    else if(bottom||!same||nearBottom)list.scrollTop=list.scrollHeight;
@@ -207,7 +229,7 @@ function setupGameChat(state){
     merge(name,[sent.message]);
     if(room===name)showRoom(name,{bottom:true});
    }
-   delay=15000;void load({force:true}).finally(schedule);
+   delay=15000;schedule();
   }catch(err){if(alive()&&err.name!=='AbortError')notice(err.message,true);}
   finally{button.disabled=false;}
  });
