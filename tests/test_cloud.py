@@ -3035,7 +3035,7 @@ def test_browser_login_password_manager_contract(browser_http):
         browser=play.chromium.launch(headless=True,args=['--no-sandbox'])
         try:
             page=browser.new_page(viewport={'width':390,'height':844})
-            page.add_init_script("""() => {
+            page.add_init_script("""(() => {
               window.__credentialCalls=[];
               Object.defineProperty(window,'PasswordCredential',{configurable:true,value:class {
                 constructor(data){this.id=data.id;this.password=data.password;}
@@ -3044,8 +3044,9 @@ def test_browser_login_password_manager_contract(browser_http):
                 window.__credentialCalls.push(credential.id==='owner@example.test'&&credential.password==='valid-password');
                 return Promise.reject(new Error('Password saving declined'));
               }});
-            }""")
+            })();""")
             page.goto(browser_http+'/')
+            assert page.evaluate('window.__credentialCalls')==[], 'Credential test hook did not initialize'
             page.locator('header [data-open="login"]').click()
             expect(page.locator('#modal-form')).to_have_attribute('method','post')
             expect(page.locator('#modal-form')).to_have_attribute('action','/api/login')
