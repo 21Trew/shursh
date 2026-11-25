@@ -3,6 +3,7 @@ shursh_backend database role. Never expose auth emails or reservation identities
 No new outbound integrations or background jobs.
 """
 import re
+import os
 from uuid import UUID
 
 NOTIFY_FIELDS=('notify_friends','notify_santa','notify_gifts','notify_system')
@@ -104,7 +105,8 @@ def handle(handler, method, path, con):
         if method=='DELETE':
             con.execute('UPDATE user_invites SET revoked_at=now() WHERE owner_id=? AND revoked_at IS NULL',(user['id'],))
             return 200,{'ok':True},None
-        return 200,referrals.own_invite(con,user['id'],handler.request.host_url),None
+        origin=('https://'+handler.request.host) if os.getenv('VERCEL') else handler.request.host_url
+        return 200,referrals.own_invite(con,user['id'],origin),None
     invite=re.fullmatch(r'/api/friend-invites/([A-Za-z0-9_-]{24})(/friend)?',path)
     if invite and ((method=='GET' and not invite.group(2)) or (method=='POST' and invite.group(2))):
         referrals.require_ready(con)

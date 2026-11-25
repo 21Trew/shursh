@@ -3,7 +3,7 @@
 No auth tokens, emails, client-supplied identities or raw provider metadata are
 stored. A referral is counted only on a verified, newly registered identity.
 """
-from datetime import datetime, timedelta, timezone
+from datetime import datetime, timedelta
 import re
 import secrets
 from uuid import UUID
@@ -33,7 +33,9 @@ def active(con, code):
 def prepare_signup(con, code):
     require_ready(con)
     active(con,code)
-    return (code,secrets.token_urlsafe(32),datetime.now(timezone.utc))
+    # Use the database clock rather than the remote application worker clock.
+    started=con.execute('SELECT clock_timestamp() AS started').fetchone()['started']
+    return (code,secrets.token_urlsafe(32),started)
 
 def record_signup(con, intent, provider, email):
     """Accept only a fresh non-obfuscated signup returned by the provider.
@@ -51,7 +53,7 @@ def record_signup(con, intent, provider, email):
     try:
         uid=UUID(provider['id'])
         created=datetime.fromisoformat(provider['created_at'].replace('Z','+00:00'))
-        if created.tzinfo is None or not started<=created<=datetime.now(timezone.utc)+timedelta(seconds=2):
+        if created.tzinfo is None or created<started:
             return
         if provider.get('email','').casefold()!=email.casefold():
             return
@@ -63,10 +65,10 @@ def record_signup(con, intent, provider, email):
     con.execute("""INSERT INTO referral_pending(provider_id,invite_code,signup_at,expires_at)
              SELECT ?,i.code,?,? FROM user_invites i JOIN profiles p ON p.id=i.owner_id
              WHERE i.code=? AND i.revoked_at IS NULL AND i.owner_id<>?
-               AND (p.discoverable OR p.allow_friend_invites)
+               AND ?<=clock_timestamp() AND (p.discoverable OR p.allow_friend_invites)
                AND NOT EXISTS (SELECT 1 FROM profiles old WHERE old.id=? AND old.created_at<?)
              ON CONFLICT(provider_id) DO NOTHING""",
-             (uid,started,started+TTL,code,uid,uid,started))
+             (uid,started,started+TTL,code,uid,created,uid,started))
 
 def claim(con, uid):
     """Called only after verified provider login/confirmation, in its transaction.

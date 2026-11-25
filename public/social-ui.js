@@ -39,7 +39,7 @@ function socialIdentity(p,{editable=false,own=false,showBio=true}={}){
  (showBio?'<p class="profile-bio">'+esc(bio)+'</p>':'')+'</div></div>';
 }
 function socialUserCard(user,actions=''){
- return '<div class="social-person" data-person-id="'+attr(user.id)+'"><button class="social-person-link" type="button" data-nav="/users/'+attr(user.id)+'">'+
+ return '<div class="social-person" data-person-id="'+attr(user.id)+'"'+(user.relationship?' data-relationship="'+attr(user.relationship)+'"':'')+'><button class="social-person-link" type="button" data-nav="/users/'+attr(user.id)+'">'+
   socialAvatar(user)+
   '<span class="social-person-name">'+esc(socialFullName(user))+(user.handle?'<small>@'+esc(user.handle)+'</small>':'')+'</span></button>'+actions+'</div>';
 }
@@ -74,7 +74,7 @@ async function socialFriendsPage(marker=lastRenderToken,snapshot=null){
   (data.outgoing.length?'<section class="panel"><h2>Отправленные заявки</h2>'+
     data.outgoing.map(u=>socialUserCard(u,'<div class="social-request-actions"><span class="chip">Ожидает ответа</span><button class="btn btn-soft btn-small" data-social-action="cancel" data-user-id="'+attr(u.id)+'">Отменить</button></div>')).join('')+'</section>':'')+
   '</main>');
- if(snapshot)return;
+ if(snapshot){syncSocialSearchRelationships(ownerPatchRoot||app.querySelector('#page-view > main'),data);return;}
  document.querySelector('#social-search-form')?.addEventListener('submit',async ev=>{
   ev.preventDefault();
   const input=ev.currentTarget.elements.q;
@@ -481,28 +481,36 @@ document.addEventListener('click',async e=>{
    socialUnreadLast=0;
    notice(action==='add'?'Заявка в друзья отправлена':action==='accept'?'Теперь вы друзья':action==='decline'?'Заявка отклонена':action==='cancel'?'Заявка отменена':'Друг удалён');
    if(currentPath()!==actionPath)return;
-   if(actionPath==='/friends')await refreshSocialFriendsAfterMutation(uid);
+   if(actionPath==='/friends')await refreshSocialFriendsAfterMutation();
    else if(actionPath==='/users/'+uid)await socialProfilePage(uid);
   }
  }catch(err){notice(err.message,true);}
  finally{if(target.isConnected)target.disabled=false;}
 });
 
-async function refreshSocialFriendsAfterMutation(uid){
+function syncSocialSearchRelationships(root,data){
+ if(!root)return;
+ const relationships=new Map();
+ for(const [rows,state] of [[data.friends,'friends'],[data.outgoing,'outgoing'],[data.incoming,'incoming']])
+  for(const u of rows)relationships.set(String(u.id),state);
+ for(const row of root.querySelectorAll('#social-search-results [data-person-id]')){
+  const id=row.dataset.personId,relationship=relationships.get(id)||'none';
+  if(row.dataset.relationship===relationship)continue;
+  const next=row.cloneNode(true);next.dataset.relationship=relationship;
+  const identity=next.querySelector('.social-person-link');next.replaceChildren(identity);
+  next.insertAdjacentHTML('beforeend',socialSearchAction({id,relationship}));
+  patchOwnerNode(row,next);
+ }
+}
+async function refreshSocialFriendsAfterMutation(){
  const root=app.querySelector('#page-view > main'),epoch=ownerSessionEpoch,marker=lastRenderToken;
  const data=await api('/api/friends');
  if(epoch!==ownerSessionEpoch||marker!==lastRenderToken||!root?.isConnected||currentPath()!=='/friends')return;
+ let rendered;
  ownerPatchRoot=root;
- try{await socialFriendsPage(marker,data);}finally{ownerPatchRoot=null;}
- renderedOwnerTab='/friends';
- const row=[...root.querySelectorAll('#social-search-results [data-person-id]')].find(n=>n.dataset.personId===uid);
- if(row){
-  const relationship=data.friends.some(u=>String(u.id)===uid)?'friends':data.outgoing.some(u=>String(u.id)===uid)?'outgoing':data.incoming.some(u=>String(u.id)===uid)?'incoming':'none';
-  const next=row.cloneNode(true);
-  const identity=next.querySelector('.social-person-link');next.replaceChildren(identity);
-  next.insertAdjacentHTML('beforeend',socialSearchAction({id:uid,relationship}));
-  patchOwnerNode(row,next);
- }
+ try{rendered=socialFriendsPage(marker,data);}finally{ownerPatchRoot=null;}
+ await rendered;
+ if(epoch===ownerSessionEpoch&&marker===lastRenderToken&&root.isConnected)renderedOwnerTab='/friends';
 }
 function inviteQrData(rows){
  if(!Array.isArray(rows)||!rows.length||rows.length>177||!rows.every(r=>typeof r==='string'&&r.length===rows.length&&/^[01]+$/.test(r)))throw new Error('Не удалось построить QR-код');

@@ -3445,11 +3445,23 @@ def test_referral_verified_confirmation_exactly_once_and_revocation(application,
         register('referral-a@example.test',invite)
         assert count(owner)==initial
         register('referral-a@example.test',alternative)
-        result=confirm('referral-a@example.test')
-        assert result['invite_path']=='/i/'+invite
+        monkeypatch.setattr(auth,'verified_user',lambda token:{**users['referral-a@example.test'],'email_confirmed_at':datetime.now(timezone.utc).isoformat()})
+        def concurrent_confirm(_):
+            return call(application.test_client(),'POST','/api/auth/complete',{'access_token':'abc.def.ghi'}).json
+        with ThreadPoolExecutor(max_workers=2) as pool:
+            results=list(pool.map(concurrent_confirm,range(2)))
+        assert sum(r.get('invite_path')=='/i/'+invite for r in results)==1
         assert count(owner)==initial+1 and count(other)==initial_other
         assert 'invite_path' not in confirm('referral-a@example.test')
         assert count(owner)==initial+1
+        # A fake duplicate signup must not attribute an already verified account,
+        # including a self-referral attempt.
+        monkeypatch.setattr(auth,'auth_request',lambda action,**payload: {'id':aid,'identities':[],'email':'owner@example.test'} if action=='register' else upstream(action,**payload))
+        register('owner@example.test',alternative)
+        register('owner@example.test',invite)
+        login(application)
+        assert count(owner)==initial+1 and count(other)==initial_other
+        monkeypatch.setattr(auth,'auth_request',provider)
         # Revocation before confirmation and expiration both fail closed.
         register('referral-b@example.test',invite)
         register('referral-expired@example.test',alternative)

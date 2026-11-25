@@ -2518,10 +2518,18 @@ def test_friends_exact_search_and_qr_invite(browser_https,application,engine):
                 expect(link).to_be_visible()
                 url=link.input_value();assert url.startswith(browser_https+'/i/')
                 expect(page.locator('#personal-invite-qr')).to_be_visible()
+                page.wait_for_function("()=>document.querySelector('#personal-invite-qr')?.complete && document.querySelector('#personal-invite-qr')?.naturalWidth>0")
                 assert page.locator('#personal-invite-qr').evaluate("img=>img.complete&&img.naturalWidth>0&&img.src.startsWith('data:image/png')")
                 assert page.locator('a[download="shursh-invite.png"]').count()==1
                 assert 't.me/share/url' in page.get_by_role('link',name='Telegram',exact=True).get_attribute('href')
                 assert 'vk.com/share.php' in page.get_by_role('link',name='VK',exact=True).get_attribute('href')
+                # Capture actual new UI; generated fixture link is not a real hosted invitation.
+                output=OUTPUT/'friend-invite';output.mkdir(parents=True,exist_ok=True)
+                page.screenshot(path=str(output/f'{engine}-mobile-qr.png'),animations='disabled')
+                assert page.evaluate("document.documentElement.scrollWidth<=innerWidth+1")
+                page.set_viewport_size({'width':1440,'height':900})
+                page.screenshot(path=str(output/f'{engine}-desktop-qr.png'),animations='disabled')
+                assert page.evaluate("document.documentElement.scrollWidth<=innerWidth+1")
                 guest=browser.new_context(ignore_https_errors=True,viewport={'width':390,'height':844}).new_page()
                 guest.goto(url)
                 expect(guest.get_by_text('Александр приглашает тебя в Шурш!',exact=True)).to_be_visible()
