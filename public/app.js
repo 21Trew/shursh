@@ -131,6 +131,14 @@ function cacheableOwnerRead(path){
   path==='/api/profile/me'||
   /^\/api\/(?:lists|santas)\/\d+$/.test(path));
 }
+function resetOwnerSession(){
+ clearOwnerDataCache();currentUser=null;renderStarted=false;closeModal();loading();void render();
+}
+function verifyOwnerViewer(response,identity){
+ // Local standalone server does not supply the cloud UI/version header.
+ if(!identity||!response.headers.has('X-Shursh-UI-Version'))return true;
+ return response.headers.get('X-Shursh-Viewer')===String(identity);
+}
 function dropOwnerRead(path){
  ownerDataCache.delete(path);ownerPending.delete(path);ownerRevalidating.delete(path);
 }
@@ -139,6 +147,7 @@ function clearOwnerDataCache(){
  ownerWarmupIdentity=null;ownerWarmupReady=false;ownerWarmupPromise=null;
  currentOwnedWishlists=[];loadedList=null;loadedSanta=null;activeGameContext=null;
  if(typeof notificationModalItems!=='undefined'){notificationModalItems=[];notificationModalMore=false;notificationModalUnread=0;}
+ if(typeof resetSocialBadge==='function')resetSocialBadge();
  stopGameLifecycle();
 }
 function invalidateOwnerDataForMutation(path){
@@ -148,6 +157,7 @@ function invalidateOwnerDataForMutation(path){
  const isAccountWrite=path==='/api/profile/me'||/^\/api\/account\/(?:email|password)$/.test(path);
  if(isFriendWrite||isNotificationWrite||isAccountWrite){
   const tabs=isFriendWrite?['/friends','/notifications']:isNotificationWrite?['/notifications']:['/profile'];
+  if(isFriendWrite){const lists=ownerTabViews.get('/lists')?.node;if(lists?.querySelector('[data-wishlist-view="friends"][aria-selected="true"]'))tabs.push('/lists');}
   clearOwnerTabViews(tabs);
   for(const endpoint of isFriendWrite?['/api/friends','/api/friends/wishlists','/api/notifications']:
     isNotificationWrite?['/api/notifications']:['/api/profile/me']){
@@ -286,7 +296,7 @@ function updateOwnerView(path,value){
   '/friends':()=>socialFriendsPage(lastRenderToken,value),'/profile':()=>socialOwnProfilePage(lastRenderToken,value),
   '/notifications':()=>socialNotificationsPage(lastRenderToken,value)};
  ownerPatchRoot=root;
- try{renderers[tab]?.();}finally{ownerPatchRoot=null;}
+ try{const result=renderers[tab]?.();if(result?.catch)void result.catch(()=>clearOwnerTabViews([tab]));}finally{ownerPatchRoot=null;}
 }
 const ownerRevalidating=new Map();
 function revalidateOwnerRead(path,entry){
@@ -299,16 +309,18 @@ function revalidateOwnerRead(path,entry){
    if(!response.ok){
     if((response.status===401||response.status===403||response.status===404)&&epoch===ownerSessionEpoch&&ownerDataCache.get(path)===entry){
      dropOwnerRead(path);
-     if(response.status===401){clearOwnerDataCache();currentUser=null;renderStarted=false;closeModal();void render();return;}
+     if(response.status===401){resetOwnerSession();return;}
      if(!ownerPinned(path))return;
      const tab=['/','/lists','/santas','/friends','/profile','/notifications'].find(t=>ownerApiForTab(t)===path);
      if(tab)clearOwnerTabViews([tab]);
     }
     return;
    }
+   if(epoch!==ownerSessionEpoch||currentUser?.id!==identity||ownerDataCache.get(path)!==entry)return;
+   if(!verifyOwnerViewer(response,identity)){resetOwnerSession();return;}
    const value=await response.json();
    if(path==='/api/dashboard'&&value.user?.id!==identity){
-    if(epoch===ownerSessionEpoch&&currentUser?.id===identity){clearOwnerDataCache();currentUser=null;renderStarted=false;closeModal();void render();}
+    if(epoch===ownerSessionEpoch&&currentUser?.id===identity)resetOwnerSession();
     return;
    }
    if(epoch!==ownerSessionEpoch||currentUser?.id!==identity||ownerDataCache.get(path)!==entry)return;
@@ -367,6 +379,9 @@ async function api(path,opts={}){
   const response=await fetch(path,{method,headers,
    credentials:'same-origin',body:opts.body?JSON.stringify(opts.body):undefined,
    signal:opts.signal});
+  if(epoch!==ownerSessionEpoch||currentUser?.id!==identity)throw sessionChangedError();
+  if(cached&&ownerPending.get(path)?.request!==request)return api(path,opts);
+  if(cached&&((response.ok&&!verifyOwnerViewer(response,identity))||response.status===401)){resetOwnerSession();throw sessionChangedError();}
   const data=await response.json().catch(()=>({error:'Не удалось прочитать ответ сервера'}));
   if(!response.ok){const err=new Error(data.error||'Произошла ошибка');err.status=response.status;throw err;}
   if(epoch!==ownerSessionEpoch||currentUser?.id!==identity)throw sessionChangedError();
@@ -534,7 +549,7 @@ function contactDeveloperModal(){
   }});
  const message=modalRoot.querySelector('#fld-message');if(message){message.required=true;message.minLength=5;message.maxLength=3000;}
 }
-function closeModal(){const wasNotifications=!!modalRoot.querySelector('.notification-dialog');stopAuthModalMotion();for(const input of modalRoot.querySelectorAll('input'))suggestionObservers.get(input)?.disconnect();modalContentObserver?.disconnect();modalContentObserver=null;closeCalendar();closeUiSelect();modalRoot.replaceChildren();document.body.style.overflow='';if(wasNotifications){const bell=app.querySelector('.header-bell');if(bell){setAttrIfChanged(bell,'aria-expanded','false');bell.focus({preventScroll:true});}}}
+function closeModal(){const wasNotifications=!!modalRoot.querySelector('.notification-dialog');if(wasNotifications){notificationModalItems=[];notificationModalMore=false;notificationModalUnread=0;}stopAuthModalMotion();for(const input of modalRoot.querySelectorAll('input'))suggestionObservers.get(input)?.disconnect();modalContentObserver?.disconnect();modalContentObserver=null;closeCalendar();closeUiSelect();modalRoot.replaceChildren();document.body.style.overflow='';if(wasNotifications){const bell=app.querySelector('.header-bell');if(bell){setAttrIfChanged(bell,'aria-expanded','false');bell.focus({preventScroll:true});}}}
 document.addEventListener('keydown',e=>{if(e.key==='Escape'){if(activeCalendar){e.preventDefault();closeCalendar(true);}else if(uiSelectOpen){e.preventDefault();closeUiSelect(true);}else closeModal();}});
 document.addEventListener('click',e=>{
  const picker=e.target.closest('input[type="date"]');
@@ -2422,7 +2437,7 @@ const sessionChannel=(!isPreview&&'BroadcastChannel' in window)?
 function broadcastSessionChange(){sessionChannel?.postMessage('changed');}
 sessionChannel?.addEventListener('message',event=>{
  if(event.data!=='changed')return;
- clearOwnerDataCache();currentUser=null;renderStarted=false;closeModal();render();
+ resetOwnerSession();
 });
 let renderStarted=false;
 let pendingGameClaim=null;
