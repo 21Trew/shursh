@@ -10,7 +10,7 @@ from pathlib import Path
 from flask import Flask, Response, request, send_from_directory
 from werkzeug.exceptions import RequestEntityTooLarge
 
-from cloud import db, auth, password_policy
+from cloud import db, auth, password_policy, activity
 from cloud.backend import CloudRequest, serialize, valid_auth_email
 from server import ApiError, LIMIT_BYTES
 
@@ -135,6 +135,7 @@ def api(route):
             prepared=handler.prepare_confirmation()
             with db.transaction(write=True,rate_limit=True) as con:
                 result=handler.finish_auth(con,prepared)
+            activity.record_successful_visit(request,result[1].get('user'),app.logger)
             return response(result[1],result[0],result[2])
         if path in ('/api/register','/api/login') and request.method=='POST':
             prepared=handler.prepare_auth(path)
@@ -142,6 +143,7 @@ def api(route):
                 return response({'user':None,'pending_confirmation':True},202)
             with db.transaction(write=True,rate_limit=True) as con:
                 result=handler.finish_auth(con,prepared)
+            activity.record_successful_visit(request,result[1].get('user'),app.logger)
             return response(result[1],result[0],result[2])
         # Authentication has a stricter dedicated limiter inside CloudRequest.
         # Avoid two separate PostgreSQL rate-limit transactions per login.
@@ -164,6 +166,9 @@ def api(route):
         separate = path in ('/api/register','/api/login','/api/logout')
         with db.transaction(write=write,rate_limit=separate) as con:
             result = handler.handle_api('GET' if request.method=='HEAD' else request.method,path,con)
+        if (request.method=='GET' and path in ('/api/me','/api/dashboard')
+                and request.headers.get('X-Shursh-Visit')=='1' and result[0]==200):
+            activity.record_successful_visit(request,result[1].get('user'),app.logger)
         return response(result[1],result[0],result[2])
     except ApiError:
         raise

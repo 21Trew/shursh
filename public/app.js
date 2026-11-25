@@ -214,7 +214,11 @@ async function api(path,opts={}){
  }
  const version=ownerCacheVersion;
  const request=(async()=>{
-  const response=await fetch(path,{method,headers:{'Content-Type':'application/json'},
+  const headers={'Content-Type':'application/json'};
+  if(opts.visit)headers['X-Shursh-Visit']='1';
+  // iPadOS sometimes identifies as macOS. Only the coarse OS hint is sent.
+  if((opts.visit||['/api/login','/api/register','/api/auth/complete'].includes(path))&&navigator.platform==='MacIntel'&&navigator.maxTouchPoints>1)headers['X-Shursh-Platform']='ios';
+  const response=await fetch(path,{method,headers,
    credentials:'same-origin',body:opts.body?JSON.stringify(opts.body):undefined,
    signal:opts.signal});
   const data=await response.json().catch(()=>({error:'Не удалось прочитать ответ сервера'}));
@@ -235,7 +239,7 @@ async function api(path,opts={}){
 async function startupApi(path){
  const controller=new AbortController();
  const timeout=setTimeout(()=>controller.abort(),9000);
- try{return await api(path,{signal:controller.signal});}
+ try{return await api(path,{signal:controller.signal,visit:true});}
  catch(error){
   if(controller.signal.aborted)throw new Error('Не удалось дождаться ответа сервера. Проверь соединение и попробуй ещё раз');
   throw error;

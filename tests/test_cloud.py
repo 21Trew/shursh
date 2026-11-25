@@ -2489,7 +2489,7 @@ def test_admin_user_directory_is_paginated_and_only_for_site_admin(application,m
     result=call(manager,'GET','/api/admin/users').json
     assert result['limit']==25 and result['offset']==0 and result['total']>=2
     allowed={'id','name','handle','avatar_emoji','created_at','discoverable',
-             'wishlists_count','organized_games','joined_games'}
+             'wishlists_count','organized_games','joined_games','last_seen_at','last_platform'}
     assert all(set(u)==allowed for u in result['users'])
     assert all('@example.test' not in str(u) for u in result['users'])
     assert call(manager,'GET','/api/admin/users?q=owner').json['total']>=1
@@ -2649,6 +2649,9 @@ def test_browser_ux_fixes_avatar_gift_placeholder_and_admin_directory(browser_ht
             page.locator('.admin-hub-users').click()
             expect(page).to_have_url(re.compile('/admin/users'))
             expect(page.locator('.admin-users-table')).to_be_visible()
+            expect(page.locator('.admin-users-panel .panel-heading-actions .chip')).to_have_count(0)
+            expect(page.locator('.admin-users-table th')).to_have_text(['Игрок','Ник','Регистрация','Последний визит','Вишлисты','Свои Санты','Участие','В поиске'])
+            expect(page.locator('.admin-users-table tbody tr').filter(has_text='Owner')).to_contain_text('Linux')
             page.locator('#admin-users-query').fill('owner')
             assert page.locator('#admin-users-search button[type="submit"]').count()==0
             expect(page.locator('.admin-users-table tbody')).to_contain_text('Owner',timeout=10000)
@@ -2891,3 +2894,47 @@ def test_ui_release_keeps_legacy_auth(application):
     for route in ('start','verify','finish'):
         call(client,'POST','/api/auth/'+route,{},404)
     assert call(client,'POST','/api/login',{'email':'owner@example.test','password':'valid-password'}).json['user'] is not None
+
+
+@pytest.mark.parametrize('headers,expected',[
+    ({'User-Agent':'Mozilla/5.0 (Windows NT 10.0; Win64; x64)'},'windows'),
+    ({'User-Agent':'Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7)'},'macos'),
+    ({'User-Agent':'Mozilla/5.0 (X11; Linux x86_64)'},'linux'),
+    ({'User-Agent':'Mozilla/5.0 (Linux; Android 14)'},'android'),
+    ({'User-Agent':'Mozilla/5.0 (iPhone; CPU iPhone OS 18_0 like Mac OS X)'},'ios'),
+    ({'User-Agent':'Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7)','X-Shursh-Platform':'ios'},'ios'),
+    ({'User-Agent':'Mozilla/5.0 (X11; CrOS x86_64)'},'unknown'),
+    ({},'unknown')])
+def test_visit_platform_family(headers,expected):
+    from cloud.activity import platform_family
+    assert platform_family(headers)==expected
+
+
+def test_admin_last_visit_across_devices(application,monkeypatch):
+    monkeypatch.setenv('SHURSH_ADMIN_EMAILS','owner@example.test')
+    manager=login(application)
+    first=application.test_client()
+    second=application.test_client()
+    credentials={'email':'other@example.test','password':'valid-password'}
+    windows={'User-Agent':'Mozilla/5.0 (Windows NT 10.0)'}
+    android={'User-Agent':'Mozilla/5.0 (Linux; Android 14)'}
+    call(first,'POST','/api/login',credentials,headers=windows)
+    def row():
+        return next(u for u in call(manager,'GET','/api/admin/users').json['users'] if u['id']==str(IDS['other@example.test']))
+    a=row()
+    assert a['last_seen_at'] and a['last_platform']=='windows'
+    call(second,'POST','/api/login',credentials,headers=android)
+    b=row()
+    assert b['last_platform']=='android' and b['last_seen_at']>=a['last_seen_at']
+    # Ordinary API and guest bootstrap cannot overwrite the last visit.
+    call(first,'GET','/api/me',headers=windows)
+    call(application.test_client(),'GET','/api/me',headers={**windows,'X-Shursh-Visit':'1'})
+    assert row()['last_seen_at']==b['last_seen_at']
+    call(first,'GET','/api/dashboard',headers={**windows,'X-Shursh-Visit':'1'})
+    c=row()
+    assert c['last_platform']=='windows' and c['last_seen_at']>=b['last_seen_at']
+    assert 'last_seen_at' not in call(first,'GET','/api/me').json['user']
+    call(first,'GET','/api/admin/users',status=403)
+    with psycopg.connect(os.environ['SHURSH_DATABASE_URL']) as con:
+        for role in ('anon','authenticated'):
+            assert not con.execute("SELECT has_table_privilege(%s,'public.admin_user_activity','SELECT')",(role,)).fetchone()[0]

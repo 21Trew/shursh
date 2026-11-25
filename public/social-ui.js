@@ -255,20 +255,34 @@ async function socialNotificationsPage(marker=lastRenderToken){
   '</section></main>');
  socialRefreshBadge();
 }
+function socialAdminVisitMarkup(u){
+ if(!u.last_seen_at)return '<span class="muted">Нет данных</span>';
+ const platforms={
+  windows:['Windows','<path d="M2 4l9-1.3V11H2zm11-1.6L22 1v10h-9zM2 13h9v8.3L2 20zm11 0h9v10l-9-1.4z"/>'],
+  macos:['macOS','<path d="M16.2 2c.2 2-1.4 4-3.5 4.4-.3-2 1.5-4 3.5-4.4ZM20 13.8c-.9-1.3-1.3-2.8-.6-4.2-2.1-2.7-4.2-2-6-1.3-1 .4-1.8.3-2.8-.1C7 6.5 3.6 9.5 4.2 14c.5 3.4 2.9 7.9 5 7.9 1 0 1.6-.7 3.2-.7 1.5 0 2.2.7 3.3.7 2.1 0 4.1-3.6 4.9-6.1-1.7-.7-2.6-1.9-2.6-2Z"/>'],
+  linux:['Linux','<path d="M12 2c-3 0-4.5 2.4-4.5 5.5 0 3-3.5 6-3.5 10 0 1.6.8 3 2 3.4 1.6.5 3.7-.5 6-.5s4.4 1 6 .5c1.2-.4 2-1.8 2-3.4 0-4-3.5-7-3.5-10C16.5 4.4 15 2 12 2Z"/><ellipse cx="12" cy="15.5" rx="4.2" ry="4.6" fill="#fffefa"/><circle cx="10" cy="7" r=".9" fill="#fffefa"/><circle cx="14" cy="7" r=".9" fill="#fffefa"/><path d="m10 9 2 1.8L14 9l-2-.8z" fill="#fffefa"/>'],
+  android:['Android','<path d="M3 16a9 9 0 0 1 18 0H3Z"/><path d="m6 8-2-3m14 3 2-3" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round"/><circle cx="8" cy="12" r="1" fill="#fffefa"/><circle cx="16" cy="12" r="1" fill="#fffefa"/>'],
+  ios:['iOS','<rect x="6" y="2" width="12" height="20" rx="3" fill="none" stroke="currentColor" stroke-width="1.8"/><path d="M10 5h4m-3 14h2" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round"/>']
+ };
+ const platform=Object.hasOwn(platforms,u.last_platform)?platforms[u.last_platform]:['Не определена','<circle cx="12" cy="12" r="9" fill="none" stroke="currentColor" stroke-width="1.6"/><path d="M9 9a3 3 0 0 1 6 0c0 2-3 2-3 4m0 3v1" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round"/>'];
+ const date=new Date(u.last_seen_at);
+ if(!Number.isFinite(date.getTime()))return '<span class="muted">Нет данных</span>';
+ return '<div class="admin-user-identity"><svg width="20" height="20" viewBox="0 0 24 24" fill="currentColor" aria-hidden="true" focusable="false">'+platform[1]+'</svg><span><time datetime="'+attr(u.last_seen_at)+'">'+esc(date.toLocaleString('ru-RU',{dateStyle:'medium',timeStyle:'short'}))+'</time><small>'+platform[0]+'</small></span></div>';
+}
 function socialAdminUsersMarkup(page){
  const rows=(page.users||[]).map(u=>'<tr><td><div class="admin-user-identity"><span class="admin-user-emoji">'+
    esc(u.avatar_emoji||'🎁')+'</span><span><strong>'+esc(u.name)+'</strong>'+
    '<small>ID: '+esc(String(u.id).slice(0,8))+'</small></span></div></td>'+
    '<td>'+(u.handle?'@'+esc(u.handle):'<span class="muted">—</span>')+'</td>'+
    '<td><time datetime="'+attr(u.created_at)+'">'+esc(new Date(u.created_at).toLocaleString('ru-RU',{dateStyle:'medium',timeStyle:'short'}))+'</time></td>'+
-   '<td>'+Number(u.wishlists_count||0)+'</td><td>'+Number(u.organized_games||0)+'</td>'+
-   '<td>'+Number(u.joined_games||0)+'</td><td>'+(u.discoverable?'В поиске':'Скрыт')+'</td></tr>').join('');
+   '<td>'+socialAdminVisitMarkup(u)+'</td><td>'+Number(u.wishlists_count||0)+'</td><td>'+Number(u.organized_games||0)+'</td>'+
+   '<td>'+Number(u.joined_games||0)+'</td><td>'+(u.discoverable?'Виден':'Скрыт')+'</td></tr>').join('');
  const from=page.total?Number(page.offset)+1:0;
  const to=Math.min(Number(page.offset)+Number(page.limit),Number(page.total));
  return '<div class="admin-users-table-scroll"><table class="admin-users-table"><thead><tr>'+
-   '<th>Игрок</th><th>Ник</th><th>Регистрация</th><th>Вишлисты</th>'+
-   '<th>Свои Санты</th><th>Участие</th><th>Профиль</th></tr></thead><tbody>'+
-   (rows||'<tr><td colspan="7" class="muted">Игроки не найдены</td></tr>')+'</tbody></table></div>'+
+   '<th>Игрок</th><th>Ник</th><th>Регистрация</th><th>Последний визит</th><th>Вишлисты</th>'+
+   '<th>Свои Санты</th><th>Участие</th><th>В поиске</th></tr></thead><tbody>'+
+   (rows||'<tr><td colspan="8" class="muted">Игроки не найдены</td></tr>')+'</tbody></table></div>'+
    '<div class="admin-users-pager"><span>'+from+'–'+to+' из '+Number(page.total)+'</span>'+
    '<div class="btn-row"><button type="button" class="btn btn-soft btn-small" data-social-action="admin-users-prev" data-offset="'+Math.max(0,page.offset-page.limit)+'"'+(page.offset===0?' disabled':'')+'>Назад</button>'+
    '<button type="button" class="btn btn-soft btn-small" data-social-action="admin-users-next" data-offset="'+(page.offset+page.limit)+'"'+(to>=page.total?' disabled':'')+'>Вперёд</button></div></div>';
@@ -315,7 +329,7 @@ async function socialAdminUsersPage(marker=lastRenderToken){
  shell('<main class="container page social-page admin-page"><div class="admin-section-back"><a href="/admin" data-nav="/admin" class="text-link">'+ico('back',18)+' Все разделы</a></div>'+
    '<div class="page-hero"><div><div class="section-label">Администрирование / пользователи</div>'+
    '<h1>Пользователи</h1><p>Поиск по имени и никнейму. Без доступа к личным данным других разделов</p></div></div>'+
-   '<section class="panel admin-users-panel"><div class="panel-heading-actions"><h2>Зарегистрированные игроки</h2><span class="chip">'+Number(page.total)+'</span></div>'+
+   '<section class="panel admin-users-panel"><div class="panel-heading-actions"><h2>Зарегистрированные игроки</h2></div>'+
    '<form id="admin-users-search" class="admin-users-search" role="search">'+
    '<label for="admin-users-query" class="sr-only">Поиск пользователей</label>'+
    '<input id="admin-users-query" class="input" type="search" placeholder="Имя или никнейм" maxlength="50" autocomplete="off" aria-controls="admin-users-content">'+

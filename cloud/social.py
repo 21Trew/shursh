@@ -120,11 +120,16 @@ def handle(handler, method, path, con):
         where='WHERE (p.name ILIKE ? OR coalesce(p.handle,\'\') ILIKE ?)' if search else ''
         args=('%'+search+'%','%'+search.lstrip('@')+'%') if search else ()
         total=con.execute('SELECT count(*) AS n FROM profiles p '+where,args).fetchone()['n']
+        # Backward-safe read during rollout: no invented historical activity.
+        ready=con.execute("SELECT to_regclass('public.admin_user_activity') IS NOT NULL AS ready").fetchone()['ready']
+        activity_columns='a.last_seen_at,a.last_platform' if ready else 'NULL AS last_seen_at,NULL AS last_platform'
+        activity_join=' LEFT JOIN admin_user_activity a ON a.user_id=p.id ' if ready else ' '
         rows=con.execute('''SELECT p.id,p.name,p.handle,p.avatar_emoji,p.created_at,p.discoverable,
+                 '''+activity_columns+''',
                  (SELECT count(*) FROM wishlists w WHERE w.owner_id=p.id) AS wishlists_count,
                  (SELECT count(*) FROM santa_events e WHERE e.owner_id=p.id) AS organized_games,
                  (SELECT count(*) FROM participants m WHERE m.user_id=p.id) AS joined_games
-                 FROM profiles p '''+where+'''
+                 FROM profiles p '''+activity_join+where+'''
                  ORDER BY p.created_at DESC,p.id DESC LIMIT ? OFFSET ?''',
                  (*args,25,offset)).fetchall()
         return 200,{'users':[dict(row) for row in rows],
