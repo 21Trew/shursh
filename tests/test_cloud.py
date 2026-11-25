@@ -589,7 +589,7 @@ def test_direct_browser_links_and_api_errors(application):
                  f'/w/{key}', f'/join/{invite}', f'/p/{participant}', f'/r/{reservation}']:
         page=call(guest,'GET',path)
         assert 'text/html' in page.content_type
-        assert 'src="/app.js?v=' in page.get_data(as_text=True)
+        assert re.search(r'src="/ui/[a-f0-9]{20}/app\.js"',page.get_data(as_text=True))
         assert page.headers['Cache-Control']=='no-store'
     for path in ['/join/', '/join/../../server.py', '/list/abc', '/cloud/auth.py', '/.env.example']:
         call(guest,'GET',path,status=404)
@@ -718,7 +718,7 @@ def test_static_product_copy_avoids_sentence_final_periods():
     from pathlib import Path
     root=Path(__file__).resolve().parents[1]
     ending=re.compile(r"""[А-Яа-яЁё]\.(?=</(?:p|small|h[1-6]|strong|span|div|li|a|button)\b|['"`])""")
-    paths=('public/app.js','public/shursh-preview.html','public/index.html','server.py','app.py','cloud/backend.py')
+    paths=('public/app.js','public/shursh-preview.html','templates/index.html','server.py','app.py','cloud/backend.py')
     for name in paths:
         data=(root/name).read_text(encoding='utf-8')
         assert not ending.search(data), f'Russian text ends in a period: {name}'
@@ -732,7 +732,7 @@ def test_site_text_uses_only_short_hyphens_and_calm_confirmation_card():
     from pathlib import Path
     root = Path(__file__).resolve().parents[1]
     for name in ('public/app.js', 'public/shursh-preview.html',
-                 'public/index.html', 'server.py', 'app.py', 'cloud/backend.py',
+                 'templates/index.html', 'server.py', 'app.py', 'cloud/backend.py',
                  'DESIGN.md'):
         data = (root / name).read_text(encoding='utf-8')
         assert chr(0x2014) not in data and chr(0x2013) not in data, name
@@ -3188,7 +3188,8 @@ def test_release_asset_fingerprint_and_stale_reveal_safe_failure(application):
     import re
     from app import UI_ASSETS,UI_VERSION
     client=application.test_client()
-    for route in ('/','/santa/5','/profile'):
+    assert not (ROOT/'public'/'index.html').exists(), 'Vercel static shell shadows Flask and its CSRF/version headers'
+    for route in ('/','/index.html','/santa/5','/profile'):
         page=client.get(route,base_url=BASE)
         assert page.status_code==200
         assert page.headers['Cache-Control']=='no-store'
@@ -3196,9 +3197,12 @@ def test_release_asset_fingerprint_and_stale_reveal_safe_failure(application):
         assert page.headers['X-Shursh-UI-Version']==UI_VERSION
         html=page.get_data(as_text=True)
         for asset in UI_ASSETS:
-            assert f'"/{asset}?v={UI_VERSION}"' in html
-            result=client.get(f'/{asset}?v={UI_VERSION}',base_url=BASE)
+            assert f'"/ui/{UI_VERSION}/{asset}"' in html
+            result=client.get(f'/ui/{UI_VERSION}/{asset}',base_url=BASE)
             assert result.status_code==200 and result.headers['X-Shursh-UI-Version']==UI_VERSION
+            assert result.data==(ROOT/'public'/asset).read_bytes()
+    stale=client.get('/ui/'+'0'*20+'/app.js',base_url=BASE)
+    assert stale.status_code==404 and stale.headers['Cache-Control']=='no-store'
     for suffix in ('reveal','null/reveal','undefined/reveal','/reveal'):
         reply=call(client,'POST','/api/participant/'+suffix,{},409)
         assert 'Обнови страницу' in reply.json['error']

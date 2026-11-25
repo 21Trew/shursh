@@ -13,7 +13,7 @@ const path = name => new URL(name, ORIGIN);
 
 async function get(name) {
   const resource = path(name);
-  if (resource.origin !== ORIGIN || resource.hash || (resource.search && !(ASSETS.includes(resource.pathname.slice(1)) && /^\?v=[a-f0-9]{20}$/.test(resource.search)))) {
+  if (resource.origin !== ORIGIN || resource.hash || resource.search) {
     throw new Error('Unsafe smoke target');
   }
   const response = await fetch(resource, {
@@ -51,7 +51,7 @@ async function run() {
   assert(/^[a-f0-9]{20}$/.test(home.version), 'Homepage must identify the UI version');
   const hashes = {};
   for (const asset of ASSETS) {
-    const url = '/'+asset+'?v='+home.version;
+    const url = '/ui/'+home.version+'/'+asset;
     assert(home.body.includes('"'+url+'"'), 'HTML must reference versioned assets');
     const result = await get(url);
     assert(result.status === 200 && result.version === home.version, 'Versioned UI asset must match homepage');

@@ -1412,7 +1412,7 @@ class Handler(BaseHTTPRequestHandler):
                     raise ApiError(404,'Файл не найден')
                 filepath=ROOT/'uploads'/filename
             elif path in ('/','/index.html') or not Path(path).suffix:
-                filepath=ROOT/'public'/'index.html'
+                filepath=ROOT/'templates'/'index.html'
             else:
                 filepath=(ROOT/'public'/path.lstrip('/')).resolve()
                 if not filepath.is_relative_to((ROOT/'public').resolve()):

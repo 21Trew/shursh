@@ -22,7 +22,8 @@ ROOT = Path(__file__).resolve().parent
 # cannot reuse a cached app.js under the previous HTML's unversioned URL.
 UI_ASSETS=('app.js','santa-ui.js','social-ui.js','styles.css','polish.css','fonts.css')
 _ui_digest=hashlib.sha256()
-for _asset in ('index.html',*UI_ASSETS):
+_ui_digest.update(b'index.html\0'+(ROOT/'templates'/'index.html').read_bytes())
+for _asset in UI_ASSETS:
     _ui_digest.update(_asset.encode('ascii')+b'\0'+(ROOT/'public'/_asset).read_bytes())
 UI_VERSION=_ui_digest.hexdigest()[:20]
 app = Flask(__name__, static_folder=None)
@@ -70,7 +71,8 @@ def security_headers(result):
     # Static UI assets are public and identical for every user. Reusing them
     # avoids repeated downloads on reload; HTML, APIs and capability URLs
     # must always remain private and uncached.
-    if request.path in ('/app.js','/santa-ui.js','/social-ui.js','/styles.css','/polish.css','/fonts.css','/favicon.svg','/favicon.ico') or request.path.startswith('/fonts/'):
+    versioned_asset=(result.status_code in (200,304) and request.path.startswith('/ui/'+UI_VERSION+'/') and request.path.rsplit('/',1)[-1] in UI_ASSETS)
+    if versioned_asset or request.path in ('/app.js','/santa-ui.js','/social-ui.js','/styles.css','/polish.css','/fonts.css','/favicon.svg','/favicon.ico') or request.path.startswith('/fonts/'):
         result.headers['Cache-Control'] = 'public, max-age=300, must-revalidate'
     else:
         result.headers['Cache-Control'] = 'no-store'
@@ -250,6 +252,13 @@ def image(filename):
         return response({'error':'Сервис временно недоступен'},503)
 
 
+@app.get('/ui/<version>/<asset>')
+def versioned_ui_asset(version,asset):
+    if version!=UI_VERSION or asset not in UI_ASSETS:
+        return response({'error':'Версия интерфейса недоступна. Обнови страницу'},404)
+    return send_from_directory(ROOT/'public',asset)
+
+
 @app.get('/')
 @app.get('/<path:route>')
 def frontend(route=''):
@@ -265,9 +274,9 @@ def frontend(route=''):
         fresh=not re.fullmatch(r'[A-Za-z0-9_-]{43}',csrf)
         if fresh:
             csrf=secrets.token_urlsafe(32)
-        html=(ROOT/'public'/'index.html').read_text(encoding='utf-8')
+        html=(ROOT/'templates'/'index.html').read_text(encoding='utf-8')
         for asset in UI_ASSETS:
-            html=html.replace(f'"/{asset}"',f'"/{asset}?v={UI_VERSION}"')
+            html=html.replace(f'"/{asset}"',f'"/ui/{UI_VERSION}/{asset}"')
         html=html.replace('</head>',f'<meta name="shursh-login-csrf" content="{csrf}"></head>',1)
         reply=Response(html,mimetype='text/html')
         if fresh:
