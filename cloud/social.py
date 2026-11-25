@@ -204,8 +204,17 @@ def handle(handler, method, path, con):
         uid=_uuid(match.group(1))
         profile=con.execute('SELECT id,name,bio,discoverable,handle,avatar_emoji,city FROM profiles WHERE id=?',(uid,)).fetchone()
         state=_relationship(con,user['id'],uid)
-        if not profile or (not profile['discoverable'] and state not in ('self','friends')):
+        if not profile:
             raise ApiError(404,'Профиль не найден')
+        if not profile['discoverable'] and state not in ('self','friends'):
+            if not user.get('is_admin'):
+                raise ApiError(404,'Профиль не найден')
+            # The admin directory already exposes this identity. Opening its
+            # profile must not grant access to hidden bio, city, lists or games.
+            return 200,{'profile':{'id':profile['id'],'name':profile['name'],
+                         'handle':profile['handle'],'avatar_emoji':profile['avatar_emoji'],
+                         'bio':'','city':''},'relationship':'admin_directory',
+                         'lists':[],'shared_games':[]},None
         lists=[]
         if state in ('self','friends'):
             rows=con.execute('''SELECT l.id,l.title,l.description,l.occasion,l.theme,l.share_key,

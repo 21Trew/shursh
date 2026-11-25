@@ -23,14 +23,14 @@ const socialEmojiChoices=["🎁","🎄","🐱","🦊","🐻","🐼","🐸","🦄
 function socialAvatar(p,extra=''){
  return '<span class="avatar emoji-avatar '+extra+'" aria-hidden="true">'+esc(p.avatar_emoji||'🎁')+'</span>';
 }
-function socialIdentity(p,editable=false){
+function socialIdentity(p,editable=false,showBio=true){
  const avatar=socialAvatar(p,'profile-emoji');
  return '<div class="social-profile-identity">'+(editable?
   '<button class="profile-avatar-edit" type="button" data-social-action="edit-avatar" aria-label="Изменить аватарку" title="Изменить аватарку">'+avatar+'<span class="profile-avatar-edit-icon">'+ico('edit',16)+'</span></button>':avatar)+
  '<div class="profile-identity-text"><h1>'+esc(p.name)+'</h1>'+
  (p.handle?'<span class="profile-handle">@'+esc(p.handle)+'</span>':'')+
  (p.city?'<div class="profile-city">'+ico('home',16)+' '+esc(p.city)+'</div>':'')+
- '<p class="profile-bio">'+esc(p.bio||'Расскажи немного о себе — чем увлекаешься и каким подаркам радуешься')+'</p></div></div>';
+ (showBio?'<p class="profile-bio">'+esc(p.bio||'Расскажи немного о себе — чем увлекаешься и каким подаркам радуешься')+'</p>':'')+'</div></div>';
 }
 function socialUserCard(user,actions=''){
  return '<div class="social-person"><button class="social-person-link" type="button" data-nav="/users/'+attr(user.id)+'">'+
@@ -79,7 +79,8 @@ async function socialProfilePage(uid,marker=lastRenderToken){
  if(relation==='outgoing')action='<div class="social-request-actions"><span class="chip">Заявка отправлена</span><button class="btn btn-soft btn-small" data-social-action="cancel" data-user-id="'+attr(uid)+'">Отменить заявку</button></div>';
  if(relation==='friends')action='<span class="chip chip-green">Вы друзья</span>';
  if(relation==='self')action='<button class="btn btn-soft btn-small" data-nav="/profile">Редактировать профиль</button>';
- shell('<main class="container page social-page social-profile-page"><div class="social-profile-hero profile-main-card">'+socialIdentity(p)+
+ if(relation==='admin_directory')action='<span class="chip">Скрыт из поиска</span>';
+ shell('<main class="container page social-page social-profile-page"><div class="social-profile-hero profile-main-card">'+socialIdentity(p,false,relation!=='admin_directory')+
    '<div class="profile-actions">'+action+'</div></div>'+
    '<section class="dashboard-section"><div class="dashboard-section-head"><h2>Вишлисты <span class="chip">'+data.lists.length+'</span></h2></div>'+
   (data.lists.length?'<div class="cards-grid">'+data.lists.map(list=>
@@ -87,7 +88,7 @@ async function socialProfilePage(uid,marker=lastRenderToken){
    '<div class="list-cover cover-'+attr(list.theme)+'">'+fallbackArt('gift')+'</div>'+
    '<div class="list-info"><h3>'+esc(list.title)+'</h3><p>'+esc(list.description||'Список подарков')+'</p>'+
    '<div class="list-bottom"><span>'+ruCount(list.wish_count,'желание','желания','желаний')+'</span><button class="text-link" data-nav="/w/'+attr(list.share_key)+'">Посмотреть '+ico('arrow')+'</button></div></div></article>').join('')+'</div>':
-   '<div class="panel"><p class="note">'+(relation==='friends'||relation==='self'?'Пока нет доступных вишлистов':'Вишлисты доступны после добавления в друзья')+'</p></div>')+'</section>'+
+   '<div class="panel"><p class="note">'+(relation==='admin_directory'?'Личные вишлисты недоступны':relation==='friends'||relation==='self'?'Пока нет доступных вишлистов':'Вишлисты доступны после добавления в друзья')+'</p></div>')+'</section>'+
    ((relation==='friends'||relation==='self')?'<section class="dashboard-section shared-santa-section"><div class="dashboard-section-head"><h2>Наш общий Тайный Санта <span class="chip">'+(data.shared_games||[]).length+'</span></h2></div>'+
    ((data.shared_games||[]).length?'<div class="shared-santa-grid">'+data.shared_games.map(game=>santaGameCard(game,{shared:true})).join('')+'</div>':
     '<div class="panel"><p class="note">Пока нет игр, в которых вы оба участвуете</p></div>')+'</section>':'')+'</main>');
@@ -280,9 +281,9 @@ function socialAdminVisitMarkup(u){
  return '<div class="admin-user-identity">'+symbol+'<span><time title="'+attr(provenance)+'" datetime="'+attr(u.last_seen_at)+'">'+esc(socialAdminVisitDate(date))+'</time></span></div>';
 }
 function socialAdminUsersMarkup(page){
- const rows=(page.users||[]).map(u=>'<tr><td><div class="admin-user-identity"><span class="admin-user-emoji">'+
+ const rows=(page.users||[]).map(u=>'<tr><td class="admin-user-cell"><a class="admin-user-identity admin-user-profile-link" href="/users/'+attr(u.id)+'" data-nav="/users/'+attr(u.id)+'" aria-label="Открыть профиль '+attr(u.name)+'"><span class="admin-user-emoji" aria-hidden="true">'+
    esc(u.avatar_emoji||'🎁')+'</span><span><strong>'+esc(u.name)+'</strong>'+
-   '<small>ID: '+esc(String(u.id).slice(0,8))+'</small></span></div></td>'+
+   '<small>ID: '+esc(String(u.id).slice(0,8))+'</small></span></a></td>'+
    '<td>'+(u.handle?'@'+esc(u.handle):'<span class="muted">—</span>')+'</td>'+
    '<td><time datetime="'+attr(u.created_at)+'">'+esc(new Date(u.created_at).toLocaleString('ru-RU',{dateStyle:'medium',timeStyle:'short'}))+'</time></td>'+
    '<td>'+socialAdminVisitMarkup(u)+'</td><td>'+Number(u.wishlists_count||0)+'</td><td>'+Number(u.organized_games||0)+'</td>'+

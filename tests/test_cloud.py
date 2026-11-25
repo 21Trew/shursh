@@ -2514,6 +2514,29 @@ def test_admin_user_directory_is_paginated_and_only_for_site_admin(application,m
     call(user,'GET','/api/admin/overview',status=403)
 
 
+def test_admin_directory_profile_link_does_not_bypass_private_content(application,monkeypatch):
+    monkeypatch.delenv('SHURSH_ADMIN_EMAILS',raising=False)
+    manager=login(application)
+    hidden=login(application,'other@example.test')
+    uid=str(IDS['other@example.test'])
+    call(hidden,'PATCH','/api/profile/me',{'discoverable':False,'bio':'Private bio','city':'Private city'})
+    call(hidden,'POST','/api/lists',{'title':'Hidden wish list','visibility':'private'},201)
+    call(hidden,'POST','/api/santas',{'title':'Hidden game'},201)
+    path='/api/users/'+uid
+    call(application.test_client(),'GET',path,status=401)
+    call(manager,'GET',path,status=404)
+    monkeypatch.setenv('SHURSH_ADMIN_EMAILS','owner@example.test')
+    data=call(manager,'GET',path).json
+    assert data['relationship']=='admin_directory'
+    assert data['profile']['id']==uid
+    assert data['profile']['bio']==data['profile']['city']==''
+    assert data['lists']==data['shared_games']==[]
+    assert 'email' not in str(data) and 'Private bio' not in str(data)
+    assert not any(u['id']==uid for u in call(manager,'GET','/api/users/search?q=Other').json['users'])
+    monkeypatch.delenv('SHURSH_ADMIN_EMAILS')
+    call(manager,'GET',path,status=404)
+
+
 def test_cross_user_wishlist_santa_and_capability_isolation(application):
     """BOLA/IDOR: sequential IDs cannot access other users' resources."""
     owner=login(application)
@@ -2583,7 +2606,8 @@ def test_browser_ux_fixes_avatar_gift_placeholder_and_admin_directory(browser_ht
     from playwright.sync_api import sync_playwright,expect
     from uuid import uuid4
     monkeypatch.setenv('SHURSH_ADMIN_EMAILS','owner@example.test')
-    login(application,'other@example.test')
+    other=login(application,'other@example.test')
+    call(other,'PATCH','/api/profile/me',{'discoverable':False,'bio':'Hidden profile text'})
     with sync_playwright() as play:
         browser=play.chromium.launch(headless=True,args=['--no-sandbox'])
         try:
@@ -2677,6 +2701,29 @@ def test_browser_ux_fixes_avatar_gift_placeholder_and_admin_directory(browser_ht
             assert rows.nth(1).evaluate("r=>getComputedStyle(r).backgroundColor")=='rgb(250, 247, 242)'
             assert rows.nth(0).evaluate("r=>getComputedStyle(r).backgroundColor")!='rgb(250, 247, 242)'
             assert page.locator('.admin-users-table th').first.evaluate("r=>getComputedStyle(r).backgroundColor")=='rgb(244, 239, 232)'
+            # Clicking even the empty right edge of the player cell navigates.
+            uid=str(IDS['other@example.test'])
+            player=page.get_by_role('link',name='Открыть профиль Other',exact=True)
+            expect(player).to_have_attribute('href','/users/'+uid)
+            cell=player.locator('..')
+            cell.scroll_into_view_if_needed()
+            rect=cell.bounding_box()
+            cell.click(position={'x':rect['width']-4,'y':rect['height']/2})
+            expect(page).to_have_url(browser_http+'/users/'+uid)
+            expect(page.locator('main h1')).to_have_text('Other')
+            expect(page.locator('.profile-actions')).to_contain_text('Скрыт из поиска')
+            expect(page.locator('main')).not_to_contain_text('Hidden profile text')
+            expect(page.locator('[data-social-action="add"]')).to_have_count(0)
+            page.go_back()
+            expect(page.locator('.admin-users-table')).to_be_visible()
+            own=page.get_by_role('link',name='Открыть профиль Owner',exact=True)
+            own.focus()
+            expect(own).to_be_focused()
+            own.press('Enter')
+            expect(page).to_have_url(browser_http+'/users/'+str(IDS['owner@example.test']))
+            expect(page.locator('main h1')).to_have_text('Owner')
+            page.go_back()
+            expect(page.locator('.admin-users-table')).to_be_visible()
             page.locator('#admin-users-query').fill('owner')
             assert page.locator('#admin-users-search button[type="submit"]').count()==0
             expect(page.locator('.admin-users-table tbody')).to_contain_text('Owner',timeout=10000)
