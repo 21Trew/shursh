@@ -3318,7 +3318,7 @@ def test_history_cursors_are_bounded_and_owner_scoped(application):
             con.execute("""INSERT INTO santa_messages(event_id,sender_id,room,message,created_at)
                            VALUES(?,?,'general',?,now())""",(eid,pid,f'cursor-message-{i}'))
             con.execute("""INSERT INTO social_notifications(recipient_id,kind,message,target_path)
-                           VALUES(?,'system',?,'/')""",(IDS['owner@example.test'],f'cursor-notice-{i}'))
+                           VALUES(?,'wishlist_new',?,'/')""",(IDS['owner@example.test'],f'cursor-notice-{i}'))
     path=f'/api/santas/{eid}/messages/general'
     recent=call(owner,'GET',path).json
     assert len(recent['messages'])==60 and recent['has_more']
