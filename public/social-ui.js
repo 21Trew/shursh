@@ -38,9 +38,9 @@ function socialUserCard(user,actions=''){
   socialAvatar(user)+
   '<span class="social-person-name">'+esc(user.name)+(user.handle?'<small>@'+esc(user.handle)+'</small>':'')+'</span></button>'+actions+'</div>';
 }
-async function socialFriendsPage(marker=lastRenderToken){
+async function socialFriendsPage(marker=lastRenderToken,snapshot=null){
  if(!currentUser){loginModal();return;}
- const data=await api('/api/friends');if(marker!==lastRenderToken)return;
+ const data=snapshot||await api('/api/friends');if(marker!==lastRenderToken)return;
  shell('<main class="container page social-page"><div class="page-hero"><div><div class="section-label">Вместе веселее</div>'+
   '<h1>Друзья</h1><p>Ищи знакомых, делись доступными вишлистами и приглашай в игры</p></div></div>'+
   '<section class="panel social-search"><h2>Найти друга</h2><p class="note">По имени или никнейму — без поиска по чужой почте</p><form id="social-search-form" class="share-field">'+
@@ -58,6 +58,7 @@ async function socialFriendsPage(marker=lastRenderToken){
   (data.outgoing.length?'<section class="panel"><h2>Отправленные заявки</h2>'+
     data.outgoing.map(u=>socialUserCard(u,'<div class="social-request-actions"><span class="chip">Ожидает ответа</span><button class="btn btn-soft btn-small" data-social-action="cancel" data-user-id="'+attr(u.id)+'">Отменить</button></div>')).join('')+'</section>':'')+
   '</main>');
+ if(snapshot)return;
  document.querySelector('#social-search-form')?.addEventListener('submit',async ev=>{
   ev.preventDefault();
   const input=ev.currentTarget.elements.q;
@@ -94,9 +95,9 @@ async function socialProfilePage(uid,marker=lastRenderToken){
    ((data.shared_games||[]).length?'<div class="shared-santa-grid">'+data.shared_games.map(game=>santaGameCard(game,{shared:true})).join('')+'</div>':
     '<div class="panel"><p class="note">'+(relation==='self'?'Ты пока не участвуешь в играх':'Пока нет игр, в которых вы оба участвуете')+'</p></div>')+'</section>':'')+'</main>');
 }
-async function socialOwnProfilePage(marker=lastRenderToken){
+async function socialOwnProfilePage(marker=lastRenderToken,snapshot=null){
  if(!currentUser){loginModal();return;}
- const data=await api('/api/profile/me');if(marker!==lastRenderToken)return;
+ const data=snapshot||await api('/api/profile/me');if(marker!==lastRenderToken)return;
  const p=data.profile;
  shell('<main class="container page social-page social-profile-page">'+
   '<div class="social-page-heading"><span class="section-label">Твоя визитная карточка</span><h1>Мой профиль</h1>'+
@@ -115,6 +116,7 @@ async function socialOwnProfilePage(marker=lastRenderToken){
   shurshCheckbox('notify_gifts','Вишлисты и подарки',p.notify_gifts)+
   shurshCheckbox('notify_system','Системные сообщения',p.notify_system)+
   '<button class="btn btn-peach btn-small" type="submit">Сохранить настройки</button></form></section></main>');
+ if(snapshot)return;
  document.getElementById('notification-settings-form')?.addEventListener('submit',async e=>{
   e.preventDefault();const form=e.currentTarget,button=form.querySelector('[type="submit"]');button.disabled=true;
   const payload={};for(const name of ['notify_friends','notify_santa','notify_gifts','notify_system'])payload[name]=form.elements[name].checked;
@@ -243,9 +245,9 @@ document.addEventListener('click',event=>{
  const tab=event.target.closest('[data-notification-tab]');
  if(tab){event.preventDefault();if(tab.getAttribute('aria-selected')!=='true')renderNotificationModalTab(tab.dataset.notificationTab);}
 });
-async function socialNotificationsPage(marker=lastRenderToken){
+async function socialNotificationsPage(marker=lastRenderToken,snapshot=null){
  if(!currentUser){loginModal();return;}
- const res=await api('/api/notifications');if(marker!==lastRenderToken)return;
+ const res=snapshot||await api('/api/notifications');if(marker!==lastRenderToken)return;
  shell('<main class="container page social-page"><div class="page-hero"><div><div class="section-label">Новости друзей и игр</div>'+
   '<h1>Уведомления</h1><p>Новые подарки, приглашения и события Тайного Санты</p></div></div>'+
   '<section class="panel notification-feed">'+(res.items.length?res.items.map(n=>
@@ -255,7 +257,7 @@ async function socialNotificationsPage(marker=lastRenderToken){
    (!n.read_at?'<button class="btn btn-soft btn-small" data-social-action="read-notification" data-id="'+n.id+'">Прочитано</button>':'')+
    '</div>').join(''):'<p class="note">Пока всё спокойно. Как только появятся новости, они будут здесь</p>')+
   '</section></main>');
- socialRefreshBadge();
+ if(!snapshot)socialRefreshBadge();
 }
 function socialAdminVisitDate(date,now=new Date()){
  const today=new Date(now.getFullYear(),now.getMonth(),now.getDate());
