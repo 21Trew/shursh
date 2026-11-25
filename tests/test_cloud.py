@@ -3304,3 +3304,43 @@ def test_browser_profile_copy_respects_viewer_identity(browser_http,application)
         for client,profile in zip((owner,other),previous):
             call(client,'PATCH','/api/profile/me',{'bio':profile.get('bio') or '',
                                                  'discoverable':profile['discoverable']})
+
+
+def test_history_cursors_are_bounded_and_owner_scoped(application):
+    """Actual disposable PostgreSQL; cursor boundaries cannot escape room or owner."""
+    from cloud import db
+    owner=login(application)
+    other=login(application,'other@example.test')
+    eid=call(owner,'POST','/api/santas',{'title':'Cursor regression'},201).json['id']
+    with db.transaction(write=True) as con:
+        pid=con.execute('SELECT id FROM participants WHERE event_id=?',(eid,)).fetchone()['id']
+        for i in range(125):
+            con.execute("""INSERT INTO santa_messages(event_id,sender_id,room,message,created_at)
+                           VALUES(?,?,'general',?,now())""",(eid,pid,f'cursor-message-{i}'))
+            con.execute("""INSERT INTO social_notifications(recipient_id,kind,message,target_path)
+                           VALUES(?,'system',?,'/')""",(IDS['owner@example.test'],f'cursor-notice-{i}'))
+    path=f'/api/santas/{eid}/messages/general'
+    recent=call(owner,'GET',path).json
+    assert len(recent['messages'])==60 and recent['has_more']
+    ids=[m['id'] for m in recent['messages']]
+    older=call(owner,'GET',path+'?before='+str(ids[0])).json
+    assert len(older['messages'])==60 and older['has_more']
+    older_ids=[m['id'] for m in older['messages']]
+    oldest=call(owner,'GET',path+'?before='+str(older_ids[0])).json
+    assert len(oldest['messages'])==5 and not oldest['has_more']
+    assert not set(ids)&set(older_ids)
+    delta=call(owner,'GET',path+'?after='+str(older_ids[-1])).json
+    assert [m['id'] for m in delta['messages']]==ids
+    for invalid in ('?before=0','?after=-1','?before=1&after=2','?after=9223372036854775808'):
+        call(owner,'GET',path+invalid,status=400)
+    call(other,'GET',path+'?before='+str(ids[0]),status=404)
+    feed=call(owner,'GET','/api/notifications').json
+    assert len(feed['items'])==60 and feed['has_more']
+    cursor=feed['items'][-1]['id']
+    history=call(owner,'GET',f'/api/notifications?before={cursor}').json
+    assert all(n['id']<cursor for n in history['items'])
+    assert not {n['id'] for n in feed['items']}&{n['id'] for n in history['items']}
+    assert history['unread']==feed['unread']
+    assert not any(n['message'].startswith('cursor-notice-') for n in
+                   call(other,'GET',f'/api/notifications?before={cursor}').json['items'])
+    call(owner,'GET','/api/notifications?before=invalid',status=400)
