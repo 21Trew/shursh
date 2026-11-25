@@ -1,20 +1,24 @@
 /* Шурш! — Social pages. Backend owns access controls and notification privacy. */
 'use strict';
 let socialUnreadLast=0;
-let socialUnreadBusy=false;
+let socialUnreadBusy=false,socialUnreadRequest=0;
+function resetSocialBadge(){socialUnreadRequest++;socialUnreadLast=0;socialUnreadBusy=false;}
 async function socialRefreshBadge(force=false){
  if(isPreview||!currentUser||document.visibilityState==='hidden')return;
  if(socialUnreadBusy||(!force&&Date.now()-socialUnreadLast<120000))return;
+ const request=++socialUnreadRequest,epoch=ownerSessionEpoch;
  socialUnreadBusy=true;socialUnreadLast=Date.now();
  try{
   const data=await api('/api/notifications/unread');
+  if(request!==socialUnreadRequest||epoch!==ownerSessionEpoch)return;
   document.querySelectorAll('[data-notification-count]').forEach(el=>{
    const amount=Number(data.unread||0);
-   el.textContent=amount?String(Math.min(99,amount)):'';
-   el.hidden=!amount;
+   const label=amount?String(Math.min(99,amount)):'';
+   if(el.textContent!==label)el.textContent=label;
+   if(el.hidden!==!amount)el.hidden=!amount;
   });
  }catch{ /* A background badge failure must never block navigation. */ }
- finally{socialUnreadBusy=false;}
+ finally{if(request===socialUnreadRequest)socialUnreadBusy=false;}
 }
 setInterval(()=>{if(typeof currentUser!=='undefined')socialRefreshBadge();},120000);
 document.addEventListener('visibilitychange',()=>{if(!document.hidden)socialRefreshBadge(true);});
