@@ -19,10 +19,13 @@ function wishesMarkup(wishes,source='own'){
   '</div><div class="game-gifts-track" tabindex="0" role="region" aria-label="Подарки — горизонтальная лента">'+
   wishes.map(w=>gameWishCard(w,source)).join('')+'</div></div>';
 }
+const gameGiftDisposers=new Map();
+function disposeGameGiftOverflow(){for(const dispose of gameGiftDisposers.values())dispose();gameGiftDisposers.clear();}
 function setupGameGiftOverflow(root=document){
+ for(const [track,dispose] of gameGiftDisposers)if(!track.isConnected){dispose();gameGiftDisposers.delete(track);}
  root.querySelectorAll('.game-gifts-carousel').forEach(carousel=>{
   const track=carousel.querySelector('.game-gifts-track'),arrows=carousel.querySelector('.game-gifts-arrows');
-  if(!track||!arrows)return;
+  if(!track||!arrows||gameGiftDisposers.has(track))return;
   const update=()=>{
    if(!track.isConnected){observer?.disconnect();return;}
    const max=Math.max(0,track.scrollWidth-track.clientWidth);
@@ -35,7 +38,7 @@ function setupGameGiftOverflow(root=document){
   observer?.observe(track);
   for(const card of track.children)observer?.observe(card);
   track.addEventListener('scroll',update,{passive:true});
-  gameLifecycleCleanup.push(()=>{observer?.disconnect();track.removeEventListener('scroll',update);});
+  gameGiftDisposers.set(track,()=>{observer?.disconnect();track.removeEventListener('scroll',update);});
   requestAnimationFrame(update);
   if(document.fonts?.ready)void document.fonts.ready.then(update);
  });
