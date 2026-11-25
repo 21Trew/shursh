@@ -316,12 +316,19 @@ def handle(handler, method, path, con):
 
     if path=='/api/notifications' and method=='GET':
         user=handler.auth(con)
+        before=handler.request.args.get('before')
+        if before is not None and (not re.fullmatch(r'[1-9][0-9]{0,18}',before) or int(before)>9223372036854775807):
+            raise ApiError(400,'Некорректный курсор')
+        extra=' AND id < ?' if before is not None else ''
+        args=(user['id'],int(before)) if before is not None else (user['id'],)
         rows=con.execute('''SELECT id,kind,message,target_path,created_at,read_at
-                      FROM social_notifications WHERE recipient_id=?
-                      ORDER BY id DESC LIMIT 60''',(user['id'],))
+                      FROM social_notifications WHERE recipient_id=?'''+extra+
+                      ' ORDER BY id DESC LIMIT 61',args).fetchall()
+        more=len(rows)>60
+        rows=rows[:60]
         unread=con.execute('SELECT count(*) AS n FROM social_notifications WHERE recipient_id=? AND read_at IS NULL',
                            (user['id'],)).fetchone()['n']
-        return 200,{'items':[dict(r) for r in rows],'unread':unread},None
+        return 200,{'items':[dict(r) for r in rows],'unread':unread,'has_more':more},None
     if path=='/api/notifications/unread' and method=='GET':
         user=handler.auth(con)
         count=con.execute('SELECT count(*) AS n FROM social_notifications WHERE recipient_id=? AND read_at IS NULL',
