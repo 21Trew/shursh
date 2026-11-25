@@ -175,7 +175,10 @@ function setupGameChat(state){
   const name=room,existing=entryFor(name);
   if(!force&&!older&&existing&&Date.now()-existing.fetchedAt<12000)return Promise.resolve();
   if(older&&!existing?.hasOlder)return Promise.resolve();
-  if(inflight.has(name))return inflight.get(name);
+  // An older-page request is not equivalent to a delta poll. Keep one
+  // in-flight request per room AND direction, then merge by message ID.
+  const requestKey=name+(older?':older':':new');
+  if(inflight.has(requestKey))return inflight.get(requestKey);
   const request=(async()=>{
    try{
     const cursor=older?existing?.messages[0]?.id:existing?.cursor;
@@ -200,10 +203,10 @@ function setupGameChat(state){
     if(room===name&&!entryFor(name)){list.innerHTML='<p class="note">Не удалось загрузить сообщения</p><button type="button" class="btn btn-soft btn-small" data-chat-refresh>Повторить</button>';}
    }
   })();
-  inflight.set(name,request);
+  inflight.set(requestKey,request);
   void request.finally(()=>{
-   if(inflight.get(name)===request)inflight.delete(name);
-   if(alive()&&room===name&&entryFor(name)?.moreNew){entryFor(name).moreNew=false;void load({force:true});}
+   if(inflight.get(requestKey)===request)inflight.delete(requestKey);
+   if(!older&&alive()&&room===name&&entryFor(name)?.moreNew){entryFor(name).moreNew=false;void load({force:true});}
   });
   return request;
  }
