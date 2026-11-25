@@ -82,6 +82,7 @@ function restoreOwnerTab(path){
 
 function nav(path,{force=false}={}){
  if(currentPath()===path&&!force)return;
+ stopGameLifecycle();
  if(!force)rememberOwnerTab();else clearOwnerTabViews();
  if(isPreview){if(currentPath()===path)render();else location.hash=path;}
  else{
@@ -128,9 +129,15 @@ function cacheableOwnerRead(path){
   path==='/api/profile/me'||
   /^\/api\/(?:lists|santas)\/\d+$/.test(path));
 }
+function dropOwnerRead(path){
+ ownerDataCache.delete(path);ownerPending.delete(path);ownerRevalidating.delete(path);
+}
 function clearOwnerDataCache(){
  ownerCacheVersion++;ownerSessionEpoch++;ownerDataCache.clear();clearOwnerTabViews();ownerRevalidating.clear();ownerPending.clear();renderedOwnerTab=null;wishlistTabGeneration++;
  ownerWarmupIdentity=null;ownerWarmupReady=false;ownerWarmupPromise=null;
+ currentOwnedWishlists=[];loadedList=null;loadedSanta=null;activeGameContext=null;
+ if(typeof notificationModalItems!=='undefined')notificationModalItems=[];
+ stopGameLifecycle();
 }
 function invalidateOwnerDataForMutation(path){
  // A social write may change one section, but must not discard unrelated views.
@@ -142,7 +149,7 @@ function invalidateOwnerDataForMutation(path){
   clearOwnerTabViews(tabs);
   for(const endpoint of isFriendWrite?['/api/friends','/api/friends/wishlists','/api/notifications']:
     isNotificationWrite?['/api/notifications']:['/api/profile/me']){
-   ownerDataCache.delete(endpoint);
+   dropOwnerRead(endpoint);
   }
   ownerCacheVersion++;
   if(tabs.includes(renderedOwnerTab))renderedOwnerTab=null;
@@ -155,7 +162,7 @@ function invalidateOwnerDataForMutation(path){
  // Own gift/pref/reveal writes change one game detail, not the global game list.
  const detailMutation=path.match(/^\/api\/(santas\/\d+|member\/\d+|participant\/[^/]+)\/(?:my-wishes(?:\/|$)|wishes(?:\/|$)|preferences$|reveal$|invite-friend\/)/);
  if(detailMutation){
-  if(detailMutation[1].startsWith('santas/')){ownerCacheVersion++;ownerDataCache.delete('/api/'+detailMutation[1]);}
+  if(detailMutation[1].startsWith('santas/')){ownerCacheVersion++;dropOwnerRead('/api/'+detailMutation[1]);}
   return;
  }
  // Scoped invalidation: creating a wishlist does not change Santa games,
@@ -171,9 +178,9 @@ function invalidateOwnerDataForMutation(path){
  // The currently displayed page can be stale too: never put it back in RAM
  // after its successful write has invalidated the backing data.
  if(invalidTabs.includes(renderedOwnerTab))renderedOwnerTab=null;
- for(const key of ownerDataCache.keys()){
+ for(const key of new Set([...ownerDataCache.keys(),...ownerPending.keys(),...ownerRevalidating.keys()])){
   if(key==='/api/dashboard' || (listMutation&&key.startsWith('/api/lists')) ||
-      (santaMutation&&key.startsWith('/api/santas')))ownerDataCache.delete(key);
+      (santaMutation&&key.startsWith('/api/santas')))dropOwnerRead(key);
  }
 }
 function seedOwnerCache(path,value){
@@ -209,11 +216,13 @@ function patchOwnerNode(old,next){
  }
  for(const a of [...old.attributes])if(!next.hasAttribute(a.name))old.removeAttribute(a.name);
  for(const a of next.attributes)if(old.getAttribute(a.name)!==a.value)old.setAttribute(a.name,a.value);
- const key=n=>n.nodeType===1?(n.id||n.getAttribute('data-nav')||n.getAttribute('data-wishlist-filter')||n.getAttribute('data-santa-state')||n.querySelector(':scope > [data-nav]')?.getAttribute('data-nav')||(n.matches('section.panel')?n.querySelector(':scope > h2')?.firstChild?.textContent:null)||null):null;
+ const key=n=>n.nodeType===1?(n.id||n.getAttribute('data-nav')||n.getAttribute('data-wishlist-filter')||n.getAttribute('data-santa-state')||n.getAttribute('data-message-id')||n.getAttribute('data-notification-id')||n.getAttribute('data-person-id')||n.querySelector(':scope > [data-nav]')?.getAttribute('data-nav')||(n.matches('section.panel')?n.querySelector(':scope > h2')?.firstChild?.textContent:null)||null):null;
  let cursor=old.firstChild;
  for(const child of [...next.childNodes]){
   const k=key(child);
-  const match=k?[...old.childNodes].find(n=>key(n)===k):(cursor&&!key(cursor)?cursor:null);
+  let match=null;
+  if(k){for(let candidate=cursor;candidate;candidate=candidate.nextSibling){if(key(candidate)===k){match=candidate;break;}}}
+  else if(cursor&&!key(cursor))match=cursor;
   if(!match){old.insertBefore(child.cloneNode(true),cursor);continue;}
   if(match!==cursor)old.insertBefore(match,cursor);
   const after=match.nextSibling;
@@ -241,9 +250,9 @@ function updateOwnerView(path,value){
  if(path==='/api/notifications'&&modalRoot.querySelector('.notification-dialog')){
   notificationModalItems=value.items||[];renderNotificationModalTab(notificationModalTab);
  }
+ if(tab==='/lists'&&path==='/api/lists')currentOwnedWishlists=value.lists||[];
  if(!root)return;
  if(tab==='/lists'){
-  if(path==='/api/lists')currentOwnedWishlists=value.lists||[];
   const mode=root.querySelector('[data-wishlist-view][aria-selected="true"]')?.dataset.wishlistView;
   if(mode===(path==='/api/lists'?'mine':'friends'))refreshOwnerWishlistPanel(root,value.lists||[],mode);
   return;
@@ -260,14 +269,22 @@ const ownerRevalidating=new Map();
 function revalidateOwnerRead(path,entry){
  if(!currentUser||isPreview||!entry||ownerDataCache.get(path)!==entry)return Promise.resolve();
  if(ownerRevalidating.has(path))return ownerRevalidating.get(path);
- const version=ownerCacheVersion,identity=currentUser.id;
+ const epoch=ownerSessionEpoch,identity=currentUser.id;
  const job=(async()=>{
   try{
    const response=await fetch(path,{credentials:'same-origin',headers:{Accept:'application/json'}});
-   if(!response.ok)return;
+   if(!response.ok){
+    if((response.status===401||response.status===403||response.status===404)&&epoch===ownerSessionEpoch&&ownerDataCache.get(path)===entry){
+     dropOwnerRead(path);
+     if(!ownerPinned(path))return;
+     const tab=['/','/lists','/santas','/friends','/profile','/notifications'].find(t=>ownerApiForTab(t)===path);
+     if(tab)clearOwnerTabViews([tab]);
+    }
+    return;
+   }
    const value=await response.json();
    if(path==='/api/dashboard'&&value.user?.id!==identity)return;
-   if(version!==ownerCacheVersion||currentUser?.id!==identity||ownerDataCache.get(path)!==entry)return;
+   if(epoch!==ownerSessionEpoch||currentUser?.id!==identity||ownerDataCache.get(path)!==entry)return;
    const changed=JSON.stringify(value)!==JSON.stringify(entry.value);
    seedOwnerCache(path,value);
    if(changed)updateOwnerView(path,value);
@@ -282,14 +299,14 @@ function revalidateOwnerRead(path,entry){
 let ownerWarmupIdentity=null,ownerWarmupReady=false,ownerWarmupPromise=null;
 function scheduleOwnerWarmup(){
  if(isPreview||!currentUser||ownerWarmupIdentity===currentUser.id)return;
- const identity=currentUser.id;
+ const identity=currentUser.id,epoch=ownerSessionEpoch;
  ownerWarmupIdentity=identity;ownerWarmupReady=false;
  // Do not block the first paint. The initial dashboard already seeds lists/Santa.
  setTimeout(()=>{
-  if(currentUser?.id!==identity)return;
+  if(currentUser?.id!==identity||epoch!==ownerSessionEpoch)return;
   ownerWarmupPromise=Promise.allSettled(
    ['/api/friends','/api/profile/me','/api/notifications'].map(path=>api(path))
-  ).finally(()=>{if(currentUser?.id===identity)ownerWarmupReady=true;});
+  ).finally(()=>{if(currentUser?.id===identity&&epoch===ownerSessionEpoch)ownerWarmupReady=true;});
  },0);
 }
 async function api(path,opts={}){
@@ -298,14 +315,16 @@ async function api(path,opts={}){
  const epoch=ownerSessionEpoch,identity=currentUser?.id;
  if(cached){
   const pending=ownerPending.get(path);
-  if(pending?.version===ownerCacheVersion&&pending.epoch===epoch)return pending.request;
+  if(pending?.epoch===epoch)return pending.request;
   const entry=ownerEntry(path);
   if(entry&&Object.hasOwn(entry,'value')){
    if(entry.expires<=Date.now()){
     if(!ownerPinned(path)){
      await revalidateOwnerRead(path,entry);
      if(epoch!==ownerSessionEpoch||currentUser?.id!==identity)throw sessionChangedError();
-     return ownerDataCache.get(path)?.value??entry.value;
+     const refreshed=ownerDataCache.get(path);
+     if(refreshed)return refreshed.value;
+     return api(path,opts);
     }
     void revalidateOwnerRead(path,entry);
    }
@@ -324,17 +343,32 @@ async function api(path,opts={}){
   const data=await response.json().catch(()=>({error:'Не удалось прочитать ответ сервера'}));
   if(!response.ok){const err=new Error(data.error||'Произошла ошибка');err.status=response.status;throw err;}
   if(epoch!==ownerSessionEpoch||currentUser?.id!==identity)throw sessionChangedError();
+  if(cached&&ownerPending.get(path)?.request!==request)return api(path,opts);
   if(method!=='GET')invalidateOwnerDataForMutation(path);
   return data;
  })();
  if(cached){
   const pending={request,version,epoch};ownerPending.set(path,pending);
   request.then(value=>{
-   if(ownerCacheVersion===version&&ownerSessionEpoch===epoch&&currentUser?.id===identity&&ownerPending.get(path)===pending)seedOwnerCache(path,value);
+   if(ownerSessionEpoch===epoch&&currentUser?.id===identity&&ownerPending.get(path)===pending)seedOwnerCache(path,value);
   },()=>{}).finally(()=>{if(ownerPending.get(path)===pending)ownerPending.delete(path);});
  }
  return request;
 }
+function refreshVisibleOwner(){
+ pruneOwnerData();
+ if(isPreview||!currentUser||document.hidden)return;
+ const path=ownerApiForTab(currentPath());
+ const paths=path?[path]:[];
+ if(currentPath()==='/lists'&&document.querySelector('[data-wishlist-view="friends"][aria-selected="true"]'))paths.push('/api/friends/wishlists');
+ if(modalRoot.querySelector('.notification-dialog'))paths.push('/api/notifications');
+ for(const key of new Set(paths)){
+  const entry=ownerEntry(key);
+  if(entry&&entry.expires<=Date.now())void revalidateOwnerRead(key,entry);
+ }
+}
+setInterval(refreshVisibleOwner,45000);
+document.addEventListener('visibilitychange',refreshVisibleOwner);
 async function startupApi(path){
  const controller=new AbortController();
  const timeout=setTimeout(()=>controller.abort(),9000);
@@ -1036,7 +1070,7 @@ document.addEventListener('click',async event=>{
   region.innerHTML='<p class="note" role="status">Загружаем вишлисты друзей…</p>';
   try{
    const result=await api('/api/friends/wishlists');
-   if(generation!==wishlistTabGeneration||!region.isConnected)return;
+   if(generation!==wishlistTabGeneration||(!region.isConnected&&!ownerTabViews.get('/lists')?.node.contains(region)))return;
    region.innerHTML=friendWishlistTiles(result.lists||[]);
   }catch(err){if(generation===wishlistTabGeneration)region.innerHTML='<p class="note">'+esc(err.message)+'</p>';}
   return;
@@ -1222,6 +1256,11 @@ let loadedSanta=null;
 let activeGameContext=null;
 let gameChatTimer=null;
 let gameRosterTimer=null;
+let gameLifecycleCleanup=[];
+function stopGameLifecycle(){
+ clearTimeout(gameChatTimer);clearTimeout(gameRosterTimer);gameChatTimer=null;gameRosterTimer=null;
+ for(const cleanup of gameLifecycleCleanup.splice(0))cleanup();
+}
 // Standardise every browser image upload to WebP before it reaches the API.
 async function compressToWebp(file,{maxDimension=1280,maxBytes=800000,maxSourceBytes=12000000}={}){
  if(!['image/jpeg','image/png','image/webp'].includes(file?.type))throw new Error('Выбери изображение JPG, PNG или WEBP');
@@ -2275,7 +2314,7 @@ async function dispatch(action,el){try{
  }
  if(action==='connect-game'){connectGameModal();return;}
  if(action==='reset-preview'){window.SHURSH_PREVIEW_RESET?.();return;}
- if(action==='logout'){await api('/api/logout',{method:'POST',body:{}});clearPendingGameClaim();currentUser=null;broadcastSessionChange();notice('Ты вышел из аккаунта');nav('/',{force:true});}
+ if(action==='logout'){await api('/api/logout',{method:'POST',body:{}});clearPendingGameClaim();clearOwnerDataCache();currentUser=null;broadcastSessionChange();notice('Ты вышел из аккаунта');nav('/',{force:true});}
  if(action==='demo-login'){const r=await api('/api/demo-login',{method:'POST',body:{}});currentUser=r.user;closeModal();notice('Демо-аккаунт открыт');nav('/lists');}
  if(action==='sample-list'){if(!isDemo){listModal();return;}if(!currentUser){const r=await api('/api/demo-login',{method:'POST',body:{}});currentUser=r.user;}const {lists}=await api('/api/lists');if(lists.length)nav(`/w/${lists[lists.length-1].share_key}`);else nav('/lists');}
  if(action==='copy')await clipboard(el.dataset.url);
@@ -2355,7 +2394,7 @@ const sessionChannel=(!isPreview&&'BroadcastChannel' in window)?
 function broadcastSessionChange(){sessionChannel?.postMessage('changed');}
 sessionChannel?.addEventListener('message',event=>{
  if(event.data!=='changed')return;
- clearOwnerDataCache();currentUser=null;renderStarted=false;render();
+ clearOwnerDataCache();currentUser=null;renderStarted=false;closeModal();render();
 });
 let renderStarted=false;
 let pendingGameClaim=null;
@@ -2409,7 +2448,7 @@ if(!isPreview && ['access_token','refresh_token','error','error_code','error_des
  // navigating or drawing any UI. Do not store tokens in localStorage.
  history.replaceState(null,'',location.pathname+location.search);
 }
-async function render(){const marker=++lastRenderToken;try{
+async function render(){stopGameLifecycle();const marker=++lastRenderToken;try{
  const path=currentPath();
  syncNavigationSelection(path);
  if(!renderStarted&&path==='/'&&!isPreview){
@@ -2481,7 +2520,7 @@ document.addEventListener('click',async ev=>{
   return;
  }
  const n=ev.target.closest('[data-nav]');if(n){if(n.tagName==='A'&&(ev.ctrlKey||ev.metaKey||ev.shiftKey||ev.altKey||ev.button!==0))return;ev.preventDefault();nav(n.dataset.nav);return;}const op=ev.target.closest('[data-open]');if(op){ev.preventDefault();const key=op.dataset.open;if(key==='login'||key==='register'||key==='resend'){const email=op.closest('.modal')?.querySelector('#fld-email')?.value||op.dataset.email||'';if(key==='resend')resendConfirmationModal(email);else loginModal(key,email);}if(key==='list')listModal();if(key==='wish')wishModal();if(key==='santa')santaModal();return;}const a=ev.target.closest('[data-action]');if(a){ev.preventDefault();await dispatch(a.dataset.action,a);}});
-window.addEventListener('popstate',()=>{rememberOwnerTab();if(restoreOwnerTab(currentPath()))lastRenderToken++;else render();});window.addEventListener('hashchange',()=>{if(isPreview)render();});
+window.addEventListener('popstate',()=>{stopGameLifecycle();rememberOwnerTab();if(restoreOwnerTab(currentPath()))lastRenderToken++;else render();});window.addEventListener('hashchange',()=>{if(isPreview)render();});
 if(!isPreview)(async()=>{
  if(confirmationToken&&!authReturnError){
   try{
