@@ -353,14 +353,16 @@ async function socialAdminUsersPage(marker=lastRenderToken){
 }
 async function socialInviteFriendsModal(){
  if(!currentUser||!loadedSanta?.event||loadedSanta.event.status!=='open')return;
+ const eventId=loadedSanta.event.id,marker=lastRenderToken;
  const {friends}=await api('/api/friends');
+ if(marker!==lastRenderToken)return;
  if(!friends.length){notice('Сначала добавь друзей',true);nav('/friends');return;}
  modal({title:'Позвать друзей в игру',subtitle:'Друг получит приглашение в уведомлениях',
   content:selectField('Кого пригласить','friend_id',friends.map(x=>[x.id,x.name]),friends[0].id),
   submitLabel:'Отправить приглашение',onSubmit:async form=>{
    const uid=readForm(form).friend_id;
-   await api('/api/santas/'+loadedSanta.event.id+'/invite-friend/'+encodeURIComponent(uid),{method:'POST',body:{}});
-   notice('Приглашение отправлено');await render();
+   await api('/api/santas/'+eventId+'/invite-friend/'+encodeURIComponent(uid),{method:'POST',body:{}});
+   notice('Приглашение отправлено');
   }});
 }
 async function socialAskGiftModal(wishId){
@@ -379,7 +381,7 @@ document.addEventListener('click',async e=>{
  const picker=e.target.closest('[data-avatar-pick]');if(picker){e.preventDefault();const root=picker.closest('.emoji-grid');root?.querySelectorAll('[data-avatar-pick]').forEach(x=>{x.classList.toggle('selected',x===picker);x.setAttribute('aria-pressed',String(x===picker));});const input=modalRoot.querySelector('#social-avatar-value');if(input)input.value=picker.dataset.avatarPick;return;}
  const target=e.target.closest('[data-social-action]');if(!target)return;
  e.preventDefault();
- const action=target.dataset.socialAction,uid=target.dataset.userId;
+ const action=target.dataset.socialAction,uid=target.dataset.userId,actionPath=currentPath();
  target.disabled=true;
  try{
   if(action==='open-notifications'){await socialNotificationsModal();return;}
@@ -415,8 +417,9 @@ document.addEventListener('click',async e=>{
    await api('/api/friends/'+encodeURIComponent(uid),{method,body:payload});
    socialUnreadLast=0;
    notice(action==='add'?'Заявка в друзья отправлена':action==='accept'?'Теперь вы друзья':action==='decline'?'Заявка отклонена':action==='cancel'?'Заявка отменена':'Друг удалён');
-   if(currentPath()==='/friends')await socialFriendsPage();
-   else if(/^\/users\//.test(currentPath()))await socialProfilePage(uid);
+   if(currentPath()!==actionPath)return;
+   if(actionPath==='/friends')await socialFriendsPage();
+   else if(actionPath==='/users/'+uid)await socialProfilePage(uid);
   }
  }catch(err){notice(err.message,true);}
  finally{if(target.isConnected)target.disabled=false;}

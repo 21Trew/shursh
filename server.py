@@ -859,14 +859,20 @@ class Handler(BaseHTTPRequestHandler):
             owner_view=bool(user and user['id']==item['owner_id'])
             output={k:v for k,v in dict(item).items() if k not in ('owner_id','share_key')}
             wishes=[]
-            for rec in con.execute('SELECT * FROM wishes WHERE list_id=? ORDER BY id DESC',(item['id'],)):
-                wish=dict(rec)
-                if not owner_view:
-                    reserved=con.execute('SELECT reserved_by FROM reservations WHERE wish_id=? AND cancelled_at IS NULL',(rec['id'],)).fetchone()
-                    wish['reserved']=bool(reserved)
-                    # This marker never includes a name, user ID, or capability.
-                    wish['reserved_by_me']=bool(user and reserved and reserved['reserved_by']==user['id'])
-                wishes.append(wish)
+            if owner_view:
+                # Never query reservation metadata for the list owner.
+                wishes=[dict(rec) for rec in con.execute('SELECT * FROM wishes WHERE list_id=? ORDER BY id DESC',(item['id'],))]
+            else:
+                # One joined read instead of one reservation query per gift.
+                for rec in con.execute('''SELECT w.*,r.id AS active_reservation_id,r.reserved_by AS active_reserved_by
+                         FROM wishes w LEFT JOIN reservations r ON r.wish_id=w.id AND r.cancelled_at IS NULL
+                         WHERE w.list_id=? ORDER BY w.id DESC''',(item['id'],)):
+                    wish=dict(rec)
+                    reserved=wish.pop('active_reservation_id') is not None
+                    reserved_by=wish.pop('active_reserved_by')
+                    wish['reserved']=reserved
+                    wish['reserved_by_me']=bool(user and reserved and reserved_by==user['id'])
+                    wishes.append(wish)
             return 200, {'list':output,'wishes':wishes,'owner_view':owner_view},None
         match=re.fullmatch(r'/api/public/([A-Za-z0-9_\-]+)/reserve/(\d+)',path)
         if match and method in ('POST','DELETE'):
@@ -885,7 +891,7 @@ class Handler(BaseHTTPRequestHandler):
                       (now(),wid,user['id'])).fetchone()
                 if not removed: raise ApiError(409,'Нет активной брони этого подарка в твоём аккаунте')
                 return 200,{'ok':True},None
-            self.throttled('reserve',20)
+            if not getattr(self,'_reserve_rate_checked',False): self.throttled('reserve',20)
             self.body()
             con.execute('BEGIN IMMEDIATE')
             try:
@@ -1326,10 +1332,12 @@ class Handler(BaseHTTPRequestHandler):
             if not part: raise ApiError(404,'Личная ссылка недействительна')
             return self.edit_participant_preferences(con,part['id'])
         match=re.fullmatch(r'/api/participant/([A-Za-z0-9_\-]+)/wishes',path)
-        if match and method=='POST':
+        if match and method in ('GET','POST'):
             part=con.execute('SELECT id FROM participants WHERE access_hash=?',
                              (token_hash(match.group(1)),)).fetchone()
             if not part: raise ApiError(404,'Личная ссылка недействительна')
+            if method=='GET':
+                return 200,{'wishes':self.game_wishes(con,part['id'])},None
             return 201,self.add_game_wish(con,part['id'],self.body()),None
         match=re.fullmatch(r'/api/santas/(\d+)/my-wishes',path)
         if match and method=='POST':

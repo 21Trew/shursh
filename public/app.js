@@ -119,10 +119,16 @@ function invalidateOwnerDataForMutation(path){
   if(tabs.includes(renderedOwnerTab))renderedOwnerTab=null;
   return;
  }
- // Chat, profile notes and support do not affect dashboard/list snapshots.
- // Clearing all cached owner views after every message caused needless work.
- if(/^\/api\/(?:santas\/\d+|member\/\d+|participant\/[^/]+)\/(?:messages\/|preferences$)/.test(path)
+ // Chat, reservations and support do not affect owner tab snapshots.
+ if(/^\/api\/(?:santas\/\d+|member\/\d+|participant\/[^/]+)\/messages\//.test(path)
+    ||/^\/api\/(?:public\/[^/]+\/reserve\/\d+|reservations\/[^/]+)$/.test(path)
     ||path==='/api/feedback'||/^\/api\/admin\/feedback(?:\/|$)/.test(path))return;
+ // Own gift/pref/reveal writes change one game detail, not the global game list.
+ const detailMutation=path.match(/^\/api\/(santas\/\d+|member\/\d+|participant\/[^/]+)\/(?:my-wishes(?:\/|$)|wishes(?:\/|$)|preferences$|reveal$|invite-friend\/)/);
+ if(detailMutation){
+  if(detailMutation[1].startsWith('santas/')){ownerCacheVersion++;ownerDataCache.delete('/api/'+detailMutation[1]);}
+  return;
+ }
  // Scoped invalidation: creating a wishlist does not change Santa games,
  // and changing a Santa event does not change owned wishlists.
  const listMutation=/^\/api\/(?:lists|wishes)(?:\/|$)/.test(path);
@@ -908,6 +914,9 @@ function forgetReservation(listKey,wishId){
 }
 async function toggleGiftReservation(wishId,listKey){
  if(!currentUser){loginModal('register');return;}
+ const marker=lastRenderToken;
+ const actionButton=[...document.querySelectorAll('.wishlist-grid [data-action="reserve"]')].find(b=>Number(b.dataset.id)===Number(wishId));
+ const card=actionButton?.closest('.wish-card');
  const wish=loadedPublicWishes.find(w=>Number(w.id)===Number(wishId));
  if(!wish)throw new Error('Подарок не найден');
  const token=ownReservation(listKey,wishId);
@@ -927,8 +936,23 @@ async function toggleGiftReservation(wishId,listKey){
   await api('/api/public/'+encodeURIComponent(listKey)+'/reserve/'+wishId,{method:'POST',body:{}});
   notice('Подарок забронирован!');
  }
+ if(marker!==lastRenderToken||currentPath()!=='/w/'+listKey)return;
  closeModal();
- await publicListPage(listKey,lastRenderToken);
+ // A successful reservation mutation affects only this gift. Re-read only
+ // when the legacy bearer cancellation may have raced another reservation.
+ if(wish.reserved&&!wish.reserved_by_me&&token){
+  const result=await api('/api/public/'+encodeURIComponent(listKey));
+  if(marker!==lastRenderToken||!card?.isConnected)return;
+  const fresh=result.wishes.find(w=>Number(w.id)===Number(wishId));
+  if(!fresh){await publicListPage(listKey,marker);return;}
+  Object.assign(wish,fresh);
+ }else{
+  wish.reserved=!wish.reserved;wish.reserved_by_me=wish.reserved;
+ }
+ if(card?.isConnected){
+  const next=document.createElement('template');next.innerHTML=wishCard(wish,'guest',listKey);
+  card.replaceWith(next.content.firstElementChild);
+ }
 }
 function wishCard(w,mode='owner',shareKey=''){
  const reserved=w.reserved===true;
@@ -957,7 +981,22 @@ function showWishDetails(el){
 }
 let loadedList = null;
 async function ownerListPage(id,marker=lastRenderToken){if(!currentUser)throw new Error('Войди, чтобы открыть список');const d=await api(`/api/lists/${id}`);if(marker!==lastRenderToken)return;loadedList=d;
- const l=d.list;const url=getLink(`/w/${l.share_key}`);shell(`<main class="container page"><div class="guest-topline"><button class="text-link" data-nav="/lists">${ico('back')} Мои вишлисты</button> <span>/</span> <span>${esc(l.title)}</span></div><div class="detail-top cover-${attr(l.theme)}"><div><span class="chip">${ico('gift')} ${esc(l.occasion)}</span><h1>${esc(l.title)}</h1><p>${esc(l.description||'Список маленьких и больших мечтаний')}</p></div><div class="detail-art">${fallbackArt('gift')}</div></div><div class="detail-actions"><div><h2>Желания <span class="chip">${d.wishes.length}</span></h2><p class="note">Брони друзей здесь никогда не отображаются</p></div><div class="btn-row"><button class="btn btn-soft btn-small" data-action="edit-list">${ico('edit')} Настройки</button><button class="btn btn-soft btn-small" data-action="copy" data-url="${attr(url)}" ${l.visibility==='private'?'disabled title="Сначала открой доступ по ссылке"':''}>${ico('copy')} Ссылка</button><button class="btn btn-dark btn-small" data-open="wish">Добавить желание ${ico('plus')}</button></div></div>${l.visibility==='private'?`<div class="alert">${ico('lock')} Список приватный. Доступ по ссылке выключен в настройках</div>`:''}${d.wishes.length?`<div class="wishlist-grid">${d.wishes.map(w=>wishCard(w)).join('')}</div>`:emptyState('Пока ни одного желания','Вдохновение начинается с первой идеи','Добавить желание','wish')}<div class="divider-line"></div><button class="btn btn-ghost btn-small" data-action="delete-list">${ico('trash')} Удалить весь список</button></main>`);}
+ const l=d.list;const url=getLink(`/w/${l.share_key}`);shell(`<main class="container page"><div class="guest-topline"><button class="text-link" data-nav="/lists">${ico('back')} Мои вишлисты</button> <span>/</span> <span>${esc(l.title)}</span></div><div class="detail-top cover-${attr(l.theme)}"><div><span class="chip">${ico('gift')} ${esc(l.occasion)}</span><h1>${esc(l.title)}</h1><p>${esc(l.description||'Список маленьких и больших мечтаний')}</p></div><div class="detail-art">${fallbackArt('gift')}</div></div><div class="detail-actions"><div><h2>Желания <span class="chip" data-owner-wish-count>${d.wishes.length}</span></h2><p class="note">Брони друзей здесь никогда не отображаются</p></div><div class="btn-row"><button class="btn btn-soft btn-small" data-action="edit-list">${ico('edit')} Настройки</button><button class="btn btn-soft btn-small" data-action="copy" data-url="${attr(url)}" ${l.visibility==='private'?'disabled title="Сначала открой доступ по ссылке"':''}>${ico('copy')} Ссылка</button><button class="btn btn-dark btn-small" data-open="wish">Добавить желание ${ico('plus')}</button></div></div>${l.visibility==='private'?`<div class="alert">${ico('lock')} Список приватный. Доступ по ссылке выключен в настройках</div>`:''}<div data-owner-wishes>${ownerWishesMarkup(d.wishes)}</div><div class="divider-line"></div><button class="btn btn-ghost btn-small" data-action="delete-list">${ico('trash')} Удалить весь список</button></main>`);}
+function ownerWishesMarkup(wishes){
+ return wishes.length?'<div class="wishlist-grid">'+wishes.map(w=>wishCard(w)).join('')+'</div>':
+  emptyState('Пока ни одного желания','Вдохновение начинается с первой идеи','Добавить желание','wish');
+}
+async function refreshOwnerWishes(id){
+ const root=document.querySelector('[data-owner-wishes]'),marker=lastRenderToken;
+ if(!root||currentPath()!=='/list/'+id)return;
+ const data=await api('/api/lists/'+id);
+ if(marker!==lastRenderToken||!root.isConnected)return;
+ loadedList=data;
+ const scrollY=window.scrollY;
+ root.innerHTML=ownerWishesMarkup(data.wishes);
+ const count=document.querySelector('[data-owner-wish-count]');if(count)count.textContent=String(data.wishes.length);
+ if(Math.abs(window.scrollY-scrollY)>1)window.scrollTo({top:scrollY,behavior:'instant'});
+}
 let loadedPublicWishes=[];
 async function publicListPage(key,marker=lastRenderToken){const {list:l,wishes,owner_view}=await api(`/api/public/${key}`);if(marker!==lastRenderToken)return;loadedPublicWishes=wishes;shell(`<main class="container page"><div class="guest-topline">${ico('gift')} <span>Вишлист по ссылке</span><span>/</span><strong>от ${esc(l.owner_name)}</strong></div><div class="detail-top cover-${attr(l.theme)}"><div><span class="chip">${ico('heart')} ${esc(l.occasion)}</span><h1>${esc(l.title)}</h1><p>${esc(l.description)}</p></div><div class="detail-art">${fallbackArt('gift')}</div></div><div class="guest-banner">${owner_view?'Это твой список - статус бронирования для владельца скрыт':'Можешь забронировать понравившийся подарок. Владелец списка не увидит, что выбрано. Для брони войди в аккаунт. Нажми «Забронировать», чтобы занять подарок, или ту же кнопку, чтобы снять свою бронь с любого устройства'}</div><div class="detail-actions"><h2>Желания <span class="chip">${wishes.length}</span></h2></div>${wishes.length?`<div class="wishlist-grid">${wishes.map(w=>wishCard(w,owner_view?'view':'guest',key)).join('')}</div>`:emptyState('В этом списке пока пусто','Загляни позже - здесь скоро появятся желания','На главную','login')}</main>`);}
 async function reservationPage(key,marker=lastRenderToken){const {reservation:r}=await api(`/api/reservations/${key}`);if(marker!==lastRenderToken)return;shell(`<main class="container page"><div class="invite-card"><div class="invite-icon">${envelopeArt()}</div><h1>${r.cancelled_at?'Бронь отменена':'Подарок ждёт своего часа!'}</h1><p>${r.cancelled_at?'Этот подарок снова доступен другим дарителям':'Твоя бронь сохранена. Эта ссылка - личный ключ для отмены, береги её'}</p><div class="details-box"><p><strong>Подарок:</strong> ${esc(r.wish_title)}</p><p><strong>Вишлист:</strong> ${esc(r.list_title)}</p></div>${!r.cancelled_at?`<div class="share-field"><input class="input" readonly value="${attr(getLink(`/r/${key}`))}" aria-label="Ссылка управления бронью"><button class="btn btn-dark btn-small" data-action="copy" data-url="${attr(getLink(`/r/${key}`))}">${ico('copy')} Копировать</button></div><button class="btn btn-danger btn-small" data-action="cancel-reservation" data-token="${attr(key)}">Отменить мою бронь</button>`:''}</div></main>`);}
@@ -1904,7 +1943,7 @@ function fixWishModalLayout(){
 }
 function wishModal(edit=null){
  if(!currentUser||!loadedList){notice('Сначала открой список',true);return;}
- const w=edit||{};
+ const listId=loadedList.list.id,w=edit||{};
  modal({
   title:edit?'Редактировать желание':'Добавить желание',
   subtitle:'Можно добавить конкретную вещь или просто идею. Ссылка на магазин необязательна',
@@ -1931,10 +1970,10 @@ function wishModal(edit=null){
     await api('/api/wishes/'+edit.id,{method:'PATCH',body:data});
     notice('Желание обновлено');
    }else{
-    await api('/api/lists/'+loadedList.list.id+'/wishes',{method:'POST',body:data});
+    await api('/api/lists/'+listId+'/wishes',{method:'POST',body:data});
     notice('Желание добавлено!');
    }
-   await render();
+   await refreshOwnerWishes(listId);
   }
  });
  fixWishModalLayout();
@@ -2105,7 +2144,10 @@ async function dispatch(action,el){try{
    showParticipantLink(result.participant_token,player?.name||'');
  },'Обновить ссылку');
  if(action==='edit-wish')wishModal(loadedList.wishes.find(w=>w.id===Number(el.dataset.id)));
- if(action==='delete-wish')confirmAction('Удалить это желание?','Подарок пропадёт из списка. Активная бронь тоже будет удалена',async()=>{await api(`/api/wishes/${el.dataset.id}`,{method:'DELETE'});notice('Желание удалено');await render();});
+ if(action==='delete-wish'){
+  const listId=loadedList?.list.id,wishId=el.dataset.id;
+  if(listId)confirmAction('Удалить это желание?','Подарок пропадёт из списка. Активная бронь тоже будет удалена',async()=>{await api(`/api/wishes/${wishId}`,{method:'DELETE'});notice('Желание удалено');await refreshOwnerWishes(listId);});
+ }
  if(action==='delete-list')confirmAction('Удалить весь вишлист?','Все желания, ссылки и связанные брони будут удалены',async()=>{await api(`/api/lists/${loadedList.list.id}`,{method:'DELETE'});notice('Список удалён');nav('/lists');});
  if(action==='reserve'){await reserveModal(el.dataset.id,el.dataset.key);return;}
  if(action==='cancel-reservation')confirmAction('Отменить бронирование?','Подарок снова станет доступен другим дарителям',async()=>{await api(`/api/reservations/${el.dataset.token}`,{method:'DELETE'});notice('Бронь отменена');await render();},'Отменить бронь');

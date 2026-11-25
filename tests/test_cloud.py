@@ -978,9 +978,11 @@ def test_browser_register_wishlist_reservation_and_isolation(browser_http):
             guest.goto(browser_http+'/')
             browser_login(guest,'other@example.test')
             guest.goto(share)
+            guest.evaluate("window.__wishlistMain=document.querySelector('main')")
             guest.locator('button[data-action="reserve"]').click()
             expect(guest).to_have_url(share)
             expect(guest.locator('button[data-action="reserve"]')).to_contain_text('Отменить бронь')
+            assert guest.evaluate("window.__wishlistMain===document.querySelector('main')")
             assert guest.locator('#fld-guest_name').count()==0
             assert guest.locator('.modal').count()==0
             assert not guest.evaluate("Object.keys(localStorage).some(k=>k.startsWith('shursh-reservation-v2:'))")
@@ -3018,6 +3020,17 @@ def test_browser_reveal_for_account_member_owner_and_guest(browser_http,applicat
                 expect(page.locator('[data-chat-room="to-recipient"]')).to_have_attribute('aria-pressed','true')
                 assert page.evaluate("""() => window.scrollY>0 && Math.abs(window.scrollY-
                     Math.min(window.__revealScroll,document.documentElement.scrollHeight-innerHeight))<=8""")
+                expect(page.locator('.secret-card [data-action="edit-santa-preferences"]')).to_have_count(0)
+                page.locator('[data-action="add-game-gift"]').click()
+                page.locator('#fld-title').fill('Scoped gift')
+                page.locator('.modal-fixed-footer [type=submit]').click()
+                expect(page.locator('.my-wishes-list')).to_contain_text('Scoped gift')
+                assert page.evaluate("window.__revealMain===document.querySelector('main') && window.__revealChat===document.querySelector('#game-chat')")
+                expect(page.locator('#game-chat-input')).to_have_value('Unsent draft')
+                expect(page.locator('[data-chat-room="to-recipient"]')).to_have_attribute('aria-pressed','true')
+                assert not detail_reads
+                page.locator('#game-chat-form button[type="submit"]').click()
+                expect(page.locator('.game-chat-messages')).to_contain_text('Unsent draft')
                 page.reload()
                 expect(page.locator('.secret-card .recipient')).to_have_text(assigned['receiver_name'])
                 context.close()

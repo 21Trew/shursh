@@ -600,7 +600,8 @@
 a.friend-stack-heading:hover{background:#f9f3e8}
 a.friend-stack-heading:focus-visible{outline:3px solid #ad9166;outline-offset:3px}
 .santa-pref-row{display:block;width:100%;font:inherit;background:transparent;border:0;border-radius:13px;padding:7px 8px;text-align:left;color:inherit;cursor:pointer}
-.santa-pref-row:hover,.santa-pref-row:focus-visible{background:#f7e8cf}
+button.santa-pref-row:hover,button.santa-pref-row:focus-visible{background:#f7e8cf}
+div.santa-pref-row{cursor:default}
 .santa-pref-row strong{display:block;font-size:13px}
 .santa-pref-row p{margin-top:6px;line-height:1.6;color:var(--muted);white-space:pre-wrap}
 .santa-inline-field{display:inline;color:inherit;background:transparent;border:0;padding:0;text-align:inherit;font:inherit;letter-spacing:inherit;line-height:inherit;white-space:normal;overflow-wrap:anywhere}
