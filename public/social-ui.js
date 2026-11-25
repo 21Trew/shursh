@@ -23,14 +23,15 @@ const socialEmojiChoices=["🎁","🎄","🐱","🦊","🐻","🐼","🐸","🦄
 function socialAvatar(p,extra=''){
  return '<span class="avatar emoji-avatar '+extra+'" aria-hidden="true">'+esc(p.avatar_emoji||'🎁')+'</span>';
 }
-function socialIdentity(p,editable=false,showBio=true){
+function socialIdentity(p,{editable=false,own=false,showBio=true}={}){
  const avatar=socialAvatar(p,'profile-emoji');
+ const bio=(p.bio||'').trim()||(own?'Расскажи немного о себе: чем увлекаешься и каким подаркам радуешься':'Пока нет информации о себе');
  return '<div class="social-profile-identity">'+(editable?
   '<button class="profile-avatar-edit" type="button" data-social-action="edit-avatar" aria-label="Изменить аватарку" title="Изменить аватарку">'+avatar+'<span class="profile-avatar-edit-icon">'+ico('edit',16)+'</span></button>':avatar)+
  '<div class="profile-identity-text"><h1>'+esc(p.name)+'</h1>'+
  (p.handle?'<span class="profile-handle">@'+esc(p.handle)+'</span>':'')+
  (p.city?'<div class="profile-city">'+ico('home',16)+' '+esc(p.city)+'</div>':'')+
- (showBio?'<p class="profile-bio">'+esc(p.bio||'Расскажи немного о себе — чем увлекаешься и каким подаркам радуешься')+'</p>':'')+'</div></div>';
+ (showBio?'<p class="profile-bio">'+esc(bio)+'</p>':'')+'</div></div>';
 }
 function socialUserCard(user,actions=''){
  return '<div class="social-person"><button class="social-person-link" type="button" data-nav="/users/'+attr(user.id)+'">'+
@@ -80,7 +81,7 @@ async function socialProfilePage(uid,marker=lastRenderToken){
  if(relation==='friends')action='<span class="chip chip-green">Вы друзья</span>';
  if(relation==='self')action='<button class="btn btn-soft btn-small" data-nav="/profile">Редактировать профиль</button>';
  if(relation==='admin_directory')action='<span class="chip">Скрыт из поиска</span>';
- shell('<main class="container page social-page social-profile-page"><div class="social-profile-hero profile-main-card">'+socialIdentity(p,false,relation!=='admin_directory')+
+ shell('<main class="container page social-page social-profile-page"><div class="social-profile-hero profile-main-card">'+socialIdentity(p,{own:relation==='self',showBio:relation!=='admin_directory'})+
    '<div class="profile-actions">'+action+'</div></div>'+
    '<section class="dashboard-section"><div class="dashboard-section-head"><h2>Вишлисты <span class="chip">'+data.lists.length+'</span></h2></div>'+
   (data.lists.length?'<div class="cards-grid">'+data.lists.map(list=>
@@ -88,10 +89,10 @@ async function socialProfilePage(uid,marker=lastRenderToken){
    '<div class="list-cover cover-'+attr(list.theme)+'">'+fallbackArt('gift')+'</div>'+
    '<div class="list-info"><h3>'+esc(list.title)+'</h3><p>'+esc(list.description||'Список подарков')+'</p>'+
    '<div class="list-bottom"><span>'+ruCount(list.wish_count,'желание','желания','желаний')+'</span><button class="text-link" data-nav="/w/'+attr(list.share_key)+'">Посмотреть '+ico('arrow')+'</button></div></div></article>').join('')+'</div>':
-   '<div class="panel"><p class="note">'+(relation==='admin_directory'?'Личные вишлисты недоступны':relation==='friends'||relation==='self'?'Пока нет доступных вишлистов':'Вишлисты доступны после добавления в друзья')+'</p></div>')+'</section>'+
-   ((relation==='friends'||relation==='self')?'<section class="dashboard-section shared-santa-section"><div class="dashboard-section-head"><h2>Наш общий Тайный Санта <span class="chip">'+(data.shared_games||[]).length+'</span></h2></div>'+
+   '<div class="panel"><p class="note">'+(relation==='admin_directory'?'Личные вишлисты недоступны':relation==='self'?'У тебя пока нет открытых вишлистов':relation==='friends'?'Пока нет доступных вишлистов':'Вишлисты доступны после добавления в друзья')+'</p></div>')+'</section>'+
+   ((relation==='friends'||relation==='self')?'<section class="dashboard-section shared-santa-section"><div class="dashboard-section-head"><h2>'+(relation==='self'?'Мои игры в Тайного Санту':'Наш общий Тайный Санта')+' <span class="chip">'+(data.shared_games||[]).length+'</span></h2></div>'+
    ((data.shared_games||[]).length?'<div class="shared-santa-grid">'+data.shared_games.map(game=>santaGameCard(game,{shared:true})).join('')+'</div>':
-    '<div class="panel"><p class="note">Пока нет игр, в которых вы оба участвуете</p></div>')+'</section>':'')+'</main>');
+    '<div class="panel"><p class="note">'+(relation==='self'?'Ты пока не участвуешь в играх':'Пока нет игр, в которых вы оба участвуете')+'</p></div>')+'</section>':'')+'</main>');
 }
 async function socialOwnProfilePage(marker=lastRenderToken){
  if(!currentUser){loginModal();return;}
@@ -100,7 +101,7 @@ async function socialOwnProfilePage(marker=lastRenderToken){
  shell('<main class="container page social-page social-profile-page">'+
   '<div class="social-page-heading"><span class="section-label">Твоя визитная карточка</span><h1>Мой профиль</h1>'+
   '<p>Имя, никнейм и аватар видят другие. Почта остаётся приватной</p></div>'+
-  '<section class="panel profile-main-card">'+socialIdentity(p,true)+
+  '<section class="panel profile-main-card">'+socialIdentity(p,{editable:true,own:true})+
   '<div class="profile-actions">'+
   '<button type="button" class="btn btn-dark btn-small" data-social-action="edit-profile">'+ico('edit')+' Редактировать профиль</button>'+
   '<button type="button" class="btn btn-soft btn-small" data-nav="/users/'+attr(p.id)+'">Как видят друзья</button></div></section>'+

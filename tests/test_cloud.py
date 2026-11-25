@@ -2719,6 +2719,7 @@ def test_browser_ux_fixes_avatar_gift_placeholder_and_admin_directory(browser_ht
             expect(page.locator('main h1')).to_have_text('Other')
             expect(page.locator('.profile-actions')).to_contain_text('Скрыт из поиска')
             expect(page.locator('main')).not_to_contain_text('Hidden profile text')
+            expect(page.locator('.profile-bio')).to_have_count(0)
             expect(page.locator('[data-social-action="add"]')).to_have_count(0)
             page.go_back()
             expect(page.locator('.admin-users-table')).to_be_visible()
@@ -3262,3 +3263,44 @@ def test_release_asset_fingerprint_and_stale_reveal_safe_failure(application):
         assert 'assignment' not in reply.json
     # A valid-looking but unknown bearer must not enter the compatibility path.
     call(client,'POST','/api/participant/'+'z'*43+'/reveal',{},404)
+
+
+@pytest.mark.browser
+def test_browser_profile_copy_respects_viewer_identity(browser_http,application):
+    """Self prompts, visitor placeholders and real biographies stay distinct."""
+    from playwright.sync_api import sync_playwright,expect
+    owner=login(application)
+    other=login(application,'other@example.test')
+    previous=[call(c,'GET','/api/profile/me').json['profile'] for c in (owner,other)]
+    uid=str(IDS['other@example.test'])
+    own_id=str(IDS['owner@example.test'])
+    prompt='Расскажи немного о себе: чем увлекаешься и каким подаркам радуешься'
+    try:
+        call(owner,'PATCH','/api/profile/me',{'bio':''})
+        call(other,'PATCH','/api/profile/me',{'bio':'','discoverable':True})
+        with sync_playwright() as play:
+            browser=play.chromium.launch(headless=True,args=['--no-sandbox'])
+            try:
+                page=browser.new_page(viewport={'width':390,'height':844})
+                page.goto(browser_http+'/')
+                browser_login(page)
+                page.goto(browser_http+'/profile')
+                expect(page.locator('.profile-bio')).to_have_text(prompt)
+                page.goto(browser_http+'/users/'+own_id)
+                expect(page.locator('.profile-bio')).to_have_text(prompt)
+                expect(page.locator('.shared-santa-section h2')).to_contain_text('Мои игры в Тайного Санту')
+                page.goto(browser_http+'/users/'+uid)
+                expect(page.locator('.profile-bio')).to_have_text('Пока нет информации о себе')
+                expect(page.locator('main')).not_to_contain_text('Расскажи немного о себе')
+                call(other,'PATCH','/api/profile/me',{'bio':'Люблю книги и настольные игры'})
+                page.reload()
+                expect(page.locator('.profile-bio')).to_have_text('Люблю книги и настольные игры')
+                call(owner,'PATCH','/api/profile/me',{'bio':'Моя биография'})
+                page.goto(browser_http+'/profile')
+                expect(page.locator('.profile-bio')).to_have_text('Моя биография')
+            finally:
+                browser.close()
+    finally:
+        for client,profile in zip((owner,other),previous):
+            call(client,'PATCH','/api/profile/me',{'bio':profile.get('bio') or '',
+                                                 'discoverable':profile['discoverable']})
