@@ -36,17 +36,18 @@ def valid_auth_email(raw):
     if ';' in email: reject('Убери точку с запятой из адреса')
     if '\\' in email: reject('Убери обратную косую черту из адреса')
     parts=email.split('@')
-    if len(parts)==1: reject('Добавь знак @')
-    if len(parts)!=2: reject('В адресе должен быть только один знак @')
-    local,domain=parts
+    if len(parts)>2: reject('В адресе должен быть только один знак @')
+    local=parts[0]
     if not local: reject('Укажи имя почты перед @')
-    if not domain: reject('Укажи домен после @')
     if any(not 33<=ord(ch)<=126 for ch in local): reject('Перед @ используй латинские буквы, цифры и допустимые знаки')
-    if any(not 33<=ord(ch)<=126 for ch in domain): reject('Используй латинские буквы после @')
     if len(local)>64: reject('Часть почты перед @ слишком длинная')
-    if local.startswith('.') or local.endswith('.') or '..' in local:
+    if local.startswith('.') or '..' in local or (len(parts)==2 and local.endswith('.')):
         reject('Исправь точки в части почты перед @')
     if not AUTH_LOCAL.fullmatch(local): reject('Проверь символы в части почты перед @')
+    if len(parts)==1: reject('Добавь знак @')
+    domain=parts[1]
+    if not domain: reject('Укажи домен после @')
+    if any(not 33<=ord(ch)<=126 for ch in domain): reject('Используй латинские буквы после @')
     if '_' in domain: reject('Убери нижнее подчёркивание из домена')
     bad_domain=re.search(r'[^a-z0-9.-]',domain,re.I|re.ASCII)
     if bad_domain: reject(f'Убери символ {bad_domain.group()} из домена')

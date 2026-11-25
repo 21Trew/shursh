@@ -1406,16 +1406,26 @@ def test_vnext_webkit_recovery(browser_https,vnext_application):
             page.goto(browser_https+'/')
             page.locator('header [data-open="login"]').click()
             page.locator('#fld-email').fill('owner@example.test')
+            page.evaluate("()=>{window.recoveryShell=document.querySelector('.modal');}")
+            def assert_sheet(mode):
+                sheet=page.locator('.modal')
+                expect(sheet).to_have_attribute('data-auth-screen',mode)
+                assert sheet.evaluate("m=>m===window.recoveryShell")
+                page.wait_for_function("()=>{const r=document.querySelector('.modal').getBoundingClientRect();return Math.abs(r.x)<1&&Math.abs(r.right-innerWidth)<1&&Math.abs(r.bottom-innerHeight)<1;}")
+            assert_sheet('login')
             page.locator('.modal-foot [data-open="recover"]').click()
+            assert_sheet('recover')
             expect(page.locator('#fld-email')).to_have_value('owner@example.test')
             page.locator('.modal-fixed-footer [type=submit]').click()
             expect(page.locator('#fld-code')).to_be_visible()
+            assert_sheet('otp-code')
             page.locator('#fld-code').fill('999999')
             page.locator('.modal-fixed-footer [type=submit]').click()
             expect(page.locator('.auth-form-warning')).to_be_visible()
             page.locator('#fld-code').fill('123456')
             page.locator('.modal-fixed-footer [type=submit]').click()
             expect(page.locator('#fld-password')).to_be_visible()
+            assert_sheet('otp-password')
             page.locator('[data-password-generate]').click()
             password=page.locator('#fld-password').input_value()
             page.locator('.modal-fixed-footer [type=submit]').click()
@@ -1461,6 +1471,10 @@ def test_auth_character_highlight_responsive(browser_https):
                         toggle=page.locator('.password-field:has(#fld-password) [data-password-visibility]')
                         # Incomplete syntax must not be painted as an invalid character.
                         for address,message,marked in (
+                            ('почта','Перед @ используй латинские буквы, цифры и допустимые знаки','почта'),
+                            ('почта@','Перед @ используй латинские буквы, цифры и допустимые знаки','почта'),
+                            ('a..b','Исправь точки в части почты перед @','.'),
+                            ('a.@','Исправь точки в части почты перед @','.'),
                             ('12@mail.','Допиши окончание домена, например ru или com',''),
                             ('12@#mail','Убери символ # из домена','#'),
                             ('#username@gmail.com','Убери символ # из имени почты Gmail','#'),

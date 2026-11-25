@@ -44,3 +44,5 @@ a one-letter ASCII suffix) display feedback only after 2000 ms without
 input; every edit cancels the previous timer. Submit always validates
 immediately. Server validation is unchanged. Empty untouched fields stay
 neutral; detached forms cannot receive delayed errors.
+
+Local-part characters and impossible dot patterns are diagnosed even before @ or a domain is entered; a single trailing local dot before @ remains an unfinished fragment. OTP recovery, code and password setup use the same auth dialog shell and mobile bottom-sheet styling as login and registration.

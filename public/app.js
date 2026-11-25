@@ -1535,16 +1535,16 @@ function authEmailIssue(value){
  if(email.includes(';'))return 'Убери точку с запятой из адреса';
  if(email.includes('\\'))return 'Убери обратную косую черту из адреса';
  const parts=email.split('@');
- if(parts.length===1)return 'Добавь знак @';
- if(parts.length!==2)return 'В адресе должен быть только один знак @';
+ if(parts.length>2)return 'В адресе должен быть только один знак @';
  const [local,domain]=parts;
  if(!local)return 'Укажи имя почты перед @';
- if(!domain)return 'Укажи домен после @';
  if(/[^\x21-\x7e]/.test(local))return 'Перед @ используй латинские буквы, цифры и допустимые знаки';
- if(/[^\x21-\x7e]/.test(domain))return 'Используй латинские буквы после @';
  if(local.length>64)return 'Часть почты перед @ слишком длинная';
- if(local.startsWith('.')||local.endsWith('.')||local.includes('..'))return 'Исправь точки в части почты перед @';
- if(!/^[A-Za-z0-9.!#$%&'*+/=?^_`{|}~-]+$/.test(local))return 'Проверь символы в части почты перед @';
+ if(local.startsWith('.')||local.includes('..')||(parts.length===2&&local.endsWith('.')))return 'Исправь точки в части почты перед @';
+ if(!/^[A-Za-z0-9.!#$%&'*+/=?^_\x60{|}~-]+$/.test(local))return 'Проверь символы в части почты перед @';
+ if(parts.length===1)return 'Добавь знак @';
+ if(!domain)return 'Укажи домен после @';
+ if(/[^\x21-\x7e]/.test(domain))return 'Используй латинские буквы после @';
  // Reject invalid characters before diagnosing an unfinished domain.
  if(domain.includes('_'))return 'Убери нижнее подчёркивание из домена';
  const badDomain=domain.match(/[^a-z0-9.-]/i)?.[0];
@@ -1606,6 +1606,7 @@ function authInvalidCharRanges(input,register,message){
  const at=email.indexOf('@');
  if(at<0){
   add(email,/[^A-Za-z0-9.!#$%&'*+/=?^_\x60{|}~-]+/gu,offset);
+  for(let i=0;i<email.length;i++)if(email[i]==='.'&&(i===0||email[i-1]==='.'))ranges.push([offset+i,offset+i+1]);
   return ranges;
  }
  const local=email.slice(0,at),domain=email.slice(at+1),domainOffset=offset+at+1;
@@ -1831,7 +1832,7 @@ async function authSuccess(result,register){
  nav((/^\/join\/([A-Za-z0-9_-]+|p\/[A-Za-z0-9_-]{43})$/.test(landing)||/^\/w\/[A-Za-z0-9_-]+$/.test(landing))?landing:'/',{force:true});
 }
 function otpStartModal(email='',recover=false){
- modal({title:recover?'Восстановим доступ':'Давай знакомиться!',
+ modal({authScreen:'recover',title:recover?'Восстановим доступ':'Давай знакомиться!',
   subtitle:'Сначала подтверди свою почту',
   content:field('Почта','email','you@example.com','text',email,true,'inputmode="email" autocomplete="email" autocapitalize="none" spellcheck="false" maxlength="200"')+authFormWarning(),
   onError:showAuthFormWarning,submitLabel:'Получить код',
@@ -1849,7 +1850,7 @@ function otpCodeModal(email,recover,registration=null){
  // Registration credentials remain only in this modal's ephemeral closure.
  // No localStorage, sessionStorage, URL, or server-side pending password.
  const startPayload=()=>registration?{email,name:registration.name,password:registration.password,confirm_password:registration.password,purpose:'register'}:{email,purpose:'recover'};
- modal({title:'Проверь почту 💌',subtitle:'Введи шесть цифр из письма на '+email,
+ modal({authScreen:'otp-code',title:'Проверь почту 💌',subtitle:'Введи шесть цифр из письма на '+email,
   content:field('Код из письма','code','000000','text','',true,'inputmode="numeric" autocomplete="one-time-code" pattern="[0-9]{6}" maxlength="6"')+
    '<p class="auth-confirm-help">Если письмо не пришло, проверь «Спам». Новый код можно запросить через минуту</p>'+authFormWarning(),
   onError:showAuthFormWarning,submitLabel:'Подтвердить почту',
@@ -1896,13 +1897,13 @@ function otpCodeModal(email,recover,registration=null){
  });
 }
 function otpExistingModal(email){
- modal({title:'С возвращением!',subtitle:'Почта подтверждена. У тебя уже есть аккаунт',
+ modal({authScreen:'otp-existing',title:'С возвращением!',subtitle:'Почта подтверждена. У тебя уже есть аккаунт',
   content:'<p>Все твои желания на месте</p>',
   footer:'<button type="button" data-open="login" data-email="'+attr(email)+'">Войти с паролем</button> · <button type="button" data-otp-password>Не помню пароль</button>'});
  modalRoot.querySelector('[data-otp-password]').addEventListener('click',()=>otpPasswordModal(email,false));
 }
 function otpPasswordModal(email,setup){
- modal({title:setup?'Давай знакомиться!':'Придумаем новый пароль?',
+ modal({authScreen:'otp-password',title:setup?'Давай знакомиться!':'Придумаем новый пароль?',
   subtitle:'Почта подтверждена',
   content:(setup?field('Как тебя зовут?','name','Например, Саша','text','',true,'maxlength="40" autocomplete="name"'):'')+
    passwordField(true)+confirmPasswordField()+authFormWarning(),
