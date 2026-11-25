@@ -1824,3 +1824,51 @@ def test_auth_mobile_bottom_sheet_and_compact_controls(browser_https):
                         context.close()
             finally:
                 browser.close()
+
+
+@pytest.mark.browser
+def test_auth_email_incomplete_feedback_waits_for_idle(browser_https):
+    """Typing, correcting, submitting and changing screens use the same deadline."""
+    with sync_playwright() as play:
+        for engine in (play.chromium,play.webkit):
+            browser=engine.launch(headless=True)
+            try:
+                for width in (375,1440):
+                    context=browser.new_context(viewport={"width":width,"height":844},
+                        ignore_https_errors=True,reduced_motion="reduce")
+                    try:
+                        page=context.new_page()
+                        page.goto(browser_https+'/',wait_until='domcontentloaded')
+                        page.locator('header [data-open="login"]').click()
+                        email=page.locator('#fld-email')
+                        error=page.locator('#auth-error-email')
+                        email.fill('12@mail')
+                        page.wait_for_timeout(1100)
+                        expect(error).to_be_hidden()
+                        email.fill('12@mail.')
+                        page.wait_for_timeout(1100)
+                        expect(error).to_be_hidden()
+                        assert email.get_attribute('aria-invalid') is None
+                        expect(error).to_have_text('Допиши окончание домена, например ru или com',timeout=2500)
+                        email.fill('12@mail.r')
+                        expect(error).to_be_hidden()
+                        email.fill('12@mail.ru')
+                        page.wait_for_timeout(2100)
+                        expect(error).to_be_hidden()
+                        assert email.get_attribute('aria-invalid') is None
+                        email.fill('12@#mail')
+                        expect(error).to_have_text('Убери символ # из домена',timeout=500)
+                        email.fill('12@mail.')
+                        expect(error).to_be_hidden()
+                        page.locator('#modal-form').evaluate('form=>form.requestSubmit()')
+                        expect(error).to_have_text('Допиши окончание домена, например ru или com',timeout=500)
+                        email.fill('12@mail')
+                        expect(error).to_be_hidden()
+                        page.locator('.modal-foot [data-open="register"]').click()
+                        page.locator('#fld-email').fill('valid@example.com')
+                        page.wait_for_timeout(2100)
+                        expect(page.locator('#auth-error-email')).to_be_hidden()
+                    finally:
+                        context.close()
+            finally:
+                browser.close()

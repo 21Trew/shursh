@@ -1709,6 +1709,16 @@ function installAuthCharacterHighlights(input,register){
 window.addEventListener('resize',()=>{
  for(const input of document.querySelectorAll('#modal-form input[aria-invalid="true"]'))authCharacterHighlights.get(input)?.();
 });
+const AUTH_EMAIL_IDLE_MS=2000;
+function authEmailIncompleteIssue(value,message){
+ const email=value.trim();
+ if(message==='Добавь знак @')
+  return /^[A-Za-z0-9.!#$%&'*+/=?^_\x60{|}~-]+$/.test(email)&&!email.startsWith('.')&&!email.includes('..');
+ if(message==='Укажи домен после @'||message==='Укажи домен с точкой, например example.com'||message==='Допиши окончание домена, например ru или com')return true;
+ if(message==='Проверь окончание домена, например .ru или .com')
+  return /\.[a-z]$/i.test(email);
+ return false;
+}
 function setupAuthFormValidation(form,register){
  if(!form)return;
  // Inline errors, not native validation popups which differ across mobile browsers.
@@ -1716,8 +1726,10 @@ function setupAuthFormValidation(form,register){
  const names=register?['name','email','password','current_password','new_password','confirm_password']:['email','password','current_password','code'];
  const inputs=names.map(name=>form.elements.namedItem(name)).filter(Boolean);
  const touched=new Set();
- const validate=input=>{
-  const message=authFieldIssue(input,form,register), field=input.closest('.field');
+ let emailIdleTimer=0;
+ const cancelEmailIdle=()=>{if(emailIdleTimer)clearTimeout(emailIdleTimer);emailIdleTimer=0;};
+ const validate=(input,override)=>{
+  const message=override===undefined?authFieldIssue(input,form,register):override, field=input.closest('.field');
   const id='auth-error-'+input.name;
   let node=field?.querySelector('#'+id);
   if(!node&&field){
@@ -1727,7 +1739,7 @@ function setupAuthFormValidation(form,register){
    const passwordHint=field.querySelector('#password-hint');
    if(passwordHint)field.insertBefore(node,passwordHint);else field.append(node);
   }
-  if(node){node.textContent=message;node.hidden=!message;}
+  if(node){if(node.textContent!==message)node.textContent=message;node.hidden=!message;}
   if(message)input.setAttribute('aria-invalid','true');
   else input.removeAttribute('aria-invalid');
   authCharacterHighlights.get(input)?.(message);
@@ -1745,7 +1757,10 @@ function setupAuthFormValidation(form,register){
    // pointer-down changes dialog height and can swallow a click on "Register".
    // Navigation does not require validating the old form; submit validates all.
    if(event.relatedTarget?.closest('[data-open],[data-close],[type="submit"]'))return;
-   touched.add(input.name);validate(input);
+   touched.add(input.name);
+   // Preserve the typing deadline even when focus moves to another field.
+   if(input.name==='email'&&emailIdleTimer)return;
+   validate(input);
   });
   input.addEventListener('input',()=>{
    const newPassword=register&&['password','new_password'].includes(input.name);
@@ -1765,18 +1780,34 @@ function setupAuthFormValidation(form,register){
     }
    }
    if(newPassword)updatePasswordStrength(input);
-   // Check the raw email from the first nonempty input, before blur or submit.
-   // Auth fields use type=text + inputmode=email so the browser cannot
-   // silently convert a Unicode domain to Punycode before this check.
-   if(input.name==='email'&&input.value)touched.add(input.name);
-   if(newPassword&&input.value)touched.add(input.name);
-   if(touched.has(input.name)||newPassword&&input.value)validate(input);
+   // Illegal characters are immediate; unfinished structure waits until
+   // the user has stopped editing for two seconds. No stale timer may paint
+   // an error on a replaced modal or an updated value.
+   if(input.name==='email'){
+    cancelEmailIdle();
+    if(input.value)touched.add(input.name);
+    if(touched.has(input.name)){
+     const message=authFieldIssue(input,form,register);
+     if(authEmailIncompleteIssue(input.value,message)){
+      validate(input,'');
+      const snapshot=input.value;
+      emailIdleTimer=setTimeout(()=>{
+       emailIdleTimer=0;
+       if(form.isConnected&&input.isConnected&&input.value===snapshot)validate(input);
+      },AUTH_EMAIL_IDLE_MS);
+     }else validate(input,message);
+    }
+   }else{
+    if(newPassword&&input.value)touched.add(input.name);
+    if(touched.has(input.name)||newPassword&&input.value)validate(input);
+   }
    if(register&&['password','new_password'].includes(input.name)&&touched.has('confirm_password')){
     validate(form.elements.confirm_password);
    }
   });
  }
  form.addEventListener('submit',event=>{
+  cancelEmailIdle();
   const invalid=inputs.filter(input=>{touched.add(input.name);return !!validate(input);});
   if(invalid.length){
    event.preventDefault();event.stopImmediatePropagation();

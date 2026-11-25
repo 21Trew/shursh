@@ -38,6 +38,9 @@ No DNS lookup or TLD allowlist is added to form validation. A single trailing do
 
 Auth email inputs preserve the raw typed address (`type=text`, `inputmode=email`,
 `autocomplete=email`), preventing browser IDN normalization from hiding Cyrillic
-from the app's ASCII validator. Nonempty email edits validate immediately;
-empty untouched fields stay neutral. Both browser regression tests exercise
-an invalid first edit while the field remains focused.
+from the app's ASCII validator. Illegal email characters are reported immediately. Incomplete but otherwise
+valid email fragments (missing @, missing domain or dot, a trailing dot, or
+a one-letter ASCII suffix) display feedback only after 2000 ms without
+input; every edit cancels the previous timer. Submit always validates
+immediately. Server validation is unchanged. Empty untouched fields stay
+neutral; detached forms cannot receive delayed errors.
