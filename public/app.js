@@ -664,8 +664,19 @@ document.addEventListener('keydown',event=>{
  const key=event.key;
  const next=key==='Home'?0:key==='End'?buttons.length-1:key==='ArrowRight'?(index+1)%buttons.length:key==='ArrowLeft'?(index+buttons.length-1)%buttons.length:-1;
  if(next<0)return;
- event.preventDefault();buttons[next].focus();buttons[next].click();
+ event.preventDefault();
+ const target=buttons[next];
+ // Preserve keyboard modality through synthetic activation, including WebKit.
+ if(!target.hasAttribute('data-keyboard-focus'))target.setAttribute('data-keyboard-focus','');
+ target.focus();target.click();
 });
+document.addEventListener('focusout',event=>{
+ if(event.target instanceof Element)event.target.removeAttribute('data-keyboard-focus');
+});
+document.addEventListener('pointerdown',()=>{
+ const focused=document.activeElement;
+ if(focused?.hasAttribute('data-keyboard-focus'))focused.removeAttribute('data-keyboard-focus');
+},true);
 function header(){const path=currentPath();return `<header class="site-header"><div class="container topbar"><a class="logo" href="/" data-nav="/" aria-label="Шурш! Главная">шурш<span>!</span></a>${currentUser?`<nav class="nav" aria-label="Главная навигация"><a href="/" data-nav="/" class="${navigationSection(path)==='/'?'active':''}"${navigationSection(path)==='/'?' aria-current="'+(path==='/'?'page':'location')+'"':''}>${currentUser?'Кабинет':'Главная'}</a><a href="/lists" data-nav="/lists" class="${navigationSection(path)==='/lists'?'active':''}"${navigationSection(path)==='/lists'?' aria-current="'+(path==='/lists'?'page':'location')+'"':''}>Вишлисты</a><a href="/santas" data-nav="/santas" class="${navigationSection(path)==='/santas'?'active':''}"${navigationSection(path)==='/santas'?' aria-current="'+(path==='/santas'?'page':'location')+'"':''}>Тайный Санта</a>${!isPreview?`<a href="/friends" data-nav="/friends" class="${navigationSection(path)==='/friends'?'active':''}"${navigationSection(path)==='/friends'?' aria-current="'+(path==='/friends'?'page':'location')+'"':''}>Друзья</a><a href="/profile" data-nav="/profile" class="${navigationSection(path)==='/profile'?'active':''}"${navigationSection(path)==='/profile'?' aria-current="'+(path==='/profile'?'page':'location')+'"':''}>Профиль</a>${currentUser.is_admin?`<a href="/admin" data-nav="/admin" class="${navigationSection(path)==='/admin'?'active':''}"${navigationSection(path)==='/admin'?' aria-current="'+(path==='/admin'?'page':'location')+'"':''}>Админка</a>`:''}`:''}</nav>`:""}<div class="header-actions">${currentUser?`<button class="header-bell ${path==='/notifications'?'active':''}" type="button" data-social-action="open-notifications" aria-haspopup="dialog" aria-expanded="false" title="Уведомления" aria-label="Уведомления">${ico('bell',21)}<span class="nav-unread" data-notification-count hidden></span></button><button class="header-avatar" type="button" data-nav="/profile" aria-label="Открыть профиль" title="Открыть профиль">${esc(currentUser.avatar_emoji||"🎁")}</button><button class="btn btn-ghost" data-action="logout" title="Выйти">${ico('logout')} Выйти</button>`:`<button class="btn btn-ghost" data-open="login">Войти</button>`}</div></div></header>${isPreview?`<div class="preview-ribbon"><div class="container">Интерактивное демо · данные хранятся только в этом браузере · ссылки не работают на других устройствах <button type="button" data-action="reset-preview">Сбросить демо</button></div></div>`:''}`;}
 function footer(){return `<footer class="container footer"><div><a class="logo" data-nav="/" href="/">шурш<span>!</span></a><small>Место для хотелок и сюрпризов</small></div><p class="footer-credit">Сделано с заботой о сюрпризах <span aria-hidden="true">·</span> <button class="footer-developer" type="button" data-action="contact-developer">L-code</button></p></footer>`;}
 let shellUserSignature='';
