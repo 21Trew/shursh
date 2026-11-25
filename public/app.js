@@ -164,7 +164,7 @@ function invalidateOwnerDataForMutation(path){
  const santaMutation=/^\/api\/santas(?:\/|$)/.test(path) ||
   /^\/api\/(?:member\/\d+|participant\/[^/]+)\/(?:wishes(?:\/|$)|claim$|reveal$)/.test(path) ||
   /^\/api\/invites\/[^/]+\/join$/.test(path);
- if(!listMutation&&!santaMutation){clearOwnerDataCache();return;}
+ if(!listMutation&&!santaMutation){ownerCacheVersion++;ownerDataCache.clear();clearOwnerTabViews();ownerRevalidating.clear();ownerPending.clear();renderedOwnerTab=null;return;}
  ownerCacheVersion++;
  const invalidTabs=['/'].concat(listMutation?['/lists']:[]).concat(santaMutation?['/santas']:[]);
  clearOwnerTabViews(invalidTabs);
@@ -202,14 +202,18 @@ function patchOwnerNode(old,next){
   old.replaceWith(next.cloneNode(true));return;
  }
  if(old.nodeType!==1){old.nodeValue=next.nodeValue;return;}
- if(old.matches('input,textarea,select,form#social-search-form,#social-search-results'))return;
+ if(old.matches('form#social-search-form,#social-search-results'))return;
+ if(old.matches('input,textarea,select')){
+  if(old.type==='checkbox'&&old.checked===old.defaultChecked){old.checked=next.checked;old.defaultChecked=next.defaultChecked;}
+  return;
+ }
  for(const a of [...old.attributes])if(!next.hasAttribute(a.name))old.removeAttribute(a.name);
  for(const a of next.attributes)if(old.getAttribute(a.name)!==a.value)old.setAttribute(a.name,a.value);
- const key=n=>n.nodeType===1?(n.id||n.getAttribute('data-nav')||n.querySelector(':scope > [data-nav]')?.getAttribute('data-nav')||null):null;
+ const key=n=>n.nodeType===1?(n.id||n.getAttribute('data-nav')||n.getAttribute('data-wishlist-filter')||n.getAttribute('data-santa-state')||n.querySelector(':scope > [data-nav]')?.getAttribute('data-nav')||(n.matches('section.panel')?n.querySelector(':scope > h2')?.firstChild?.textContent:null)||null):null;
  let cursor=old.firstChild;
  for(const child of [...next.childNodes]){
   const k=key(child);
-  const match=k?[...old.childNodes].find(n=>key(n)===k):cursor;
+  const match=k?[...old.childNodes].find(n=>key(n)===k):(cursor&&!key(cursor)?cursor:null);
   if(!match){old.insertBefore(child.cloneNode(true),cursor);continue;}
   if(match!==cursor)old.insertBefore(match,cursor);
   const after=match.nextSibling;
@@ -234,6 +238,9 @@ function updateOwnerView(path,value){
  const tab=path==='/api/friends/wishlists'?'/lists':['/','/lists','/santas','/friends','/profile','/notifications'].find(t=>ownerApiForTab(t)===path);
  if(!tab)return;
  const root=renderedOwnerTab===tab&&currentPath()===tab?app.querySelector('#page-view > main'):ownerTabViews.get(tab)?.node;
+ if(path==='/api/notifications'&&modalRoot.querySelector('.notification-dialog')){
+  notificationModalItems=value.items||[];renderNotificationModalTab(notificationModalTab);
+ }
  if(!root)return;
  if(tab==='/lists'){
   if(path==='/api/lists')currentOwnedWishlists=value.lists||[];
@@ -294,7 +301,14 @@ async function api(path,opts={}){
   if(pending?.version===ownerCacheVersion&&pending.epoch===epoch)return pending.request;
   const entry=ownerEntry(path);
   if(entry&&Object.hasOwn(entry,'value')){
-   if(entry.expires<=Date.now())void revalidateOwnerRead(path,entry);
+   if(entry.expires<=Date.now()){
+    if(!ownerPinned(path)){
+     await revalidateOwnerRead(path,entry);
+     if(epoch!==ownerSessionEpoch||currentUser?.id!==identity)throw sessionChangedError();
+     return ownerDataCache.get(path)?.value??entry.value;
+    }
+    void revalidateOwnerRead(path,entry);
+   }
    return entry.value;
   }
  }
