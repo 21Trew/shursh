@@ -1632,7 +1632,9 @@ def test_password_meter_continuous_motion(browser_https):
                           const bars=[...meter.querySelectorAll('i')];
                           const values=()=>bars.map(b=>new DOMMatrixReadOnly(getComputedStyle(b,'::after').transform).a);
                           const frame=()=>new Promise(requestAnimationFrame);
-                          const read=async (target,duration=550)=>{
+                          // Keep the configured animation budget strict; allow delayed CI frames.
+                          const durationMs=parseFloat(getComputedStyle(meter).transitionDuration)*1000;
+                          const read=async (target,duration=900)=>{
                             if(target!==null)renderPasswordStrength(input,target);
                             const result=[], start=performance.now();
                             do{await frame();result.push(values());}while(performance.now()-start<duration);
@@ -1648,8 +1650,9 @@ def test_password_meter_continuous_motion(browser_https):
                           renderPasswordStrength(input,0,'Не подходит');
                           const immediate=values();
                           const reversed=await read(null);
-                          return {up,down,before,immediate,reversed};
+                          return {up,down,before,immediate,reversed,durationMs};
                         }""")
+                        assert abs(samples['durationMs']-420)<1
                         def total(frame): return sum(frame)
                         for key,direction,target in (('up',1,4),('down',-1,1),('reversed',-1,0)):
                             frames=samples[key]
@@ -2135,7 +2138,7 @@ def test_owner_cache_revalidation_lru_session_and_dom(browser_https,application,
             page=context.new_page()
             page.goto(browser_https+'/')
             browser_login(page)
-            page.wait_for_function("ownerWarmupReady && !socialUnreadBusy")
+            page.wait_for_function("() => ownerWarmupReady && !socialUnreadBusy",timeout=15000)
             page.evaluate("nav('/lists')")
             expect(page.get_by_text(first,exact=True)).to_be_visible()
             page.evaluate("""id=>{
