@@ -2028,26 +2028,24 @@ def test_navigation_filter_markers_focus_and_noop_mutations(browser_https,applic
                             if attribute=='aria-selected':
                                 selected=page.locator(selector+'[aria-selected="true"]')
                                 assert selected.get_attribute('tabindex')=='0'
+                                def assert_focus(button):
+                                    expect(button).to_be_focused()
+                                    expect(button).to_have_attribute('aria-selected','true')
+                                    assert button.evaluate("""e=>{
+                                      const s=getComputedStyle(e);
+                                      return s.outlineStyle!=='none'&&parseFloat(s.outlineWidth)>=2;
+                                    }"""), (engine,touch,selector)
                                 selected.focus()
-                                selected.press('Home')
-                                expect(buttons.first).to_be_focused()
-                                expect(buttons.first).to_have_attribute('aria-selected','true')
-                                selected=buttons.first
-                                selected.press('End')
-                                expect(buttons.last).to_be_focused()
-                                expect(buttons.last).to_have_attribute('aria-selected','true')
-                                assert buttons.last.evaluate("""e=>getComputedStyle(e).outlineStyle!=='none'""")
-                                buttons.last.press('ArrowRight')
-                                expect(buttons.first).to_have_attribute('aria-selected','true')
-                                buttons.first.press('ArrowLeft')
-                                expect(buttons.last).to_be_focused()
-                                expect(buttons.last).to_have_attribute('aria-selected','true')
-                                buttons.last.press('Tab')
+                                for key, target in (('Home',buttons.first),('End',buttons.last),
+                                                    ('ArrowRight',buttons.first),('ArrowLeft',buttons.last)):
+                                    page.keyboard.press(key)
+                                    assert_focus(target)
+                                page.keyboard.press('Tab')
                                 assert not buttons.evaluate_all('bs=>bs.includes(document.activeElement)')
                                 page.keyboard.press('Shift+Tab')
-                                expect(buttons.last).to_be_focused()
-                                buttons.last.press('Home')
-                                expect(buttons.first).to_be_focused()
+                                assert_focus(buttons.last)
+                                page.keyboard.press('Home')
+                                assert_focus(buttons.first)
                                 assert_group(selector,attribute)
                         # Warm navigation must retain the existing header and
                         # previously rendered owner views. No new page request.
