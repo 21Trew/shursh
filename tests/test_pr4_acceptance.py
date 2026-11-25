@@ -1328,8 +1328,13 @@ def test_mobile_webkit_signup_inline_validation(browser_https):
             assert page.evaluate('strengthWorker instanceof Worker')
             label=page.locator('[data-password-strength-label]')
             bars=page.locator('.password-strength-bars')
-            assert label.bounding_box()['x'] < bars.bounding_box()['x']
-            assert abs(label.bounding_box()['y']+label.bounding_box()['height']/2 - bars.bounding_box()['y']-bars.bounding_box()['height']/2)<2
+            # Measure both boxes in the same animation frame. The auth modal
+            # can still be moving when the password estimator publishes its score.
+            page.wait_for_function("""() => {
+                const a=document.querySelector('[data-password-strength-label]').getBoundingClientRect();
+                const b=document.querySelector('.password-strength-bars').getBoundingClientRect();
+                return a.x<b.x && Math.abs(a.y+a.height/2-b.y-b.height/2)<2;
+            }""")
             # The maintained estimator, not fixed length bands, owns the score.
             password_input=page.locator('#fld-password')
             toggle=page.locator('.password-field:has(#fld-password) [data-password-visibility]')

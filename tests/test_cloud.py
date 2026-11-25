@@ -3085,21 +3085,34 @@ def test_browser_login_password_manager_contract(browser_http):
 def test_native_login_redirect_remember_and_admin_limit(application,monkeypatch):
     from cloud.backend import SESSION_SECONDS,REMEMBER_SESSION_SECONDS
     ordinary=application.test_client()
-    data={'email':'other@example.test','password':'valid-password','remember':'on','return_path':'//evil.test'}
-    response=ordinary.post('/api/login',base_url=BASE,data=data,headers={'Origin':BASE})
+    def csrf(client):
+        html=client.get('/',base_url=BASE)
+        token=re.search(r'<meta name="shursh-login-csrf" content="([A-Za-z0-9_-]{43})">',html.get_data(as_text=True)).group(1)
+        cookie=html.headers.get('Set-Cookie','')
+        assert '__Host-shursh_login_csrf=' in cookie and 'HttpOnly' in cookie and 'Secure' in cookie and 'SameSite=Strict' in cookie
+        return token
+    import re
+    data={'email':'other@example.test','password':'valid-password','remember':'on','return_path':'//evil.test','login_csrf':csrf(ordinary)}
+    response=ordinary.post('/api/login',base_url=BASE,data=data,headers={'Origin':'null'})
     assert response.status_code==303 and response.headers['Location']=='/?shursh_login=ok'
     cookie=response.headers['Set-Cookie']
     assert f'Max-Age={REMEMBER_SESSION_SECONDS}' in cookie and 'HttpOnly' in cookie and 'Secure' in cookie
     assert call(ordinary,'GET','/api/me').json['user']['id']==str(IDS['other@example.test'])
     anonymous=application.test_client()
-    denied=anonymous.post('/api/login',base_url=BASE,data=data,headers={'Origin':'https://evil.test'})
+    denied=anonymous.post('/api/login',base_url=BASE,data=data,headers={'Origin':'null'})
     assert denied.status_code==403
-    invalid=anonymous.post('/api/login',base_url=BASE,data={**data,'password':'wrong-password'},headers={'Origin':BASE})
+    anonymous_data={**data,'login_csrf':csrf(anonymous)}
+    for headers,body in (({'Origin':'https://evil.test'},anonymous_data),
+                         ({'Origin':'null','Sec-Fetch-Site':'cross-site'},anonymous_data),
+                         ({'Origin':'null'},{**anonymous_data,'login_csrf':data['login_csrf']}),
+                         ({'Origin':BASE},{**anonymous_data,'login_csrf':''})):
+        assert anonymous.post('/api/login',base_url=BASE,data=body,headers=headers).status_code==403
+    invalid=anonymous.post('/api/login',base_url=BASE,data={**anonymous_data,'password':'wrong-password'},headers={'Origin':BASE})
     assert invalid.status_code==303 and invalid.headers['Location']=='/?shursh_login=invalid'
     assert 'Set-Cookie' not in invalid.headers
     monkeypatch.setenv('SHURSH_ADMIN_EMAILS','owner@example.test')
     manager=application.test_client()
-    reply=manager.post('/api/login',base_url=BASE,data={**data,'email':'owner@example.test'},headers={'Origin':BASE})
+    reply=manager.post('/api/login',base_url=BASE,data={**data,'email':'owner@example.test','login_csrf':csrf(manager)},headers={'Origin':BASE})
     assert f'Max-Age={SESSION_SECONDS}' in reply.headers['Set-Cookie']
     # Later admin grants cannot silently extend privilege to 30 days.
     with psycopg.connect(os.environ['SHURSH_DATABASE_URL']) as con:

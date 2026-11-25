@@ -4,6 +4,8 @@ _MODULE_IMPORT_STARTED = time.perf_counter()
 import json
 import os
 import re
+import hmac
+import secrets
 import sqlite3
 from flask import g
 from pathlib import Path
@@ -87,9 +89,14 @@ def body_error(_):
 @app.route('/api/<path:route>', methods=['GET','POST','PATCH','PUT','DELETE'])
 def api(route):
     path = '/api/'+route
+    native_login=(path=='/api/login' and request.method=='POST' and
+                  request.mimetype=='application/x-www-form-urlencoded')
     if request.method not in ('GET','HEAD'):
         origin = request.headers.get('Origin')
-        if request.headers.get('Sec-Fetch-Site') == 'cross-site' or (origin and origin not in (f'https://{request.host}',f'http://{request.host}')):
+        # Native form navigation with no-referrer can send an opaque Origin.
+        # Only this one route may accept it, and only with a valid CSRF token.
+        allowed_origins=(f'https://{request.host}',f'http://{request.host}')
+        if request.headers.get('Sec-Fetch-Site') == 'cross-site' or (origin and origin not in allowed_origins and not (native_login and origin=='null')):
             return response({'error':'Запрос из другого источника отклонён'},403)
     # These read-only bootstrap endpoints are safe without a database when no
     # session cookie exists. Avoid a Supavisor round-trip for every anonymous
@@ -99,12 +106,13 @@ def api(route):
             return response({'user': None, 'demo': False})
         if path == '/api/dashboard':
             return response({'user': None, 'demo': False, 'lists': [], 'events': []})
-    native_login=(path=='/api/login' and request.method=='POST' and
-                  request.mimetype=='application/x-www-form-urlencoded')
     if native_login:
-        origin=request.headers.get('Origin')
-        if not origin and request.headers.get('Sec-Fetch-Site')!='same-origin':
-            return response({'error':'Запрос из другого источника отклонён'},403)
+        cookie=request.cookies.get('__Host-shursh_login_csrf','')
+        submitted=request.form.get('login_csrf','')
+        if not (re.fullmatch(r'[A-Za-z0-9_-]{43}',cookie) and
+                re.fullmatch(r'[A-Za-z0-9_-]{43}',submitted) and
+                hmac.compare_digest(cookie,submitted)):
+            return response({'error':'Открой страницу входа заново'},403)
         landing=request.form.get('return_path','/')
         if not re.fullmatch(r'/(?:join/(?:p/)?[A-Za-z0-9_-]{1,128}|w/[A-Za-z0-9_-]{1,128}|p/[A-Za-z0-9_-]{43})?',landing):
             landing='/'
@@ -237,7 +245,18 @@ def frontend(route=''):
         return send_from_directory(ROOT/'public',route)
     # Serve only known app routes; never include the simulator or repository files.
     if route in ('','index.html','lists','santas','friends','profile','notifications','admin','admin/users','admin/feedback') or re.fullmatch(r'(?:list|santa)/[0-9]{1,16}|(?:w|r|join|p)/[A-Za-z0-9_-]{1,128}|join/p/[A-Za-z0-9_-]{43}|users/[0-9a-fA-F-]{36}',route):
-        return send_from_directory(ROOT/'public','index.html')
+        # Reuse the per-browser token across tabs. Never use the session cookie
+        # as a CSRF token. HTML is no-store; the meta value is same-origin only.
+        csrf=request.cookies.get('__Host-shursh_login_csrf','')
+        fresh=not re.fullmatch(r'[A-Za-z0-9_-]{43}',csrf)
+        if fresh:
+            csrf=secrets.token_urlsafe(32)
+        html=(ROOT/'public'/'index.html').read_text(encoding='utf-8')
+        html=html.replace('</head>',f'<meta name="shursh-login-csrf" content="{csrf}"></head>',1)
+        reply=Response(html,mimetype='text/html')
+        if fresh:
+            reply.set_cookie('__Host-shursh_login_csrf',csrf,secure=True,httponly=True,samesite='Strict',path='/')
+        return reply
     return response({'error':'Страница не найдена'},404)
 
 

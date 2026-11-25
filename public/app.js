@@ -1884,7 +1884,8 @@ function loginModal(mode='login',email=''){
  const register=mode==='register';
  // Real touch browsers use a native POST/redirect login. AJAX remains for
  // desktop and preview, where the Credential Management API is available.
- const nativeSubmit=!register&&!isPreview&&matchMedia('(pointer: coarse)').matches;
+ const loginCsrf=document.querySelector('meta[name="shursh-login-csrf"]')?.content||'';
+ const nativeSubmit=!register&&!isPreview&&/^[A-Za-z0-9_-]{43}$/.test(loginCsrf)&&matchMedia('(pointer: coarse)').matches;
  // Registering or logging in directly from a private participant page
  // is an explicit membership recovery action, even via the header.
  const pageToken=!currentUser&&currentPath().match(/^\/p\/([A-Za-z0-9_-]{43})$/)?.[1];
@@ -1894,7 +1895,7 @@ function loginModal(mode='login',email=''){
   content:(register?field('Как тебя зовут?','name','Например, Саша','text','',true,'maxlength="40" autocomplete="name"'):'')+
    field('Почта','email','you@example.com','text',email,true,'inputmode="email" autocomplete="username" autocapitalize="none" spellcheck="false" maxlength="200"')+passwordField(register)+
    (register?confirmPasswordField():shurshCheckbox('remember','Оставаться в аккаунте 30 дней',false))+
-   (nativeSubmit?'<input type="hidden" name="return_path" value="'+attr(currentPath())+'">':'')+authFormWarning(),
+   (nativeSubmit?'<input type="hidden" name="login_csrf" value="'+attr(loginCsrf)+'"><input type="hidden" name="return_path" value="'+attr(currentPath())+'">':'')+authFormWarning(),
   onError:showAuthFormWarning,
   submitLabel:register?'Создать аккаунт':'Войти',
   onSubmit:async form=>{
