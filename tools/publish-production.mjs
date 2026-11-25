@@ -105,7 +105,9 @@ async function smoke(origin,{versioned=true,bypass}={}){
  if(versioned)assert(/^[a-f0-9]{20}$/.test(version),'Missing UI fingerprint');
  const hashes={};
  for(const file of ASSETS){
-   const path='/'+file+(version?'?v='+version:'');
+   // The Flask /ui/<version>/ route bypasses Vercel's public-file
+   // shadowing; older rollback baselines can still use unversioned assets.
+   const path=version?'/ui/'+version+'/'+file:'/'+file;
    const result=await get(path);
    assert(result.status===200&&result.headers.get('content-type')?.includes(file.endsWith('.js')?'javascript':'text/css'),'Asset smoke failed: '+file);
    if(version)assert(html.includes('"'+path+'"')&&result.headers.get('x-shursh-ui-version')===version,'Mixed UI version: '+file);
