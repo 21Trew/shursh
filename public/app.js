@@ -1104,7 +1104,7 @@ async function santaGamePage(id,marker=lastRenderToken,participantToken=null){
  `<form class="form" id="legacy-santa-wish-form"><div class="share-field"><input class="input" name="title" required maxlength="130" placeholder="Название подарка"><button class="btn btn-dark btn-small" type="submit">Добавить ${ico('plus')}</button></div></form><p class="note">Подробные карточки появятся после обновления игры</p>`}</div>
  ${!memberView&&e.status==='open'?`<div class="panel"><h2>Исключения</h2><p class="note">Укажи пары, которые не должны выпадать друг другу. Ограничения работают направленно: «А → Б» означает, что А не может дарить Б</p><div class="rules-list" id="santa-rules-list" style="margin:17px 0">${santaRuleMarkup(d.exclusions,people)}</div><button type="button" class="btn btn-soft btn-small santa-rule-toggle" data-action="toggle-santa-rule-form">${ico('plus')} Добавить ограничение</button><form class="form santa-rule-editor" id="rule-form" hidden><div class="form-grid">${selects('giver_id','Кто дарит')}${selects('receiver_id','Кому нельзя дарить')}</div><div class="btn-row"><button class="btn btn-soft btn-small" type="button" data-action="toggle-santa-rule-form">Отмена</button><button class="btn btn-dark btn-small" type="submit">Сохранить ограничение</button></div></form></div>`:''}
  </div><div><div class="panel"><div class="panel-heading-actions"><h2>О событии</h2></div><div class="details-box santa-event-details"><p>${ico('calendar')} <strong>Дата:</strong> ${memberView?dateRu(e.exchange_date):`<button type="button" class="santa-inline-field santa-inline-value" data-action="edit-santa-date" data-santa-field="exchange_date" aria-label="Изменить дату обмена">${dateRu(e.exchange_date)}</button>`}</p><p>${ico('gift')} <strong>Бюджет:</strong> ${memberView?money(e.budget_cents,e.currency):`<button type="button" class="santa-inline-field santa-inline-value" data-action="edit-santa-budget" data-santa-field="budget" aria-label="Изменить бюджет">${money(e.budget_cents,e.currency)}</button>`}</p><p>${ico('users')} <strong>Участники:</strong> <span data-santa-event-count>${people.length}</span></p>${e.rules?`<div class="divider-line"></div><strong>Правила:</strong><p>${esc(e.rules)}</p>`:''}</div></div>
- ${!memberView&&e.status==='open'?`<div class="panel"><h2>Время раскрыть карты?</h2><p class="note">После жеребьёвки приглашения, состав и исключения будут заморожены. Каждый увидит только своего получателя</p><div class="alert santa-draw-hint"><span class="santa-draw-hint-icon">${ico('info')}</span><span>Понадобится минимум 3 участника. Желательно, чтобы все успели присоединиться</span></div><button class="btn btn-dark" style="width:100%" data-action="draw" ${people.length<3?'disabled':''}>Провести жеребьёвку ${ico('spark')}</button></div>`:`<div class="panel"><h2>Кому ты даришь</h2>${drawPerformed?secretCard(memberView?d.assignment:d.my_assignment,!memberView,memberView?participantToken:id):`<div class="secret-card">${envelopeArt()}<h2>${e.status==='finished'?'Игра завершена без жеребьёвки':'Пока храним интригу'}</h2><p>${e.status==='finished'?'Получатели не назначались':'Организатор ещё собирает всех участников. После жеребьёвки здесь появится конверт с твоим получателем'}</p></div>`}</div>`}
+ ${!memberView&&e.status==='open'?`<div class="panel"><h2>Время раскрыть карты?</h2><p class="note">После жеребьёвки приглашения, состав и исключения будут заморожены. Каждый увидит только своего получателя</p><div class="alert santa-draw-hint"><span class="santa-draw-hint-icon">${ico('info')}</span><span>Понадобится минимум 3 участника. Желательно, чтобы все успели присоединиться</span></div><button class="btn btn-dark" style="width:100%" data-action="draw" ${people.length<3?'disabled':''}>Провести жеребьёвку ${ico('spark')}</button></div>`:`<div class="panel"><h2>Кому ты даришь</h2>${drawPerformed?secretCard(memberView?d.assignment:d.my_assignment):`<div class="secret-card">${envelopeArt()}<h2>${e.status==='finished'?'Игра завершена без жеребьёвки':'Пока храним интригу'}</h2><p>${e.status==='finished'?'Получатели не назначались':'Организатор ещё собирает всех участников. После жеребьёвки здесь появится конверт с твоим получателем'}</p></div>`}</div>`}
  ${memberView&&participantToken&&!d.participant.user_id?`<div class="panel"><h2>Твоя личная ссылка</h2><p class="note">Эта гостевая ссылка даёт доступ к твоей игре без аккаунта. Не пересылай её другим</p>${!d.participant.user_id&&!isPreview?`<div class="game-save-account"><p>Привяжи это гостевое место к своему аккаунту, чтобы больше не пользоваться ссылкой</p><button class="btn btn-dark btn-small" type="button" data-action="claim-game" data-token="${attr(participantToken)}">${ico("check")} Сохранить игру в аккаунте</button></div>`:""}<div class="share-field"><input class="input" readonly value="${attr(getLink(`/p/${participantToken}`))}" aria-label="Личная ссылка"><button class="btn btn-dark btn-small" data-action="copy" data-url="${attr(getLink(`/p/${participantToken}`))}">${ico('copy')} Копировать</button></div></div>`:''}
  </div></div>
  ${d.rich_enabled!==false?`<section class="panel game-chat-panel" id="game-chat" aria-label="Чаты игры">
@@ -1166,7 +1166,7 @@ async function santaGamePage(id,marker=lastRenderToken,participantToken=null){
  });
 }
 async function myWishesForAdmin(id){const res=await api(`/api/santas/${id}/my-wishes`);return wishesMarkup(res.wishes);}
-function secretCard(assignment,organizer,identifier){if(!assignment||!assignment.revealed)return `<div class="secret-card">${envelopeArt()}<h2>Твой получатель ждёт внутри</h2><p>Никто, кроме тебя, не увидит это имя</p><button class="btn btn-dark" data-action="reveal" data-mode="${organizer?'owner':'participant'}" data-key="${attr(identifier)}">Узнать, кому я дарю ${ico('spark')}</button></div>`;
+function secretCard(assignment){if(!assignment||!assignment.revealed)return `<div class="secret-card">${envelopeArt()}<h2>Твой получатель ждёт внутри</h2><p>Никто, кроме тебя, не увидит это имя</p><button class="btn btn-dark" type="button" data-action="reveal">Узнать, кому я дарю ${ico('spark')}</button></div>`;
  return `<div class="secret-card revealed"><div class="recipient-summary">${ico('check')}<div><div class="recipient-eyebrow">Твой получатель</div><div class="recipient">${esc(assignment.receiver_name)}</div>${assignment.receiver_user_id?`<button class="text-link recipient-profile-link" data-nav="/users/${attr(assignment.receiver_user_id)}">Профиль получателя ${ico('arrow')}</button>`:""}</div></div><div class="recipient-wishes">
   ${preferenceSummary(assignment.preferences)}
   <strong>Подарки получателя</strong>${assignment.wish_cards?.length?wishesMarkup(assignment.wish_cards,'recipient'):'<p class="recipient-empty">Пока без пожеланий - можно придумать сюрприз самому</p>'}</div></div>`;}
@@ -1822,6 +1822,13 @@ function setupAuthFormValidation(form,register){
   if(register&&form.elements.name)form.elements.name.value=form.elements.name.value.trim();
  },true);
 }
+// Let the browser's own password manager offer to save successful sign-ins.
+ // Never persist credentials in app storage; unsupported or rejected requests
+ // must not affect authentication or navigation.
+function offerLoginCredential(email,password){
+ if(isPreview||!window.isSecureContext||typeof window.PasswordCredential!=='function'||typeof navigator.credentials?.store!=='function')return;
+ try{void navigator.credentials.store(new window.PasswordCredential({id:email,password})).catch(()=>{});}catch{}
+}
 async function authSuccess(result,register){
  currentUser=result.user;broadcastSessionChange();
  if(pendingGameClaim){
@@ -1843,7 +1850,7 @@ function loginModal(mode='login',email=''){
  modal({authScreen:register?'register':'login',title:register?'Давай знакомиться!':'С возвращением!',
   subtitle:pendingGameClaim?'После входа сохраним эту игру в твоём аккаунте':register?'Создай аккаунт, чтобы хранить свои списки и организовывать игры':'Твои желания уже соскучились',
   content:(register?field('Как тебя зовут?','name','Например, Саша','text','',true,'maxlength="40" autocomplete="name"'):'')+
-   field('Почта','email','you@example.com','text',email,true,'inputmode="email" autocomplete="email" autocapitalize="none" spellcheck="false" maxlength="200"')+passwordField(register)+
+   field('Почта','email','you@example.com','text',email,true,'inputmode="email" autocomplete="username" autocapitalize="none" spellcheck="false" maxlength="200"')+passwordField(register)+
    (register?confirmPasswordField():'')+authFormWarning(),
   onError:showAuthFormWarning,
   submitLabel:register?'Создать аккаунт':'Войти',
@@ -1853,6 +1860,7 @@ function loginModal(mode='login',email=''){
    delete payload.confirm_password;
    const result=await api(register?'/api/register':'/api/login',{method:'POST',body:payload});
    if(result.pending_confirmation){if(register)persistSignupClaim();if(form.isConnected)confirmationModal(payload.email);return;}
+   if(!register&&result.user)offerLoginCredential(payload.email,payload.password);
    await authSuccess(result,register);
   },
   footer:(register?'Уже есть аккаунт?':'Нет аккаунта?')+
@@ -1860,7 +1868,13 @@ function loginModal(mode='login',email=''){
    (!register?'<span> · </span><button type="button" data-open="resend">Не пришло подтверждение?</button>':'')+
    (!register&&isDemo?'<p style="margin-top:12px"><button type="button" data-action="demo-login">Войти в демонстрационный аккаунт →</button></p>':'')
  });
- setupAuthFormValidation(modalRoot.querySelector('#modal-form'),register);
+ const form=modalRoot.querySelector('#modal-form');
+ if(form){
+  form.setAttribute('method','post');
+  form.setAttribute('action',register?'/api/register':'/api/login');
+  form.setAttribute('autocomplete','on');
+ }
+ setupAuthFormValidation(form,register);
 }
 function listModal(edit=null){if(!currentUser){loginModal('register');return;}
  const selected=edit||{};modal({title:edit?'Настройки вишлиста':'Новый вишлист',subtitle:edit?'Меняй оформление и доступ, когда захочешь':'Как назовём твою маленькую коллекцию желаний?',content:`${field('Название','title','Например, День рождения, ура!','text',selected.title||'',true,'maxlength="90"')}${textArea('Пара слов о списке','description','Что важно знать дарителям?',selected.description||'')}<div class="form-grid">${selectField('Повод','occasion',['Просто так','День рождения','Годовщина','Новоселье','Свадьба','Новый год','Другое'].map(v=>[v,v]),selected.occasion||'День рождения')}${selectField('Оформление','theme',[['peach','🟠 Персиковое'],['lilac','🟣 Лавандовое'],['mint','🟢 Мятное'],['yellow','🟡 Солнечное']],selected.theme||'peach')}</div>${selectField('Доступ к списку','visibility',[['link','По ссылке'],['private','Только мне']],selected.visibility||'link')}`,submitLabel:edit?'Сохранить':'Создать список',onSubmit:async form=>{const payload=readForm(form);if(edit){await api(`/api/lists/${edit.id}`,{method:'PATCH',body:payload});notice('Настройки сохранены');await render();}else{const r=await api('/api/lists',{method:'POST',body:payload});notice('Список создан!');nav(`/list/${r.id}`);}}});}
@@ -2093,7 +2107,16 @@ async function dispatch(action,el){try{
  if(action==='remove-player')confirmAction('Убрать участника?','Его приватная ссылка перестанет работать, и он не будет участвовать в жеребьёвке',async()=>{await api(`/api/santas/${loadedSanta.event.id}/participants/${el.dataset.id}`,{method:'DELETE'});notice('Участник удалён');await render();});
  if(action==='remove-rule'){await api(`/api/santas/${loadedSanta.event.id}/exclusions/${el.dataset.from}/${el.dataset.to}`,{method:'DELETE'});loadedSanta.exclusions=loadedSanta.exclusions.filter(r=>r.giver_id!==Number(el.dataset.from)||r.receiver_id!==Number(el.dataset.to));refreshSantaRules();notice('Ограничение снято');return;}
  if(action==='draw')modal({title:'Провести жеребьёвку?',subtitle:'После этого изменить участников и исключения уже нельзя. Имена распределятся случайно и останутся в секрете',content:`<div class="alert">Сейчас участвуют: ${loadedSanta.participants.map(p=>esc(p.name)).join(', ')}.</div>`,submitLabel:'Провести жеребьёвку',onSubmit:async()=>{await api(`/api/santas/${loadedSanta.event.id}/draw`,{method:'POST',body:{}});notice('Готово! Все подарки нашли своего дарителя');await render();}});
- if(action==='reveal'){const path=el.dataset.mode==='owner'?`/api/santas/${el.dataset.key}/reveal`:`/api/participant/${el.dataset.key}/reveal`;await api(path,{method:'POST',body:{}});notice('Секрет раскрыт!');await render();}
+ if(action==='reveal'){
+  const state=activeGameContext;
+  if(!state?.base||el.disabled||!el.isConnected)return;
+  el.disabled=true;
+  try{
+   await api(state.base+'/reveal',{method:'POST',body:{}});
+   if(activeGameContext===state){notice('Секрет раскрыт!');await render();}
+  }finally{if(el.isConnected)el.disabled=false;}
+  return;
+ }
  }catch(err){notice(err.message,true)}}
 // Invalidate sensitive owner RAM cache across browser tabs after sign-in/out.
 const sessionChannel=(!isPreview&&'BroadcastChannel' in window)?

@@ -2949,3 +2949,98 @@ def test_admin_last_visit_across_devices(application,monkeypatch):
     with psycopg.connect(os.environ['SHURSH_DATABASE_URL']) as con:
         for role in ('anon','authenticated'):
             assert not con.execute("SELECT has_table_privilege(%s,'public.admin_user_activity','SELECT')",(role,)).fetchone()[0]
+
+
+@pytest.mark.browser
+def test_browser_reveal_for_account_member_owner_and_guest(browser_http,application):
+    """All three access modes reveal only their existing assigned recipient."""
+    from playwright.sync_api import sync_playwright,expect
+    owner=login(application)
+    member=login(application,'other@example.test')
+    eid=call(owner,'POST','/api/santas',{'title':'Reveal regression '+uuid4().hex[:8]},201).json['id']
+    key=call(owner,'GET',f'/api/santas/{eid}').json['event']['invite_key']
+    call(member,'POST',f'/api/invites/{key}/join',{'name':'Member'},201)
+    token=call(owner,'POST',f'/api/santas/{eid}/participants',{'name':'Guest'},201).json['participant_token']
+    call(owner,'POST',f'/api/santas/{eid}/draw',{})
+    owner_path=f'/api/santas/{eid}'
+    member_path=f'/api/member/{eid}'
+    guest_path=f'/api/participant/{token}'
+    assert call(owner,'GET',owner_path).json['my_assignment']=={'revealed':False}
+    assert call(member,'GET',member_path).json['assignment']=={'revealed':False}
+    call(member,'POST',owner_path+'/reveal',{},404)
+    call(application.test_client(),'POST',member_path+'/reveal',{},401)
+    with sync_playwright() as play:
+        browser=play.chromium.launch(headless=True,args=['--no-sandbox'])
+        try:
+            for email,route,endpoint in (
+                ('other@example.test',f'/santa/{eid}',member_path),
+                ('owner@example.test',f'/santa/{eid}',owner_path),
+                (None,f'/p/{token}',guest_path)):
+                context=browser.new_context(viewport={'width':390,'height':844})
+                page=context.new_page()
+                if email:
+                    page.goto(browser_http+'/')
+                    browser_login(page,email)
+                page.goto(browser_http+route)
+                button=page.locator('button[data-action="reveal"]')
+                expect(button).to_be_visible()
+                expect(page.locator('.secret-card .recipient')).to_have_count(0)
+                requests=[]
+                page.on('request',lambda req: requests.append(req.url.rsplit('/reveal',1)[0]==browser_http+endpoint)
+                        if req.method=='POST' and req.url.endswith('/reveal') else None)
+                with page.expect_response(lambda res: res.url==browser_http+endpoint+'/reveal' and res.request.method=='POST') as pending:
+                    button.click()
+                assert pending.value.status==200
+                assigned=pending.value.json()['assignment']
+                assert assigned['revealed'] is True
+                expect(page.locator('.secret-card .recipient')).to_have_text(assigned['receiver_name'])
+                assert requests==[True]
+                page.reload()
+                expect(page.locator('.secret-card .recipient')).to_have_text(assigned['receiver_name'])
+                context.close()
+                if email=='other@example.test':
+                    assert call(owner,'GET',owner_path).json['my_assignment']=={'revealed':False}
+                    assert call(application.test_client(),'GET',guest_path).json['assignment']=={'revealed':False}
+        finally:
+            browser.close()
+
+
+@pytest.mark.browser
+def test_browser_login_password_manager_contract(browser_http):
+    """Correct autofill semantics, store only successful credentials, tolerate refusal."""
+    from playwright.sync_api import sync_playwright,expect
+    with sync_playwright() as play:
+        browser=play.chromium.launch(headless=True,args=['--no-sandbox'])
+        try:
+            page=browser.new_page(viewport={'width':390,'height':844})
+            page.add_init_script("""() => {
+              window.__credentialCalls=[];
+              Object.defineProperty(window,'PasswordCredential',{configurable:true,value:class {
+                constructor(data){this.id=data.id;this.password=data.password;}
+              }});
+              Object.defineProperty(navigator.credentials,'store',{configurable:true,value:credential=>{
+                window.__credentialCalls.push(credential.id==='owner@example.test'&&credential.password==='valid-password');
+                return Promise.reject(new Error('Password saving declined'));
+              }});
+            }""")
+            page.goto(browser_http+'/')
+            page.locator('header [data-open="login"]').click()
+            expect(page.locator('#modal-form')).to_have_attribute('method','post')
+            expect(page.locator('#modal-form')).to_have_attribute('action','/api/login')
+            expect(page.locator('#modal-form')).to_have_attribute('autocomplete','on')
+            expect(page.locator('#fld-email')).to_have_attribute('autocomplete','username')
+            expect(page.locator('#fld-password')).to_have_attribute('autocomplete','current-password')
+            page.locator('#fld-email').fill('owner@example.test')
+            page.locator('#fld-password').fill('wrong-password')
+            page.locator('.modal-fixed-footer [type=submit]').click()
+            expect(page.locator('.auth-form-warning')).to_be_visible()
+            assert page.evaluate('window.__credentialCalls')==[]
+            page.locator('#fld-password').fill('valid-password')
+            page.locator('.modal-fixed-footer [type=submit]').click()
+            expect(page.locator('.dashboard-page h1')).to_contain_text('Owner')
+            assert page.evaluate('window.__credentialCalls')==[True]
+            assert page.evaluate("""() => ![...Object.values(localStorage),...Object.values(sessionStorage)].some(v=>v.includes('valid-password'))""")
+            page.reload()
+            expect(page.locator('.dashboard-page h1')).to_contain_text('Owner')
+        finally:
+            browser.close()
