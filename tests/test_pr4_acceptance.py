@@ -1954,3 +1954,143 @@ def test_chat_marker_exclusive_across_resolutions_and_pointer_types(browser_http
                         context.close()
             finally:
                 browser.close()
+
+
+@pytest.mark.browser
+def test_navigation_filter_markers_focus_and_noop_mutations(browser_https,application):
+    """Real local UI, computed brushes, responsive geometry and DOM no-op."""
+    from uuid import uuid4
+    from test_cloud import login, call
+    owner=login(application)
+    suffix=uuid4().hex[:8]
+    for category in ('День рождения','Новый год'):
+        call(owner,'POST','/api/lists',{'title':'Audit '+category+' '+suffix,
+             'occasion':category,'visibility':'private'},201)
+    eid=call(owner,'POST','/api/santas',{'title':'Navigation audit '+suffix},201).json['id']
+    widths=(320,375,390,430,760,761,768,1024,1440)
+    groups=('.wishlist-view-tabs','.wishlist-filters','.santa-state-tabs','.notification-tabs')
+    out=OUTPUT/'navigation-selection'
+    out.mkdir(parents=True,exist_ok=True)
+    visible="""({selector,attribute})=>{
+      const elements=[...document.querySelectorAll(selector)];
+      const selected=elements.filter(e=>attribute==='aria-current'?e.hasAttribute(attribute):e.getAttribute(attribute)==='true');
+      return elements.length>0&&selected.length===1&&elements.every(e=>{
+        const style=getComputedStyle(e,'::before');
+        return selected.includes(e)?style.content!=='none'&&Number(style.opacity)>=.9:
+          style.content==='none'&&Number(style.opacity)===0&&style.animationName==='none';
+      });
+    }"""
+    noop="""el=>{
+      const root=el.closest('main,.notification-dialog');
+      const observer=new MutationObserver(()=>{});
+      observer.observe(root,{subtree:true,attributes:true,childList:true,characterData:true});
+      el.click();
+      const records=observer.takeRecords();observer.disconnect();
+      return records.length;
+    }"""
+    with sync_playwright() as play:
+        for engine in ('chromium','webkit'):
+            browser=getattr(play,engine).launch(headless=True)
+            try:
+                for touch in (False,True):
+                    ctx=browser.new_context(viewport={'width':390,'height':844},
+                        is_mobile=touch,has_touch=touch,ignore_https_errors=True,
+                        reduced_motion='reduce')
+                    try:
+                        page=ctx.new_page()
+                        page.goto(browser_https+'/')
+                        browser_login(page)
+                        def assert_group(selector,attribute):
+                            page.wait_for_function(visible,arg={'selector':selector,'attribute':attribute})
+                        def exercise(selector,attribute,indices=None):
+                            buttons=page.locator(selector)
+                            count=buttons.count()
+                            assert count>=2
+                            for i in (indices if indices is not None else range(count)):
+                                b=buttons.nth(i)
+                                if not touch:
+                                    b.hover()
+                                    assert_group(selector,attribute)
+                                if touch:b.tap()
+                                else:b.click()
+                                expect(b).to_have_attribute(attribute,'true')
+                                if selector=='.wishlist-view-tabs button':
+                                    expect(page.locator('#wishlist-view-content')).not_to_contain_text('Загружаем вишлисты друзей…')
+                                assert_group(selector,attribute)
+                                assert b.evaluate(noop)==0, (engine,touch,selector,i)
+                            if attribute=='aria-selected':
+                                selected=page.locator(selector+'[aria-selected="true"]')
+                                assert selected.get_attribute('tabindex')=='0'
+                                selected.focus()
+                                selected.press('Home')
+                                expect(buttons.first).to_be_focused()
+                                expect(buttons.first).to_have_attribute('aria-selected','true')
+                                selected=buttons.first
+                                selected.press('End')
+                                expect(buttons.last).to_be_focused()
+                                expect(buttons.last).to_have_attribute('aria-selected','true')
+                                assert buttons.last.evaluate("""e=>getComputedStyle(e).outlineStyle!=='none'""")
+                                buttons.last.press('ArrowRight')
+                                expect(buttons.first).to_have_attribute('aria-selected','true')
+                                assert_group(selector,attribute)
+                        # Warm navigation must retain the existing header and
+                        # previously rendered owner views. No new page request.
+                        page.evaluate("nav('/lists')")
+                        expect(page.locator('.wishlists-page')).to_be_visible()
+                        page.evaluate("window.__auditHeader=document.querySelector('header');window.__auditLists=document.querySelector('main')")
+                        page.evaluate("nav('/santas')")
+                        expect(page.locator('.santa-state-tabs')).to_be_visible()
+                        page.evaluate("nav('/lists')")
+                        assert page.evaluate("window.__auditHeader===document.querySelector('header')&&window.__auditLists===document.querySelector('main')")
+                        for width in widths:
+                            page.set_viewport_size({'width':width,'height':844})
+                            page.evaluate("window.scrollTo({top:0,behavior:'instant'})")
+                            expect(page.locator('header .nav')).to_be_visible()
+                            assert_group('header .nav a','aria-current')
+                            inactive=page.locator('header .nav a:not([aria-current])').first
+                            inactive.focus()
+                            assert_group('header .nav a','aria-current')
+                            if not touch:inactive.hover()
+                            assert_group('header .nav a','aria-current')
+                            expect(page.locator('header .nav a[data-nav="/lists"]')).to_have_attribute('aria-current','page')
+                            # Switch local filters: existing cards remain mounted.
+                            filters='.wishlist-filters button'
+                            all_filter=page.locator(filters).filter(has_text=re.compile('^Все$'))
+                            all_filter.click()
+                            page.evaluate("window.__auditCards=[...document.querySelectorAll('[data-occasion]')]")
+                            exercise(filters,'aria-pressed',[1,0])
+                            assert page.evaluate("window.__auditCards.every((node,i)=>node===document.querySelectorAll('[data-occasion]')[i])")
+                            assert page.locator('[data-occasion][hidden]').count()==0
+                            assert page.evaluate("document.documentElement.scrollWidth<=innerWidth+2")
+                            if width in (375,1440):
+                                page.locator('.wishlist-filters').screenshot(path=str(out/f'{engine}-{touch}-{width}-filters.png'),animations='disabled')
+                            exercise('.wishlist-view-tabs button','aria-selected',[1,0])
+                            expect(page.locator('#wishlist-view-content')).to_have_attribute('aria-labelledby','wishlist-tab-mine')
+                            page.evaluate("nav('/santas')")
+                            expect(page.locator('.santa-state-tabs')).to_be_visible()
+                            exercise('.santa-state-tabs button','aria-selected',[1,0])
+                            expect(page.locator('#santa-state-panel')).to_have_attribute('aria-labelledby','santa-tab-current')
+                            expect(page.locator('[data-santa-card-state="finished"]:not([hidden])')).to_have_count(0)
+                            page.evaluate("nav('/lists')")
+                            expect(page.locator('.wishlist-view-tabs')).to_be_visible()
+                        page.evaluate("id=>nav('/santa/'+id)",eid)
+                        expect(page.locator('#game-chat')).to_be_visible()
+                        expect(page.locator('header .nav a[data-nav="/santas"]')).to_have_attribute('aria-current','location')
+                        page.go_back()
+                        expect(page.locator('.wishlist-view-tabs')).to_be_visible()
+                        expect(page.locator('header .nav a[data-nav="/lists"]')).to_have_attribute('aria-current','page')
+                        bell=page.locator('header .header-bell')
+                        bell.click()
+                        expect(page.locator('.notification-dialog')).to_be_visible()
+                        expect(bell).to_have_attribute('aria-expanded','true')
+                        for width in widths:
+                            page.set_viewport_size({'width':width,'height':844})
+                            exercise('.notification-tabs button','aria-selected',[1,2,3,0])
+                            assert page.locator('.notification-tabs').evaluate('e=>e.getBoundingClientRect().width<=innerWidth+1')
+                        page.keyboard.press('Escape')
+                        expect(bell).to_have_attribute('aria-expanded','false')
+                        expect(bell).to_be_focused()
+                    finally:
+                        ctx.close()
+            finally:
+                browser.close()

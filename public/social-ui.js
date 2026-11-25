@@ -221,7 +221,9 @@ async function socialNotificationsModal(){
   tabs.map(([id,label])=>'<button type="button" role="tab" data-notification-tab="'+id+'" id="notification-tab-'+id+'" aria-controls="notification-modal-list" tabindex="'+(id==='new'?'0':'-1')+'" aria-selected="'+(id==='new'?'true':'false')+'" class="'+(id==='new'?'active':'')+'">'+label+'</button>').join('')+
   '</div><button type="button" class="notification-read-all" data-social-action="read-all-notifications" aria-label="Прочесть все" title="Прочесть все">'+ico('check')+'</button></div>'+
   '<div id="notification-modal-list" role="tabpanel" aria-labelledby="notification-tab-new" aria-live="polite"></div></div>'});
- const anchor=document.querySelector('header .header-bell')?.getBoundingClientRect();
+ const bell=document.querySelector('header .header-bell');
+ if(bell)setAttrIfChanged(bell,'aria-expanded','true');
+ const anchor=bell?.getBoundingClientRect();
  const overlay=modalRoot.querySelector('.modal-backdrop');
  if(overlay&&anchor){
   overlay.classList.add('notification-popover');
