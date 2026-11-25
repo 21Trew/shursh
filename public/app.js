@@ -96,6 +96,7 @@ function nav(path,{force=false}={}){
 const ownerDataCache=new Map();
 const OWNER_DATA_LIMIT=32;
 const OWNER_DETAIL_RETENTION=10*60*1000;
+const OWNER_DETAIL_BYTES=8*1024*1024;
 const ownerPending=new Map();
 let ownerSessionEpoch=0;
 function ownerPinned(path){return !/^\/api\/(?:lists|santas)\/\d+$/.test(path);}
@@ -103,10 +104,11 @@ function pruneOwnerData(){
  const now=Date.now();
  for(const [key,entry] of ownerDataCache)
   if(!ownerPinned(key)&&!entry.promise&&entry.retainUntil<=now)ownerDataCache.delete(key);
- while(ownerDataCache.size>OWNER_DATA_LIMIT){
+ let detailBytes=[...ownerDataCache].reduce((sum,[key,entry])=>sum+(ownerPinned(key)?0:entry.bytes||0),0);
+ while(ownerDataCache.size>OWNER_DATA_LIMIT||detailBytes>OWNER_DETAIL_BYTES){
   const key=[...ownerDataCache.keys()].find(key=>!ownerPinned(key));
   if(!key)break;
-  ownerDataCache.delete(key);
+  detailBytes-=ownerDataCache.get(key)?.bytes||0;ownerDataCache.delete(key);
  }
 }
 function ownerEntry(path){
@@ -117,7 +119,7 @@ function ownerEntry(path){
 }
 function putOwnerEntry(path,entry){
  ownerDataCache.delete(path);
- ownerDataCache.set(path,{...entry,retainUntil:Date.now()+OWNER_DETAIL_RETENTION});
+ ownerDataCache.set(path,{...entry,bytes:ownerPinned(path)?0:JSON.stringify(entry.value).length*2,retainUntil:Date.now()+OWNER_DETAIL_RETENTION});
  pruneOwnerData();
  return ownerDataCache.get(path);
 }
@@ -136,7 +138,7 @@ function clearOwnerDataCache(){
  ownerCacheVersion++;ownerSessionEpoch++;ownerDataCache.clear();clearOwnerTabViews();ownerRevalidating.clear();ownerPending.clear();renderedOwnerTab=null;wishlistTabGeneration++;
  ownerWarmupIdentity=null;ownerWarmupReady=false;ownerWarmupPromise=null;
  currentOwnedWishlists=[];loadedList=null;loadedSanta=null;activeGameContext=null;
- if(typeof notificationModalItems!=='undefined')notificationModalItems=[];
+ if(typeof notificationModalItems!=='undefined'){notificationModalItems=[];notificationModalMore=false;notificationModalUnread=0;}
  stopGameLifecycle();
 }
 function invalidateOwnerDataForMutation(path){
@@ -247,6 +249,10 @@ function updateOwnerView(path,value){
  const tab=path==='/api/friends/wishlists'?'/lists':['/','/lists','/santas','/friends','/profile','/notifications'].find(t=>ownerApiForTab(t)===path);
  if(!tab)return;
  const root=renderedOwnerTab===tab&&currentPath()===tab?app.querySelector('#page-view > main'):ownerTabViews.get(tab)?.node;
+ if(path==='/api/notifications'){
+  const amount=Number(value.unread||0),label=amount?String(Math.min(99,amount)):'';
+  for(const el of document.querySelectorAll('[data-notification-count]')){if(el.textContent!==label)el.textContent=label;if(el.hidden!==!amount)el.hidden=!amount;}
+ }
  if(path==='/api/notifications'&&modalRoot.querySelector('.notification-dialog')){
   const recent=value.items||[];
   const oldest=recent.at(-1)?.id??0;
@@ -257,6 +263,18 @@ function updateOwnerView(path,value){
  }
  if(tab==='/lists'&&path==='/api/lists')currentOwnedWishlists=value.lists||[];
  if(!root)return;
+ if(tab==='/notifications'){
+  const history=root.querySelector('[data-notification-history]'),recent=root.querySelector('[data-notification-recent]');
+  const pagination=root.querySelector('[data-notification-pagination]');
+  if(history&&recent&&pagination?.dataset.loaded){
+   const ids=new Set((value.items||[]).map(n=>String(n.id)));
+   const boundary=value.items?.at(-1)?.id??0;
+   // Keep rows that slid out of the recent window, but never duplicate rows
+   // that returned to the recent window. Preserve explicitly loaded history.
+   for(const n of [...history.querySelectorAll('[data-notification-id]')])if(ids.has(n.dataset.notificationId))n.remove();
+   for(const n of [...recent.querySelectorAll('[data-notification-id]')].reverse())if(!ids.has(n.dataset.notificationId)&&Number(n.dataset.notificationId)<boundary)history.prepend(n);
+  }
+ }
  if(tab==='/lists'){
   const mode=root.querySelector('[data-wishlist-view][aria-selected="true"]')?.dataset.wishlistView;
   if(mode===(path==='/api/lists'?'mine':'friends'))refreshOwnerWishlistPanel(root,value.lists||[],mode);
@@ -1269,6 +1287,7 @@ let gameLifecycleCleanup=[];
 function stopGameLifecycle(){
  clearTimeout(gameChatTimer);clearTimeout(gameRosterTimer);gameChatTimer=null;gameRosterTimer=null;
  for(const cleanup of gameLifecycleCleanup.splice(0))cleanup();
+ if(typeof disposeGameGiftOverflow==='function')disposeGameGiftOverflow();
 }
 // Standardise every browser image upload to WebP before it reaches the API.
 async function compressToWebp(file,{maxDimension=1280,maxBytes=800000,maxSourceBytes=12000000}={}){
