@@ -259,6 +259,7 @@ def handle(handler, method, path, con):
         enabled=referrals.ready(con)
         full=("CASE WHEN p.show_full_name THEN concat_ws(' ',nullif(p.last_name,''),p.name,nullif(p.patronymic,'')) ELSE p.name END"
               if enabled else 'p.name')
+        full_alt=("CASE WHEN p.show_full_name THEN concat_ws(' ',p.name,nullif(p.last_name,''),nullif(p.patronymic,'')) ELSE p.name END" if enabled else 'p.name')
         cols=("CASE WHEN p.show_full_name THEN p.last_name ELSE '' END AS last_name,"
               "CASE WHEN p.show_full_name THEN p.patronymic ELSE '' END AS patronymic," if enabled else '')
         base="""SELECT p.id,p.name,p.handle,p.avatar_emoji,"""+cols+"""
@@ -272,10 +273,10 @@ def handle(handler, method, path, con):
         if exact:
             rows=con.execute(base+'lower(p.handle)=? LIMIT 1',(uid,uid,uid,uid,term))
         else:
-            rows=con.execute(base+'('+full+" ILIKE ? ESCAPE '!' OR p.name ILIKE ? ESCAPE '!' OR p.handle ILIKE ? ESCAPE '!') "
-                +'ORDER BY CASE WHEN lower(p.handle)=? THEN 0 WHEN lower('+full+')=? OR lower(p.name)=? THEN 1 '
+            rows=con.execute(base+'('+full+" ILIKE ? ESCAPE '!' OR "+full_alt+" ILIKE ? ESCAPE '!' OR p.name ILIKE ? ESCAPE '!' OR p.handle ILIKE ? ESCAPE '!') "
+                +'ORDER BY CASE WHEN lower(p.handle)=? THEN 0 WHEN lower('+full+')=? OR lower('+full_alt+')=? OR lower(p.name)=? THEN 1 '
                 + "WHEN "+full+" ILIKE ? ESCAPE '!' OR p.name ILIKE ? ESCAPE '!' THEN 2 ELSE 3 END,lower(p.name),p.id LIMIT 20",
-                (uid,uid,uid,uid,'%'+escaped+'%','%'+escaped+'%','%'+escaped+'%',term,term,term,escaped+'%',escaped+'%'))
+                (uid,uid,uid,uid,*(['%'+escaped+'%']*4),term,term,term,term,escaped+'%',escaped+'%'))
         return 200,{'users':[dict(p) for p in rows]},None
 
     match=re.fullmatch(r'/api/users/([0-9a-fA-F-]{36})',path)

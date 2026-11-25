@@ -2502,7 +2502,7 @@ def test_friends_exact_search_and_qr_invite(browser_https,application,engine):
             browser=getattr(play,engine).launch(headless=True)
             try:
                 ctx=browser.new_context(ignore_https_errors=True,viewport={'width':390,'height':844})
-                page=ctx.new_page();page.goto(browser_https+'/');browser_login(page)
+                page=ctx.new_page();page.goto(browser_https+'/');browser_login(page,landing='identity')
                 page.evaluate("nav('/friends')")
                 search=page.locator('#social-search-form input[name=q]')
                 search.fill('@qr_other');page.locator('#social-search-form button').click()
@@ -2526,7 +2526,7 @@ def test_friends_exact_search_and_qr_invite(browser_https,application,engine):
                 guest.goto(url)
                 expect(guest.get_by_text('Александр приглашает тебя в Шурш!',exact=True)).to_be_visible()
                 expect(guest.get_by_role('button',name='Создать аккаунт',exact=True)).to_be_visible()
-                browser_login(guest,'other@example.test')
+                browser_login(guest,'other@example.test',landing='friend_invite')
                 expect(guest.get_by_role('button',name='Принять заявку',exact=True)).to_be_visible()
                 guest.get_by_role('button',name='Принять заявку',exact=True).click()
                 expect(guest.get_by_text('Вы уже друзья',exact=True)).to_be_visible()

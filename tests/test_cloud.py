@@ -690,6 +690,10 @@ def browser_login(page, email='owner@example.test', landing='dashboard'):
         f'Server-Timing: {response.headers.get("server-timing", "missing")}')
     if landing=='invite':
         expect(page.locator('#join-form')).to_be_visible(timeout=15000)
+    elif landing=='friend_invite':
+        expect(page.locator('[data-social-action="invite-add"]')).to_be_visible(timeout=15000)
+    elif landing=='identity':
+        expect(page.locator('.dashboard-page')).to_be_visible(timeout=15000)
     else:
         expect(page.locator('.dashboard-page h1')).to_contain_text(
             'Owner' if email.startswith('owner') else 'Other', timeout=15000)
@@ -3367,6 +3371,7 @@ def test_friend_invites_search_full_names_privacy_and_qr(application):
         call(a,'PATCH','/api/profile/me',{'show_full_name':True})
         match=call(b,'GET','/api/users/search?q=Иванов').json['users']
         assert match[0]['last_name']=='Иванов' and match[0]['patronymic']=='Петрович'
+        assert call(b,'GET','/api/users/search?q=Александр%20Иванов').json['users'][0]['id']==aid
         invite=call(a,'POST','/api/friend-invites/me',{}).json
         assert call(a,'POST','/api/friend-invites/me',{}).json==invite
         code=invite['path'].split('/')[-1]
