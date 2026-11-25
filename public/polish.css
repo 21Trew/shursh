@@ -570,6 +570,7 @@
 .admin-users-table{width:100%;min-width:830px;border-collapse:collapse;text-align:left;font-size:13px}
 .admin-users-table th{background:#f4efe8;color:#625c57;text-transform:uppercase;letter-spacing:.035em;font-size:10px}
 .admin-users-table th,.admin-users-table td{padding:13px 12px;border-bottom:1px solid var(--border);vertical-align:middle}
+.admin-users-table tbody tr:nth-child(even){background:#f6f2eb}
 .admin-users-table tr:last-child td{border-bottom:0}
 .admin-users-table th:first-child,.admin-users-table td:first-child{padding-left:16px}
 .admin-user-identity{display:flex;align-items:center;gap:9px;min-width:145px}

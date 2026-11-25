@@ -2564,11 +2564,12 @@ def test_social_meta_profile_and_legacy_link_ux_static(application):
 
 
 @pytest.mark.browser
-def test_browser_ux_fixes_avatar_gift_placeholder_and_admin_directory(browser_http,monkeypatch):
+def test_browser_ux_fixes_avatar_gift_placeholder_and_admin_directory(browser_http,monkeypatch,application):
     """Real Chromium interaction for the new avatar picker, Santa fallback and admin table."""
     from playwright.sync_api import sync_playwright,expect
     from uuid import uuid4
     monkeypatch.setenv('SHURSH_ADMIN_EMAILS','owner@example.test')
+    login(application,'other@example.test')
     with sync_playwright() as play:
         browser=play.chromium.launch(headless=True,args=['--no-sandbox'])
         try:
@@ -2652,6 +2653,12 @@ def test_browser_ux_fixes_avatar_gift_placeholder_and_admin_directory(browser_ht
             expect(page.locator('.admin-users-panel .panel-heading-actions .chip')).to_have_count(0)
             expect(page.locator('.admin-users-table th')).to_have_text(['Игрок','Ник','Регистрация','Последний визит','Вишлисты','Свои Санты','Участие','В поиске'])
             expect(page.locator('.admin-users-table tbody tr').filter(has_text='Owner')).to_contain_text('Linux')
+            # Stripe only the body, preserve the header and existing table layout.
+            rows=page.locator('.admin-users-table tbody tr')
+            assert rows.count()>=2
+            assert rows.nth(1).evaluate("r=>getComputedStyle(r).backgroundColor")=='rgb(246, 242, 235)'
+            assert rows.nth(0).evaluate("r=>getComputedStyle(r).backgroundColor")!='rgb(246, 242, 235)'
+            assert page.locator('.admin-users-table th').first.evaluate("r=>getComputedStyle(r).backgroundColor")=='rgb(244, 239, 232)'
             page.locator('#admin-users-query').fill('owner')
             assert page.locator('#admin-users-search button[type="submit"]').count()==0
             expect(page.locator('.admin-users-table tbody')).to_contain_text('Owner',timeout=10000)
