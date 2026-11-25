@@ -612,7 +612,11 @@ def test_webkit_mobile_six_tabs_and_create_flows(browser_https):
                     (urlsplit(response.url).path, response.status)
                 ) if urlsplit(response.url).path.startswith("/api/") else None)
                 page.goto(browser_https+"/",wait_until="domcontentloaded")
+                login_requests=[]
+                page.on("request",lambda req: login_requests.append((req.is_navigation_request(),req.headers.get("content-type","")))
+                        if urlsplit(req.url).path=="/api/login" and req.method=="POST" else None)
                 browser_login(page)
+                assert len(login_requests)==1 and login_requests[0][0] and login_requests[0][1].startswith("application/x-www-form-urlencoded"), login_requests
                 # Verify browser accepted the Production-like Secure session cookie.
                 assert any(c["name"]=="shursh_sid" and c["secure"]
                            for c in context.cookies()), "WebKit HTTPS session cookie missing"

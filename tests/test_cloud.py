@@ -3134,11 +3134,18 @@ def test_touch_login_native_and_admin_date_labels(browser_http,monkeypatch):
             page.locator('header [data-open="login"]').click()
             page.locator('#fld-email').fill('other@example.test')
             page.locator('#fld-password').fill('valid-password')
-            page.locator('[name=remember]').check()
-            with page.expect_navigation():
+            page.locator('label.shursh-checkbox').filter(has=page.locator('[name=remember]')).click()
+            expect(page.locator('[name=remember]')).to_be_checked()
+            with page.expect_response(lambda res: res.url.endswith('/api/login') and res.request.is_navigation_request()) as login_response:
                 page.locator('.modal-fixed-footer [type=submit]').click()
+            assert login_response.value.status==303
+            assert login_response.value.request.headers['content-type'].startswith('application/x-www-form-urlencoded')
             expect(page.locator('.dashboard-page h1')).to_contain_text('Other')
             assert page.evaluate("!location.search.includes('shursh_login')")
+            cookie=next(c for c in context.cookies() if c['name']=='shursh_sid')
+            assert cookie['secure'] and cookie['httpOnly'] and cookie['sameSite']=='Lax'
+            import time
+            assert 29*86400<cookie['expires']-time.time()<=30*86400+2
             page.reload()
             expect(page.locator('.dashboard-page h1')).to_contain_text('Other')
             result=page.evaluate("""() => {
