@@ -1157,12 +1157,12 @@ async function santaGamePage(id,marker=lastRenderToken,participantToken=null){
  }
  document.getElementById('legacy-santa-wish-form')?.addEventListener('submit',async ev=>{
   ev.preventDefault();
-  const form=ev.currentTarget,button=form.querySelector('button');
+  const form=ev.currentTarget,button=form.querySelector('button'),state=activeGameContext;
   button.disabled=true;
-  try{await api(activeGameContext.base+(memberView?'/wishes':'/my-wishes'),
+  try{await api(state.base+(memberView?'/wishes':'/my-wishes'),
          {method:'POST',body:readForm(form)});
-      notice('Желание добавлено');await refreshGameOwnWishes(activeGameContext);}
-  catch(err){notice(err.message,true);button.disabled=false;}
+      form.reset();notice('Желание добавлено');await refreshGameOwnWishes(state);}
+  catch(err){notice(err.message,true);}finally{if(button.isConnected)button.disabled=false;}
  });
 }
 async function myWishesForAdmin(id){const res=await api(`/api/santas/${id}/my-wishes`);return wishesMarkup(res.wishes);}

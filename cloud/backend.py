@@ -121,13 +121,18 @@ class CloudRequest(Handler):
             self._user_loaded = True
             raw = self.request.cookies.get('shursh_sid', '')
             if re.fullmatch(r'[A-Za-z0-9_-]{43}', raw):
-                self._user = con.execute('''SELECT p.id,p.name,p.avatar_emoji,p.handle,s.email,(a.user_id IS NOT NULL) AS admin_granted FROM app_sessions s
+                self._user = con.execute('''SELECT p.id,p.name,p.avatar_emoji,p.handle,s.email,s.created_at AS session_created_at,(a.user_id IS NOT NULL) AS admin_granted FROM app_sessions s
                     JOIN profiles p ON p.id=s.user_id LEFT JOIN site_admins a ON a.user_id=p.id WHERE s.token_hash=? AND s.expires_at>?''',
                     (token_hash(raw), int(time.time()))).fetchone()
                 if self._user:
                     self._user=dict(self._user)
                     admins={a.strip().casefold() for a in os.getenv('SHURSH_ADMIN_EMAILS','').split(',') if a.strip()}
                     self._user['is_admin']=bool(self._user.pop('admin_granted',False) or (admins and self._user['email'].casefold() in admins))
+                    issued=self._user.pop('session_created_at')
+                    # A long-lived ordinary session must not gain long-lived
+                    # admin privileges if the account is granted access later.
+                    if self._user['is_admin'] and time.time()-issued.timestamp()>SESSION_SECONDS:
+                        self._user=None
         return self._user
 
     def is_site_admin(self,con):

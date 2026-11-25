@@ -684,7 +684,8 @@ def browser_login(page, email='owner@example.test', landing='dashboard'):
         }))""")
         disabled=page.locator('#modal-form button[type="submit"], .modal-fixed-footer button[type="submit"]').is_disabled() if page.locator('#modal-form button[type="submit"], .modal-fixed-footer button[type="submit"]').count() else None
         raise AssertionError(f'Login timed out: request_sent={bool(sent)}, field_constraints={fields}, submit_disabled={disabled}') from exc
-    assert response.status==200, (
+    native=bool(response.request.is_navigation_request())
+    assert response.status==(303 if native else 200), (
         f'Login HTTP {response.status}; '
         f'Server-Timing: {response.headers.get("server-timing", "missing")}')
     if landing=='invite':
@@ -3070,7 +3071,6 @@ def test_browser_login_password_manager_contract(browser_http):
 
 def test_native_login_redirect_remember_and_admin_limit(application,monkeypatch):
     from cloud.backend import SESSION_SECONDS,REMEMBER_SESSION_SECONDS
-    import time
     ordinary=application.test_client()
     data={'email':'other@example.test','password':'valid-password','remember':'on','return_path':'//evil.test'}
     response=ordinary.post('/api/login',base_url=BASE,data=data,headers={'Origin':BASE})
@@ -3088,6 +3088,11 @@ def test_native_login_redirect_remember_and_admin_limit(application,monkeypatch)
     manager=application.test_client()
     reply=manager.post('/api/login',base_url=BASE,data={**data,'email':'owner@example.test'},headers={'Origin':BASE})
     assert f'Max-Age={SESSION_SECONDS}' in reply.headers['Set-Cookie']
+    # Later admin grants cannot silently extend privilege to 30 days.
+    with psycopg.connect(os.environ['SHURSH_DATABASE_URL']) as con:
+        con.execute("UPDATE public.app_sessions SET created_at=now()-interval '2 days' WHERE user_id=%s",(IDS['other@example.test'],))
+    monkeypatch.setenv('SHURSH_ADMIN_EMAILS','other@example.test')
+    assert call(ordinary,'GET','/api/me').json['user'] is None
 
 
 def test_admin_visit_fallback_uses_known_session(application,monkeypatch):

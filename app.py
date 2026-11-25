@@ -139,6 +139,12 @@ def api(route):
                 password_policy.validate_new_password(value)
                 change={'password':value}
             auth.update_verified_account(owner_id,owner_email,current_password,change)
+            if 'password' in change:
+                # Revoke other device sessions after a verified password change.
+                from server import token_hash
+                current=token_hash(request.cookies.get('shursh_sid',''))
+                with db.transaction(write=True,rate_limit=True) as con:
+                    con.execute('DELETE FROM app_sessions WHERE user_id=? AND token_hash<>?',(owner_id,current))
             return response({'ok':True,'pending_confirmation':'email' in change},200)
         if path == '/api/auth/complete' and request.method == 'POST':
             prepared=handler.prepare_confirmation()
