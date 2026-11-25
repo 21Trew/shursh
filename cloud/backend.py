@@ -226,7 +226,7 @@ class CloudRequest(Handler):
             g.shursh_auth_ms = (time.perf_counter() - started_auth) * 1000
         if intent:
             with db.transaction(write=True) as con:
-                referrals.record_signup(con,intent,result.get('user'),email)
+                referrals.record_signup(con,intent,result.get('user') or result,email)
             db.close_request_connection()
         # A confirmation-required signup deliberately never establishes a session.
         if action == 'register' and not result.get('access_token'):

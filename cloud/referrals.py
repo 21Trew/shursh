@@ -41,7 +41,7 @@ def record_signup(con, intent, provider, email):
     A duplicate signup response must not create attribution for an old user.
     """
     code,nonce,started=intent
-    if not isinstance(provider,dict) or not provider.get('identities'):
+    if not isinstance(provider,dict) or not isinstance(provider.get('identities'),list) or not provider['identities']:
         return
     if provider.get('email_confirmed_at'):
         return
@@ -51,7 +51,7 @@ def record_signup(con, intent, provider, email):
     try:
         uid=UUID(provider['id'])
         created=datetime.fromisoformat(provider['created_at'].replace('Z','+00:00'))
-        if created.tzinfo is None or not started-timedelta(seconds=2)<=created<=datetime.now(timezone.utc)+timedelta(seconds=2):
+        if created.tzinfo is None or not started<=created<=datetime.now(timezone.utc)+timedelta(seconds=2):
             return
         if provider.get('email','').casefold()!=email.casefold():
             return
@@ -66,7 +66,7 @@ def record_signup(con, intent, provider, email):
                AND (p.discoverable OR p.allow_friend_invites)
                AND NOT EXISTS (SELECT 1 FROM profiles old WHERE old.id=? AND old.created_at<?)
              ON CONFLICT(provider_id) DO NOTHING""",
-             (uid,started,started+TTL,code,uid,uid,started-timedelta(seconds=2)))
+             (uid,started,started+TTL,code,uid,uid,started))
 
 def claim(con, uid):
     """Called only after verified provider login/confirmation, in its transaction.
@@ -78,7 +78,7 @@ def claim(con, uid):
         JOIN profiles p ON p.id=i.owner_id JOIN profiles new ON new.id=r.provider_id
         WHERE r.provider_id=? AND r.expires_at>now() AND i.revoked_at IS NULL
         AND i.owner_id<>r.provider_id AND (p.discoverable OR p.allow_friend_invites)
-        AND new.created_at>=r.signup_at-interval '2 seconds'
+        AND new.created_at>=r.signup_at
         ON CONFLICT(referred_id) DO NOTHING RETURNING invite_code""",(uid,)).fetchone()
     con.execute('DELETE FROM referral_pending WHERE provider_id=?',(uid,))
     return '/i/'+row['invite_code'] if row else None

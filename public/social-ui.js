@@ -39,7 +39,7 @@ function socialIdentity(p,{editable=false,own=false,showBio=true}={}){
  (showBio?'<p class="profile-bio">'+esc(bio)+'</p>':'')+'</div></div>';
 }
 function socialUserCard(user,actions=''){
- return '<div class="social-person"><button class="social-person-link" type="button" data-nav="/users/'+attr(user.id)+'">'+
+ return '<div class="social-person" data-person-id="'+attr(user.id)+'"><button class="social-person-link" type="button" data-nav="/users/'+attr(user.id)+'">'+
   socialAvatar(user)+
   '<span class="social-person-name">'+esc(socialFullName(user))+(user.handle?'<small>@'+esc(user.handle)+'</small>':'')+'</span></button>'+actions+'</div>';
 }
@@ -436,6 +436,7 @@ document.addEventListener('click',async e=>{
   if(action==='personal-invite'){await socialPersonalInviteModal();return;}
   if(action==='copy-personal-invite'){await copyPersonalInvite(target);return;}
   if(action==='share-personal-invite'){await sharePersonalInvite(target);return;}
+  if(action==='share-personal-qr'){await sharePersonalQr();return;}
   if(action==='revoke-personal-invite'){
    if(!window.confirm('Отозвать ссылку? Старые приглашения перестанут работать'))return;
    await api('/api/friend-invites/me',{method:'DELETE',body:{}});closeModal();notice('Приглашение отозвано');return;
@@ -480,19 +481,45 @@ document.addEventListener('click',async e=>{
    socialUnreadLast=0;
    notice(action==='add'?'Заявка в друзья отправлена':action==='accept'?'Теперь вы друзья':action==='decline'?'Заявка отклонена':action==='cancel'?'Заявка отменена':'Друг удалён');
    if(currentPath()!==actionPath)return;
-   if(actionPath==='/friends')await socialFriendsPage();
+   if(actionPath==='/friends')await refreshSocialFriendsAfterMutation(uid);
    else if(actionPath==='/users/'+uid)await socialProfilePage(uid);
   }
  }catch(err){notice(err.message,true);}
  finally{if(target.isConnected)target.disabled=false;}
 });
 
+async function refreshSocialFriendsAfterMutation(uid){
+ const root=app.querySelector('#page-view > main'),epoch=ownerSessionEpoch,marker=lastRenderToken;
+ const data=await api('/api/friends');
+ if(epoch!==ownerSessionEpoch||marker!==lastRenderToken||!root?.isConnected||currentPath()!=='/friends')return;
+ ownerPatchRoot=root;
+ try{await socialFriendsPage(marker,data);}finally{ownerPatchRoot=null;}
+ renderedOwnerTab='/friends';
+ const row=[...root.querySelectorAll('#social-search-results [data-person-id]')].find(n=>n.dataset.personId===uid);
+ if(row){
+  const relationship=data.friends.some(u=>String(u.id)===uid)?'friends':data.outgoing.some(u=>String(u.id)===uid)?'outgoing':data.incoming.some(u=>String(u.id)===uid)?'incoming':'none';
+  const next=row.cloneNode(true);
+  const identity=next.querySelector('.social-person-link');next.replaceChildren(identity);
+  next.insertAdjacentHTML('beforeend',socialSearchAction({id:uid,relationship}));
+  patchOwnerNode(row,next);
+ }
+}
 function inviteQrData(rows){
  if(!Array.isArray(rows)||!rows.length||rows.length>177||!rows.every(r=>typeof r==='string'&&r.length===rows.length&&/^[01]+$/.test(r)))throw new Error('Не удалось построить QR-код');
- let path='';
- rows.forEach((r,y)=>{for(let x=0;x<r.length;x++)if(r[x]==='1')path+='M'+x+' '+y+'h1v1h-1z';});
- const svg='<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 '+rows.length+' '+rows.length+'" width="512" height="512" shape-rendering="crispEdges"><path fill="white" d="M0 0h'+rows.length+'v'+rows.length+'H0z"/><path fill="black" d="'+path+'"/></svg>';
- return 'data:image/svg+xml;charset=utf-8,'+encodeURIComponent(svg);
+ const scale=10,canvas=document.createElement('canvas');canvas.width=canvas.height=rows.length*scale;
+ const ctx=canvas.getContext('2d');ctx.fillStyle='#fff';ctx.fillRect(0,0,canvas.width,canvas.height);
+ ctx.fillStyle='#000';rows.forEach((r,y)=>{for(let x=0;x<r.length;x++)if(r[x]==='1')ctx.fillRect(x*scale,y*scale,scale,scale);});
+ return canvas.toDataURL('image/png');
+}
+async function sharePersonalQr(){
+ const image=modalRoot.querySelector('#personal-invite-qr');
+ if(!image)return;
+ const bytes=Uint8Array.from(atob(image.src.split(',')[1]),c=>c.charCodeAt(0));
+ const file=new File([bytes],'shursh-invite.png',{type:'image/png'});
+ if(navigator.share&&navigator.canShare?.({files:[file]})){
+  try{await navigator.share({files:[file],title:'Шурш!'});return;}catch(e){if(e.name==='AbortError')return;}
+ }
+ modalRoot.querySelector('[download="shursh-invite.png"]')?.click();
 }
 async function socialPersonalInviteModal(){
  if(!currentUser)return loginModal();
@@ -504,9 +531,9 @@ async function socialPersonalInviteModal(){
  const qr=inviteQrData(data.qr);
  modal({title:'Пригласи друга в Шурш!',subtitle:'Одна ссылка для дружбы и новых регистраций',
   content:'<div class="share-field"><input class="input" aria-label="Персональная ссылка" id="personal-invite-link" readonly value="'+attr(url)+'"><button class="btn btn-soft btn-small" type="button" data-social-action="copy-personal-invite">Копировать</button></div>'+
-  '<div style="text-align:center;margin:16px 0"><img alt="QR-код приглашения" width="208" height="208" style="max-width:100%;height:auto" src="'+attr(qr)+'"></div>'+
-  '<div class="btn-row"><a class="btn btn-soft btn-small" download="shursh-invite.svg" href="'+attr(qr)+'">Скачать QR</a>'+
-  '<button class="btn btn-dark btn-small" type="button" data-social-action="share-personal-invite">Поделиться</button></div>'+
+  '<div style="text-align:center;margin:16px 0"><img id="personal-invite-qr" alt="QR-код приглашения" width="208" height="208" style="max-width:100%;height:auto" src="'+attr(qr)+'"></div>'+
+  '<div class="btn-row"><a class="btn btn-soft btn-small" download="shursh-invite.png" href="'+attr(qr)+'">Скачать QR</a>'+
+  '<button class="btn btn-dark btn-small" type="button" data-social-action="share-personal-invite">Поделиться ссылкой</button><button class="btn btn-soft btn-small" type="button" data-social-action="share-personal-qr">Поделиться QR</button></div>'+
   '<div class="btn-row"><a class="btn btn-soft btn-small" target="_blank" rel="noopener noreferrer" href="https://t.me/share/url?url='+encodeURIComponent(url)+'">Telegram</a>'+
   '<a class="btn btn-soft btn-small" target="_blank" rel="noopener noreferrer" href="https://vk.com/share.php?url='+encodeURIComponent(url)+'">VK</a></div>'+
   '<p class="note">Дружба только по согласию. Новая подтверждённая регистрация засчитывается один раз</p>'+

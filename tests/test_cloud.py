@@ -3344,3 +3344,126 @@ def test_history_cursors_are_bounded_and_owner_scoped(application):
     assert not any(n['message'].startswith('cursor-notice-') for n in
                    call(other,'GET',f'/api/notifications?before={cursor}').json['items'])
     call(owner,'GET','/api/notifications?before=invalid',status=400)
+
+
+def test_friend_invites_search_full_names_privacy_and_qr(application):
+    from cloud import db
+    import qrcode
+    a=login(application); b=login(application,'other@example.test')
+    aid,bid=map(str,IDS.values())
+    with psycopg.connect(os.environ['SHURSH_DATABASE_URL']) as con:
+        con.execute('DELETE FROM public.friendships WHERE user_low=%s AND user_high=%s',(aid,bid))
+    try:
+        call(a,'PATCH','/api/profile/me',{'name':'Александр','handle':'Alex_invite','last_name':'Иванов','patronymic':'Петрович','show_full_name':False,'discoverable':True,'allow_friend_invites':False})
+        call(b,'PATCH','/api/profile/me',{'name':'Александр','handle':'alex_other','discoverable':True})
+        assert not call(b,'GET','/api/users/search?q=Иванов').json['users']
+        match=call(b,'GET','/api/users/search?q=%40ALEX_INVITE').json['users']
+        assert len(match)==1 and match[0]['id']==aid and match[0]['last_name']==''
+        assert match[0]['relationship']=='none' and 'email' not in match[0]
+        assert not call(b,'GET','/api/users/search?q=%40alex').json['users']
+        assert not call(b,'GET','/api/users/search?q=%25%25').json['users']
+        assert not call(b,'GET','/api/users/search?q=__').json['users']
+        call(b,'PATCH','/api/profile/me',{'handle':'@ALEX_INVITE'},409)
+        call(a,'PATCH','/api/profile/me',{'show_full_name':True})
+        match=call(b,'GET','/api/users/search?q=Иванов').json['users']
+        assert match[0]['last_name']=='Иванов' and match[0]['patronymic']=='Петрович'
+        invite=call(a,'POST','/api/friend-invites/me',{}).json
+        assert call(a,'POST','/api/friend-invites/me',{}).json==invite
+        code=invite['path'].split('/')[-1]
+        assert len(code)==24 and invite['url']==BASE+invite['path']
+        qr=qrcode.QRCode(error_correction=qrcode.constants.ERROR_CORRECT_M,border=4,box_size=1)
+        qr.add_data(invite['url']);qr.make(fit=True)
+        assert invite['qr']==[''.join('1' if bit else '0' for bit in row) for row in qr.get_matrix()]
+        guest=application.test_client()
+        landing=call(guest,'GET','/api/friend-invites/'+code).json
+        assert set(landing['inviter'])=={'id','name','handle','avatar_emoji'}
+        assert landing['relationship']=='guest'
+        call(guest,'POST','/api/friend-invites/'+code+'/friend',{},401)
+        call(a,'POST','/api/friend-invites/'+code+'/friend',{},400)
+        call(b,'POST','/api/friend-invites/'+code+'/friend',{})
+        assert call(b,'GET','/api/users/search?q=%40alex_invite').json['users'][0]['relationship']=='outgoing'
+        assert call(a,'GET','/api/friend-invites/'+code).json['relationship']=='self'
+        call(a,'PATCH','/api/friends/'+bid,{'action':'accept'})
+        assert call(b,'GET','/api/friend-invites/'+code).json['relationship']=='friends'
+        call(a,'PATCH','/api/profile/me',{'discoverable':False,'allow_friend_invites':False})
+        call(guest,'GET','/api/friend-invites/'+code,status=404)
+        call(a,'POST','/api/friend-invites/me',{},403)
+        assert not call(b,'GET','/api/users/search?q=%40alex_invite').json['users']
+        call(a,'PATCH','/api/profile/me',{'allow_friend_invites':True})
+        new=call(a,'POST','/api/friend-invites/me',{}).json
+        assert new['path']!=invite['path']
+        assert call(guest,'GET','/api/friend-invites/'+new['path'].split('/')[-1]).json['relationship']=='guest'
+        call(a,'DELETE','/api/friend-invites/me',{})
+        call(guest,'GET','/api/friend-invites/'+new['path'].split('/')[-1],status=404)
+    finally:
+        call(a,'PATCH','/api/profile/me',{'name':'Owner','handle':'','last_name':'','patronymic':'','show_full_name':False,'discoverable':True,'allow_friend_invites':False})
+        call(b,'PATCH','/api/profile/me',{'name':'Other','handle':''})
+        with psycopg.connect(os.environ['SHURSH_DATABASE_URL']) as con:
+            con.execute('DELETE FROM public.friendships WHERE user_low=%s AND user_high=%s',(aid,bid))
+            con.execute('DELETE FROM public.user_invites WHERE owner_id=%s',(aid,))
+
+
+def test_referral_verified_confirmation_exactly_once_and_revocation(application,monkeypatch):
+    from cloud import auth
+    from datetime import datetime,timezone
+    from uuid import uuid4
+    owner=login(application); other=login(application,'other@example.test')
+    aid,bid=map(str,IDS.values())
+    invite=call(owner,'POST','/api/friend-invites/me',{}).json['path'].split('/')[-1]
+    alternative=call(other,'POST','/api/friend-invites/me',{}).json['path'].split('/')[-1]
+    users={}
+    upstream=auth.auth_request
+    def provider(action,**payload):
+        if action!='register':return upstream(action,**payload)
+        email=payload['email']
+        if email in users:
+            return {'id':str(users[email]['id']),'identities':[],'email':email}
+        uid=uuid4()
+        with psycopg.connect(os.environ['SHURSH_DATABASE_URL']) as con:
+            con.execute('INSERT INTO auth.users(id) VALUES(%s)',(uid,))
+        data={'id':str(uid),'email':email,'created_at':datetime.now(timezone.utc).isoformat(),
+              'identities':[{'provider':'email'}],'user_metadata':payload['data']}
+        users[email]=data
+        # GoTrue may return the user directly for confirmation-required signup.
+        return data
+    monkeypatch.setattr(auth,'auth_request',provider)
+    guest=application.test_client()
+    def register(email,code):
+        return call(guest,'POST','/api/register',{'name':'Referral user','email':email,'password':'valid-password','invite_code':code},202)
+    def confirm(email):
+        monkeypatch.setattr(auth,'verified_user',lambda token:{**users[email],'email_confirmed_at':datetime.now(timezone.utc).isoformat()})
+        return call(application.test_client(),'POST','/api/auth/complete',{'access_token':'abc.def.ghi'}).json
+    def count(client):
+        return call(client,'GET','/api/profile/me').json['referral_count']
+    initial=count(owner);initial_other=count(other)
+    try:
+        register('referral-a@example.test',invite)
+        assert count(owner)==initial
+        register('referral-a@example.test',alternative)
+        result=confirm('referral-a@example.test')
+        assert result['invite_path']=='/i/'+invite
+        assert count(owner)==initial+1 and count(other)==initial_other
+        assert 'invite_path' not in confirm('referral-a@example.test')
+        assert count(owner)==initial+1
+        # Revocation before confirmation and expiration both fail closed.
+        register('referral-b@example.test',invite)
+        register('referral-expired@example.test',alternative)
+        with psycopg.connect(os.environ['SHURSH_DATABASE_URL']) as con:
+            con.execute("UPDATE public.referral_pending SET signup_at=now()-interval '9 days',expires_at=now()-interval '1 day' WHERE provider_id=%s",(users['referral-expired@example.test']['id'],))
+        call(owner,'DELETE','/api/friend-invites/me',{})
+        assert 'invite_path' not in confirm('referral-b@example.test')
+        assert 'invite_path' not in confirm('referral-expired@example.test')
+        assert count(owner)==initial+1 and count(other)==initial_other
+        call(guest,'POST','/api/register',{'name':'Revoked','email':'referral-c@example.test','password':'valid-password','invite_code':invite},404)
+        assert 'referral-c@example.test' not in users
+        with psycopg.connect(os.environ['SHURSH_DATABASE_URL']) as con:
+            for table in ('user_invites','referral_pending','referral_attributions'):
+                assert con.execute("SELECT relrowsecurity FROM pg_class WHERE oid=%s::regclass",('public.'+table,)).fetchone()[0]
+                for role in ('anon','authenticated'):
+                    assert not con.execute("SELECT has_table_privilege(%s,%s,'SELECT')",(role,'public.'+table)).fetchone()[0]
+    finally:
+        with psycopg.connect(os.environ['SHURSH_DATABASE_URL']) as con:
+            for u in users.values():
+                con.execute('DELETE FROM public.referral_pending WHERE provider_id=%s',(u['id'],))
+                con.execute('DELETE FROM auth.users WHERE id=%s',(u['id'],))
+            con.execute('DELETE FROM public.user_invites WHERE owner_id IN (%s,%s)',(aid,bid))

@@ -2484,3 +2484,57 @@ def test_performance_soak_real_polling_session_and_retention(browser_https, appl
         finally:
             (output/f'{engine}.json').write_text(json.dumps(report,indent=2),encoding='utf-8')
             browser.close()
+
+
+@pytest.mark.browser
+@pytest.mark.parametrize('engine',['chromium','webkit'])
+def test_friends_exact_search_and_qr_invite(browser_https,application,engine):
+    from test_cloud import login,call,IDS
+    from cloud import db
+    owner=login(application);other=login(application,'other@example.test')
+    aid,bid=map(str,IDS.values())
+    with db.transaction(write=True) as con:
+        con.execute('DELETE FROM friendships WHERE user_low=? AND user_high=?',(aid,bid))
+    call(owner,'PATCH','/api/profile/me',{'name':'Александр','handle':'qr_owner','last_name':'Иванов','patronymic':'Петрович','show_full_name':True,'discoverable':True})
+    call(other,'PATCH','/api/profile/me',{'name':'Александр','handle':'qr_other','discoverable':True})
+    try:
+        with sync_playwright() as play:
+            browser=getattr(play,engine).launch(headless=True)
+            try:
+                ctx=browser.new_context(ignore_https_errors=True,viewport={'width':390,'height':844})
+                page=ctx.new_page();page.goto(browser_https+'/');browser_login(page)
+                page.evaluate("nav('/friends')")
+                search=page.locator('#social-search-form input[name=q]')
+                search.fill('@qr_other');page.locator('#social-search-form button').click()
+                result=page.locator('#social-search-results')
+                expect(result.get_by_text('@qr_other',exact=True)).to_be_visible()
+                page.evaluate("window.friendInput=document.querySelector('#social-search-form input')")
+                result.get_by_role('button',name='В друзья',exact=True).click()
+                expect(result.get_by_text('Заявка отправлена',exact=True)).to_be_visible()
+                assert page.evaluate("friendInput===document.querySelector('#social-search-form input')")
+                expect(search).to_have_value('@qr_other')
+                page.get_by_role('button',name='Пригласить друга').click()
+                link=page.locator('#personal-invite-link')
+                expect(link).to_be_visible()
+                url=link.input_value();assert url.startswith(browser_https+'/i/')
+                expect(page.locator('#personal-invite-qr')).to_be_visible()
+                assert page.locator('#personal-invite-qr').evaluate("img=>img.complete&&img.naturalWidth>0&&img.src.startsWith('data:image/png')")
+                assert page.locator('a[download="shursh-invite.png"]').count()==1
+                assert 't.me/share/url' in page.get_by_role('link',name='Telegram',exact=True).get_attribute('href')
+                assert 'vk.com/share.php' in page.get_by_role('link',name='VK',exact=True).get_attribute('href')
+                guest=browser.new_context(ignore_https_errors=True,viewport={'width':390,'height':844}).new_page()
+                guest.goto(url)
+                expect(guest.get_by_text('Александр приглашает тебя в Шурш!',exact=True)).to_be_visible()
+                expect(guest.get_by_role('button',name='Создать аккаунт',exact=True)).to_be_visible()
+                browser_login(guest,'other@example.test')
+                expect(guest.get_by_role('button',name='Принять заявку',exact=True)).to_be_visible()
+                guest.get_by_role('button',name='Принять заявку',exact=True).click()
+                expect(guest.get_by_text('Вы уже друзья',exact=True)).to_be_visible()
+                assert urlsplit(guest.url).path==urlsplit(url).path
+            finally:browser.close()
+    finally:
+        call(owner,'DELETE','/api/friend-invites/me',{})
+        call(owner,'PATCH','/api/profile/me',{'name':'Owner','handle':'','last_name':'','patronymic':'','show_full_name':False,'discoverable':True})
+        call(other,'PATCH','/api/profile/me',{'name':'Other','handle':''})
+        with db.transaction(write=True) as con:
+            con.execute('DELETE FROM friendships WHERE user_low=? AND user_high=?',(aid,bid))
