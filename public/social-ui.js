@@ -267,7 +267,7 @@ function socialAdminVisitMarkup(u){
  const platform=Object.hasOwn(platforms,u.last_platform)?platforms[u.last_platform]:['Не определена','<circle cx="12" cy="12" r="9" fill="none" stroke="currentColor" stroke-width="1.6"/><path d="M9 9a3 3 0 0 1 6 0c0 2-3 2-3 4m0 3v1" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round"/>'];
  const date=new Date(u.last_seen_at);
  if(!Number.isFinite(date.getTime()))return '<span class="muted">Нет данных</span>';
- return '<div class="admin-user-identity"><svg width="20" height="20" viewBox="0 0 24 24" fill="currentColor" aria-hidden="true" focusable="false">'+platform[1]+'</svg><span><time datetime="'+attr(u.last_seen_at)+'">'+esc(date.toLocaleString('ru-RU',{dateStyle:'medium',timeStyle:'short'}))+'</time><small>'+platform[0]+'</small></span></div>';
+ return '<div class="admin-user-identity"><svg width="20" height="20" viewBox="0 0 24 24" fill="currentColor" role="img" aria-label="'+attr(platform[0])+'" focusable="false"><title>'+esc(platform[0])+'</title>'+platform[1]+'</svg><span><time datetime="'+attr(u.last_seen_at)+'">'+esc(date.toLocaleString('ru-RU',{dateStyle:'medium',timeStyle:'short'}))+'</time></span></div>';
 }
 function socialAdminUsersMarkup(page){
  const rows=(page.users||[]).map(u=>'<tr><td><div class="admin-user-identity"><span class="admin-user-emoji">'+

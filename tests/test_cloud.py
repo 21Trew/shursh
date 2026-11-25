@@ -2652,12 +2652,16 @@ def test_browser_ux_fixes_avatar_gift_placeholder_and_admin_directory(browser_ht
             expect(page.locator('.admin-users-table')).to_be_visible()
             expect(page.locator('.admin-users-panel .panel-heading-actions .chip')).to_have_count(0)
             expect(page.locator('.admin-users-table th')).to_have_text(['Игрок','Ник','Регистрация','Последний визит','Вишлисты','Свои Санты','Участие','В поиске'])
-            expect(page.locator('.admin-users-table tbody tr').filter(has_text='Owner')).to_contain_text('Linux')
+            visit=page.locator('.admin-users-table tbody tr').filter(has_text='Owner').locator('td').nth(3)
+            expect(visit.get_by_role('img',name='Linux',exact=True)).to_be_visible()
+            expect(visit.locator('svg title')).to_have_text('Linux')
+            expect(visit.locator('time')).to_be_visible()
+            expect(visit.locator('small')).to_have_count(0)
             # Stripe only the body, preserve the header and existing table layout.
             rows=page.locator('.admin-users-table tbody tr')
             assert rows.count()>=2
-            assert rows.nth(1).evaluate("r=>getComputedStyle(r).backgroundColor")=='rgb(246, 242, 235)'
-            assert rows.nth(0).evaluate("r=>getComputedStyle(r).backgroundColor")!='rgb(246, 242, 235)'
+            assert rows.nth(1).evaluate("r=>getComputedStyle(r).backgroundColor")=='rgb(250, 247, 242)'
+            assert rows.nth(0).evaluate("r=>getComputedStyle(r).backgroundColor")!='rgb(250, 247, 242)'
             assert page.locator('.admin-users-table th').first.evaluate("r=>getComputedStyle(r).backgroundColor")=='rgb(244, 239, 232)'
             page.locator('#admin-users-query').fill('owner')
             assert page.locator('#admin-users-search button[type="submit"]').count()==0
