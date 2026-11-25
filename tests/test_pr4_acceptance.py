@@ -2239,7 +2239,21 @@ def test_chat_incremental_history_and_cleanup(browser_https,application,engine):
             # Two rapid clicks must deduplicate only the older-page request.
             held=[]
             older_requests=[]
-            delta_pattern=re.compile(r'/messages/general\?after=\d+
+            delta_pattern=re.compile(r'/messages/general\?after=\d+$')
+            page.route(delta_pattern,lambda route:held.append(route))
+            page.on('request',lambda r:older_requests.append(r.url) if '/messages/general?before=' in r.url else None)
+            page.evaluate("document.dispatchEvent(new Event('visibilitychange'))")
+            for _ in range(100):
+                if held:break
+                page.wait_for_timeout(50)
+            assert len(held)==1
+            page.evaluate("""()=>{const button=document.querySelector('[data-chat-older]');button.click();button.click();}""")
+            expect(page.locator('.chat-message')).to_have_count(65)
+            assert len(older_requests)==1
+            with page.expect_response(lambda r:delta_pattern.search(r.url) is not None):
+                held[0].continue_()
+            page.unroute(delta_pattern)
+            page.wait_for_timeout(150)
             assert page.evaluate("chatLast===document.querySelector('.chat-message:last-child')")
             with db.transaction(write=True) as con:
                 con.execute("INSERT INTO santa_messages(event_id,sender_id,room,message,created_at) VALUES(?,?,'general',?,now())",(eid,pid,'perf-live-new'))
@@ -2420,230 +2434,6 @@ def test_performance_soak_real_polling_session_and_retention(browser_https, appl
             report['polling']['sized_responses']=len(sizes)
             report['polling']['response_body_bytes']=sum(v['responseBodySize'] for v in sizes)
             report['polling']['response_header_bytes']=sum(v['responseHeadersSize'] for v in sizes)
-            assert len(chat)==4 and len(roster)==3,report
-            for actual,expected in zip(report['polling']['chat_intervals'],[15,30,60]):
-                assert abs(actual-expected)<5,report
-            for actual,expected in zip(report['polling']['roster_intervals'],[30,60]):
-                assert abs(actual-expected)<5,report
-            assert report['polling']['delta_requests']==3,report
-            page.evaluate("nav('/lists')")
-            expect(page.get_by_text(own_title,exact=True)).to_be_visible()
-            count=len(events)
-            page.wait_for_timeout(16000)
-            assert len(events)==count,report
-            report['requests_after_exit_16s']=len(events)-count
-
-            # Real application logout/login in same browser context plus another
-            # tab sharing cookies: previous private DOM must disappear.
-            page.evaluate("nav('/')")
-            expect(page.locator('.dashboard-page')).to_be_visible()
-            second=context.new_page()
-            second.goto(browser_https+'/')
-            expect(second.locator('.dashboard-page')).to_be_visible()
-            second.evaluate("nav('/lists')")
-            expect(second.get_by_text(own_title,exact=True)).to_be_visible()
-            page.bring_to_front()
-            page.locator('header [data-action="logout"]').click()
-            expect(page.locator('header [data-open="login"]')).to_be_visible()
-            expect(second.locator('header [data-open="login"]')).to_be_visible()
-            assert second.evaluate("ownerDataCache.size===0&&ownerTabViews.size===0&&gameLifecycleCleanup.length===0")
-            expect(second.get_by_text(own_title,exact=True)).to_have_count(0)
-            browser_login(page,'other@example.test')
-            page.evaluate("nav('/lists')")
-            expect(page.get_by_text(other_title,exact=True)).to_be_visible()
-            expect(page.get_by_text(own_title,exact=True)).to_have_count(0)
-            second.evaluate("nav('/lists',{force:true})")
-            expect(second.get_by_text(other_title,exact=True)).to_be_visible()
-            expect(second.get_by_text(own_title,exact=True)).to_have_count(0)
-            report['account_switch']='passed'
-            report['page_errors']=len(errors)
-            assert not errors,errors
-        finally:
-            (output/f'{engine}.json').write_text(json.dumps(report,indent=2),encoding='utf-8')
-            browser.close()
-)
-            page.route(delta_pattern,lambda route:held.append(route))
-            page.on('request',lambda r:older_requests.append(r.url) if '/messages/general?before=' in r.url else None)
-            page.evaluate("document.dispatchEvent(new Event('visibilitychange'))")
-            for _ in range(100):
-                if held:break
-                page.wait_for_timeout(50)
-            assert len(held)==1
-            page.evaluate("""()=>{const button=document.querySelector('[data-chat-older]');button.click();button.click();}""")
-            expect(page.locator('.chat-message')).to_have_count(65)
-            assert len(older_requests)==1
-            with page.expect_response(lambda r:delta_pattern.search(r.url) is not None):
-                held[0].continue_()
-            page.unroute(delta_pattern)
-            page.wait_for_timeout(150)
-            assert page.evaluate("chatLast===document.querySelector('.chat-message:last-child')")
-            with db.transaction(write=True) as con:
-                con.execute("INSERT INTO santa_messages(event_id,sender_id,room,message,created_at) VALUES(?,?,'general',?,now())",(eid,pid,'perf-live-new'))
-            requests=[]
-            page.on('request',lambda r: requests.append(r.url) if '/messages/' in r.url else None)
-            page.evaluate("document.dispatchEvent(new Event('visibilitychange'))")
-            expect(page.get_by_text('perf-live-new',exact=True)).to_be_visible()
-            assert any('?after=' in r for r in requests)
-            assert page.evaluate("chatLast.isConnected")
-            page.evaluate("nav('/lists')")
-            expect(page.locator('.wishlists-page')).to_be_visible()
-            assert page.evaluate("gameChatTimer===null && gameRosterTimer===null && gameLifecycleCleanup.length===0 && gameGiftDisposers.size===0")
-            # Repeated route lifecycle, not a heap-size claim: every exit
-            # must release timers, listeners and observers.
-            for _ in range(3):
-                page.evaluate("id=>nav('/santa/'+id)",eid)
-                expect(page.locator('#game-chat')).to_be_visible()
-                page.evaluate("nav('/lists')")
-                expect(page.locator('.wishlists-page')).to_be_visible()
-                assert page.evaluate("gameChatTimer===null && gameRosterTimer===null && gameLifecycleCleanup.length===0 && gameGiftDisposers.size===0")
-            from test_cloud import IDS
-            with db.transaction(write=True) as con:
-                for i in range(65):
-                    con.execute("INSERT INTO social_notifications(recipient_id,kind,message,target_path) VALUES(?,'wishlist_new',?,'/')",
-                                (IDS['owner@example.test'],f'perf-{engine}-notice-{i}'))
-            page.evaluate("dropOwnerRead('/api/notifications');nav('/notifications',{force:true})")
-            expect(page.get_by_text(f'perf-{engine}-notice-64',exact=True)).to_be_visible()
-            page.evaluate("window.noticeFirst=document.querySelector('[data-notification-id]')")
-            page.locator('[data-notification-pagination] [data-social-action="notification-older"]').click()
-            expect(page.get_by_text(f'perf-{engine}-notice-0',exact=True)).to_be_visible()
-            assert page.evaluate("noticeFirst===document.querySelector('[data-notification-id]')")
-            page.locator('header .header-bell').click()
-            expect(page.locator('.notification-dialog')).to_be_visible()
-            page.locator('.notification-dialog [data-social-action="notification-older"]').click()
-            expect(page.locator('.notification-dialog').get_by_text(f'perf-{engine}-notice-0',exact=True)).to_be_visible()
-            page.locator('.modal-close').click()
-            assert page.evaluate("notificationModalItems.length===0")
-        finally:
-            browser.close()
-
-
-@pytest.mark.browser
-@pytest.mark.parametrize("engine", ["chromium", "webkit"])
-def test_performance_soak_real_polling_session_and_retention(browser_https, application, engine):
-    """Real timers/HTTP and two authenticated fixture users. No hosted DB.
-    Chromium CDP snapshots are analyzed in RAM; never upload raw heap contents.
-    """
-    import gc
-    import time
-    from uuid import uuid4
-    from test_cloud import login, call
-    from cloud import db
-
-    owner=login(application)
-    other=login(application,'other@example.test')
-    suffix=uuid4().hex[:8]
-    own_title='Soak private A '+suffix
-    other_title='Soak private B '+suffix
-    call(owner,'POST','/api/lists',{'title':own_title,'visibility':'private'},201)
-    call(other,'POST','/api/lists',{'title':other_title,'visibility':'private'},201)
-    eid=call(owner,'POST','/api/santas',{'title':'Soak game '+suffix},201).json['id']
-    with db.transaction(write=True) as con:
-        pid=con.execute('SELECT id FROM participants WHERE event_id=?',(eid,)).fetchone()['id']
-        con.execute("INSERT INTO santa_messages(event_id,sender_id,room,message,created_at) VALUES(?,?,'general','soak seed',now())",(eid,pid))
-    for n in range(2):
-        call(owner,'POST',f'/api/santas/{eid}/my-wishes',{'title':f'Soak gift {n}'},201)
-
-    output=OUTPUT/'performance-soak'
-    output.mkdir(parents=True,exist_ok=True)
-    report={'engine':engine,'scope':'CI localhost PostgreSQL; mock external Auth; real browser HTTP and wall time'}
-    with sync_playwright() as play:
-        browser=getattr(play,engine).launch(headless=True)
-        try:
-            context=browser.new_context(ignore_https_errors=True,viewport={'width':390,'height':844})
-            page=context.new_page()
-            errors=[]
-            page.on('pageerror',lambda e: errors.append(str(e)))
-            page.goto(browser_https+'/')
-            browser_login(page)
-            page.wait_for_function("()=>ownerWarmupReady&&!socialUnreadBusy",timeout=15000)
-            page.evaluate("nav('/lists')")
-            expect(page.get_by_text(own_title,exact=True)).to_be_visible()
-            page.evaluate("window.soakRoots=[]")
-            cdp=context.new_cdp_session(page) if engine=='chromium' else None
-
-            def sample_heap():
-                if cdp is None:
-                    return None
-                cdp.send('HeapProfiler.collectGarbage')
-                cdp.send('HeapProfiler.collectGarbage')
-                chunks=[]
-                def add_chunk(event):
-                    chunks.append(event['chunk'])
-                cdp.on('HeapProfiler.addHeapSnapshotChunk',add_chunk)
-                try:
-                    cdp.send('HeapProfiler.takeHeapSnapshot',{'reportProgress':False})
-                finally:
-                    cdp.remove_listener('HeapProfiler.addHeapSnapshotChunk',add_chunk)
-                raw=json.loads(''.join(chunks))
-                fields=raw['snapshot']['meta']['node_fields']
-                width=len(fields)
-                nodes=raw['nodes']
-                types=raw['snapshot']['meta']['node_types'][0]
-                strings=raw['strings']
-                detached=0
-                if 'detachedness' in fields:
-                    offset=fields.index('detachedness')
-                    detached=sum(nodes[i+offset]==2 for i in range(0,len(nodes),width))
-                native_detached=sum(types[nodes[i]]=='native' and strings[nodes[i+fields.index('name')]].startswith('Detached ')
-                                    for i in range(0,len(nodes),width))
-                result={'snapshot_nodes':len(nodes)//width,
-                        'snapshot_detached':detached,'snapshot_native_detached':native_detached,
-                        **cdp.send('Runtime.getHeapUsage'),**cdp.send('Memory.getDOMCounters')}
-                del raw,nodes,strings,chunks
-                gc.collect()
-                return result
-
-            def cycle():
-                page.evaluate("id=>nav('/santa/'+id)",eid)
-                expect(page.locator('#game-chat')).to_be_visible()
-                expect(page.get_by_text('soak seed',exact=True)).to_be_visible()
-                page.evaluate("""()=>{
-                  if(typeof WeakRef==='function')soakRoots.push(new WeakRef(document.querySelector('#game-chat')));
-                }""")
-                page.evaluate("nav('/lists')")
-                expect(page.get_by_text(own_title,exact=True)).to_be_visible()
-                assert page.evaluate("gameChatTimer===null&&gameRosterTimer===null&&gameLifecycleCleanup.length===0&&gameGiftDisposers.size===0")
-            for _ in range(3):cycle()
-            page.wait_for_timeout(400)
-            report['heap_before']=sample_heap()
-            for _ in range(20):cycle()
-            page.wait_for_timeout(400)
-            report['heap_after']=sample_heap()
-            if cdp:
-                cdp.send('HeapProfiler.collectGarbage')
-                report['old_chat_roots_retained']=page.evaluate("soakRoots.filter(r=>r.deref()).length")
-                assert report['old_chat_roots_retained']<=2, report
-                before,after=report['heap_before'],report['heap_after']
-                # Bounded cache and unavoidable browser/automation noise, not a
-                # universal proof of zero leaks. Allow warm JIT/DOM variation.
-                assert after['usedSize']-before['usedSize']<4*1024*1024,report
-                assert after['nodes']-before['nodes']<500,report
-                assert after['jsEventListeners']-before['jsEventListeners']<80,report
-            report['cycles']=23
-            report['cache']=page.evaluate("""()=>({data:ownerDataCache.size,views:ownerTabViews.size,
-                 detailBytes:[...ownerDataCache].filter(([k])=>!ownerPinned(k)).reduce((n,[k,v])=>n+(v.bytes||0),0)})""")
-            assert report['cache']['data']<=32 and report['cache']['views']<=6
-            assert report['cache']['detailBytes']<=8*1024*1024
-
-            # Real wall-time polling: do not accelerate or replace application timers.
-            events=[]
-            origin=browser_https
-            def record_request(r):
-                p=urlsplit(r.url).path
-                if r.url.startswith(origin+'/api/') and (p.endswith('/roster') or '/messages/' in p):
-                    events.append({'kind':'roster' if p.endswith('/roster') else 'chat',
-                                   't':time.monotonic(),'delta':bool(urlsplit(r.url).query)})
-            page.on('request',record_request)
-            page.bring_to_front()
-            page.evaluate("id=>nav('/santa/'+id)",eid)
-            expect(page.get_by_text('soak seed',exact=True)).to_be_visible()
-            page.wait_for_timeout(113000)
-            chat=[x for x in events if x['kind']=='chat']
-            roster=[x for x in events if x['kind']=='roster']
-            report['polling']={'wall_seconds':113,'chat_count':len(chat),'roster_count':len(roster),
-                'chat_intervals':[round(b['t']-a['t'],2) for a,b in zip(chat,chat[1:])],
-                'roster_intervals':[round(b['t']-a['t'],2) for a,b in zip(roster,roster[1:])],
-                'delta_requests':sum(x['delta'] for x in chat)}
             assert len(chat)==4 and len(roster)==3,report
             for actual,expected in zip(report['polling']['chat_intervals'],[15,30,60]):
                 assert abs(actual-expected)<5,report
