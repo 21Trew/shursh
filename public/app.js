@@ -1150,7 +1150,7 @@ async function santaGamePage(id,marker=lastRenderToken,participantToken=null){
  <div class="panel-heading-actions"><h2>Чаты игры</h2></div>
  <p class="note">Общий чат открыт всем участникам. После жеребьёвки появятся личные переписки. Личность тайного дарителя не раскрывается</p>
  <div class="game-chat-tabs" role="group" aria-label="Выбрать чат">
- <button class="btn btn-soft btn-small active" type="button" data-chat-room="general" aria-pressed="true">Общий чат</button>
+ <button class="btn btn-soft btn-small" type="button" data-chat-room="general" aria-pressed="true">Общий чат</button>
  ${drawPerformed?'<button class="btn btn-soft btn-small" type="button" data-chat-room="to-recipient" aria-pressed="false">Моему получателю</button><button class="btn btn-soft btn-small" type="button" data-chat-room="from-santa" aria-pressed="false">Моему дарителю</button>':''}
  </div>
  <div class="game-chat-messages" role="log" aria-live="polite"><p class="note">Загружаем сообщения…</p></div>

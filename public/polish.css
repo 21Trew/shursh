@@ -112,8 +112,7 @@
  50%{clip-path:polygon(0 0,100% 0,30% 100%,0 100%)}
  100%{clip-path:polygon(0 0,100% 0,100% 100%,0 100%);opacity:.97}
 }
-.wishlist-view-tabs button:not(.active):hover::before,.notification-tabs button:not(.active):hover::before,.filter-chip:not(.active):hover::before,
-.game-chat-tabs button[aria-pressed="false"]:hover::before{
+.wishlist-view-tabs button:not(.active):hover::before,.notification-tabs button:not(.active):hover::before,.filter-chip:not(.active):hover::before{
  opacity:.42;transform:scaleX(1)
 }
 .wishlist-view-tabs button:hover,.notification-tabs button:hover,.filter-chip:hover{background:transparent;transform:translateY(-1px)}
@@ -277,7 +276,7 @@
  animation:shursh-marker-stroke .35s cubic-bezier(.2,.7,.17,1) both
 }
 .wishlist-view-tabs button:not(.active):hover::before,.notification-tabs button:not(.active):hover::before,
-.wishlist-filters .filter-chip:not(.active):hover::before,.game-chat-tabs button[aria-pressed="false"]:hover::before,
+.wishlist-filters .filter-chip:not(.active):hover::before,
 .santa-state-tabs button:not(.active):hover::before{
  opacity:.45;transform:translateY(-50%) rotate(-1deg) scaleX(1)
 }
@@ -287,6 +286,12 @@
 }
 .wishlist-view-tabs button.active,.notification-tabs button.active,.wishlist-filters .filter-chip.active,
 .game-chat-tabs button[aria-pressed="true"],.santa-state-tabs button.active{border:0!important}
+/* Chat selection is exclusive on every pointer type. Remove the actual
+   pseudo-element on inactive rooms, rather than fading it out: sticky
+   touch hover and animation fill must never resemble a selected room. */
+.game-chat-tabs button:not([aria-pressed="true"])::before{
+ content:none;opacity:0;animation:none;transition:none
+}
 .santa-state-tabs .tab-count{font-size:11px;font-weight:800;color:#655c57}
 .santa-state-empty{text-align:center;padding:46px 18px;border-radius:24px;border:1px dashed #ded4c7;background:#fcf8ef}
 .santa-state-empty h3{font-family:var(--heading);font-size:19px;line-height:1.5}

@@ -1852,3 +1852,105 @@ def test_auth_email_incomplete_feedback_waits_for_idle(browser_https):
                         context.close()
             finally:
                 browser.close()
+
+
+@pytest.mark.browser
+def test_chat_marker_exclusive_across_resolutions_and_pointer_types(browser_https,application):
+    """Actual game + computed marker visibility, not merely aria attributes."""
+    from uuid import uuid4
+    from test_cloud import login, call
+    owner=login(application)
+    guest=application.test_client()
+    eid=call(owner,'POST','/api/santas',{'title':'Chat marker '+uuid4().hex[:8]},201).json['id']
+    token=call(owner,'POST',f'/api/santas/{eid}/participants',{'name':'Marker guest'},201).json['participant_token']
+    call(owner,'POST',f'/api/santas/{eid}/participants',{'name':'Marker second guest'},201)
+    endpoint=f'/api/participant/{token}/messages/'
+    route=browser_https+'/p/'+token
+    rooms=('general','to-recipient','from-santa')
+    out=OUTPUT/'chat-marker'
+    out.mkdir(parents=True,exist_ok=True)
+    marker_visible="""room=>{
+      const buttons=[...document.querySelectorAll('#game-chat button[data-chat-room]')];
+      const selected=buttons.filter(b=>b.getAttribute('aria-pressed')==='true');
+      return selected.length===1&&selected[0].dataset.chatRoom===room&&
+       buttons.every(b=>{
+         const s=getComputedStyle(b,'::before');
+         return b.dataset.chatRoom===room?s.content!=='none'&&Number(s.opacity)>=.9:
+           s.content==='none'&&Number(s.opacity)===0&&s.animationName==='none';
+       });
+    }"""
+    with sync_playwright() as play:
+        # Before drawing, the one available chat is selected, even on touch.
+        browser=play.webkit.launch(headless=True)
+        try:
+            context=browser.new_context(viewport={'width':375,'height':812},
+                is_mobile=True,has_touch=True,ignore_https_errors=True)
+            page=context.new_page()
+            page.goto(route)
+            expect(page.locator('#game-chat [data-chat-room]')).to_have_count(1)
+            page.wait_for_function(marker_visible,arg='general')
+            context.close()
+        finally:
+            browser.close()
+        call(owner,'POST',f'/api/santas/{eid}/draw',{})
+        for room in rooms:
+            call(guest,'POST',endpoint+room,{'message':'Marker '+room},201)
+        for engine in ('chromium','webkit'):
+            browser=getattr(play,engine).launch(headless=True)
+            try:
+                for touch in (False,True):
+                    context=browser.new_context(viewport={'width':390,'height':844},
+                        is_mobile=touch,has_touch=touch,ignore_https_errors=True)
+                    try:
+                        page=context.new_page()
+                        page.goto(route)
+                        tabs=page.locator('#game-chat [data-chat-room]')
+                        expect(tabs).to_have_count(3)
+                        page.wait_for_function(marker_visible,arg='general')
+                        for width in (320,375,390,430,760,761,768,1024,1440):
+                            page.set_viewport_size({'width':width,'height':844})
+                            for room in ('to-recipient','from-santa','general'):
+                                tab=page.locator(f'#game-chat [data-chat-room="{room}"]')
+                                if not touch:
+                                    tab.hover()
+                                    # Hover must not create a second marker.
+                                    assert tab.evaluate("""b=>{
+                                      const s=getComputedStyle(b,'::before');
+                                      return b.getAttribute('aria-pressed')==='true'||
+                                        (s.content==='none'&&Number(s.opacity)===0);
+                                    }""")
+                                if touch:
+                                    tab.tap()
+                                else:
+                                    tab.click()
+                                # Inactive brushes disappear immediately, even
+                                # before the new selected brush finishes drawing.
+                                expect(page.locator('#game-chat [aria-pressed="true"]')).to_have_count(1)
+                                assert tabs.evaluate_all("""bs=>bs.filter(b=>b.getAttribute('aria-pressed')!=='true').every(b=>getComputedStyle(b,'::before').content==='none')""")
+                                page.wait_for_function(marker_visible,arg=room)
+                                expect(page.locator('.game-chat-messages')).to_contain_text('Marker '+room)
+                                for other in rooms:
+                                    if other!=room:
+                                        expect(page.locator('.game-chat-messages')).not_to_contain_text('Marker '+other)
+                            assert page.locator('#game-chat').evaluate('e=>e.getBoundingClientRect().width<=innerWidth+1')
+                            if width in (375,1440):
+                                page.locator('#game-chat').screenshot(path=str(out/f'{engine}-{width}-{"touch" if touch else "mouse"}.png'),animations='disabled')
+                        # Reduced motion, keyboard, and sending to the selected room.
+                        page.emulate_media(reduced_motion='reduce')
+                        tab=page.locator('#game-chat [data-chat-room="from-santa"]')
+                        tab.focus()
+                        tab.press('Enter')
+                        page.wait_for_function(marker_visible,arg='from-santa')
+                        message='Selected room '+engine+str(touch)
+                        page.locator('#game-chat-input').fill(message)
+                        page.locator('#game-chat-form button[type="submit"]').click()
+                        expect(page.locator('.game-chat-messages')).to_contain_text(message)
+                        page.wait_for_function(marker_visible,arg='from-santa')
+                        tab=page.locator('#game-chat [data-chat-room="general"]')
+                        tab.press('Enter')
+                        expect(page.locator('.game-chat-messages')).not_to_contain_text(message)
+                        page.wait_for_function(marker_visible,arg='general')
+                    finally:
+                        context.close()
+            finally:
+                browser.close()

@@ -110,6 +110,15 @@ function setupGameChat(state){
  const root=document.querySelector('#game-chat');if(!root)return;
  if(gameChatTimer){clearInterval(gameChatTimer);gameChatTimer=null;}
  let room='general',renderedKey='';
+ const tabs=Array.from(root.querySelectorAll('button[data-chat-room]'));
+ // The room is the sole selection state. Never use hover or a second
+ // active class as an independent indicator of the visible conversation.
+ const syncRoomTabs=()=>{
+  for(const tab of tabs){
+   const pressed=String(tab.dataset.chatRoom===room);
+   if(tab.getAttribute('aria-pressed')!==pressed)tab.setAttribute('aria-pressed',pressed);
+  }
+ };
  const roomCache=new Map(),inflight=new Map();
  const list=root.querySelector('.game-chat-messages');
  const markup=m=>'<div class="chat-message '+(m.mine?'chat-mine':'')+'"><div class="chat-meta">'+
@@ -152,15 +161,11 @@ function setupGameChat(state){
  };
  root.addEventListener('click',ev=>{
   const tab=ev.target.closest('[data-chat-room]');
-  if(tab){
+  if(tab&&tabs.includes(tab)){
    const next=tab.dataset.chatRoom;
    if(next===room)return;
    room=next;
-   root.querySelectorAll('[data-chat-room]').forEach(b=>{
-    const selected=b===tab;
-    if(b.classList.contains('active')!==selected)b.classList.toggle('active',selected);
-    if(b.getAttribute('aria-pressed')!==String(selected))b.setAttribute('aria-pressed',String(selected));
-   });
+   syncRoomTabs();
    showRoom(room);void load();
   }
   if(ev.target.closest('[data-chat-refresh]'))void load({force:true});
@@ -185,7 +190,7 @@ function setupGameChat(state){
   }catch(err){notice(err.message,true)}
   finally{button.disabled=false;}
  });
- showRoom(room);void load();
+ syncRoomTabs();showRoom(room);void load();
  gameChatTimer=setInterval(()=>{
   if(!root.isConnected){clearInterval(gameChatTimer);gameChatTimer=null;return;}
   if(document.visibilityState==='visible')void load({force:true});
