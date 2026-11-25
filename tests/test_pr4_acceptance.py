@@ -1243,8 +1243,8 @@ def test_guest_bootstrap_resilience_on_mobile_chromium_and_webkit(browser_https)
                     ignore_https_errors=True)
                 page=context.new_page()
                 try:
-                    page.route('**/santa-ui.js',lambda route:route.abort())
-                    page.route('**/social-ui.js',lambda route:route.abort())
+                    page.route('**/santa-ui.js*',lambda route:route.abort())
+                    page.route('**/social-ui.js*',lambda route:route.abort())
                     page.goto(browser_https+'/',wait_until='domcontentloaded')
                     expect(page.locator('.hero-copy h1')).to_contain_text(
                         'Подарки, о которых',timeout=10000)

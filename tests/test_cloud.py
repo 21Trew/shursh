@@ -589,7 +589,7 @@ def test_direct_browser_links_and_api_errors(application):
                  f'/w/{key}', f'/join/{invite}', f'/p/{participant}', f'/r/{reservation}']:
         page=call(guest,'GET',path)
         assert 'text/html' in page.content_type
-        assert 'src="/app.js"' in page.get_data(as_text=True)
+        assert 'src="/app.js?v=' in page.get_data(as_text=True)
         assert page.headers['Cache-Control']=='no-store'
     for path in ['/join/', '/join/../../server.py', '/list/abc', '/cloud/auth.py', '/.env.example']:
         call(guest,'GET',path,status=404)
@@ -3183,3 +3183,25 @@ def test_touch_login_native_and_admin_date_labels(browser_http,monkeypatch):
             assert '>Mac</span>' in result[3] and '<svg' not in result[3]
         finally:
             browser.close()
+
+def test_release_asset_fingerprint_and_stale_reveal_safe_failure(application):
+    import re
+    from app import UI_ASSETS,UI_VERSION
+    client=application.test_client()
+    for route in ('/','/santa/5','/profile'):
+        page=client.get(route,base_url=BASE)
+        assert page.status_code==200
+        assert page.headers['Cache-Control']=='no-store'
+        assert re.fullmatch(r'[a-f0-9]{20}',UI_VERSION)
+        assert page.headers['X-Shursh-UI-Version']==UI_VERSION
+        html=page.get_data(as_text=True)
+        for asset in UI_ASSETS:
+            assert f'"/{asset}?v={UI_VERSION}"' in html
+            result=client.get(f'/{asset}?v={UI_VERSION}',base_url=BASE)
+            assert result.status_code==200 and result.headers['X-Shursh-UI-Version']==UI_VERSION
+    for suffix in ('reveal','null/reveal','undefined/reveal','/reveal'):
+        reply=call(client,'POST','/api/participant/'+suffix,{},409)
+        assert 'Обнови страницу' in reply.json['error']
+        assert 'assignment' not in reply.json
+    # A valid-looking but unknown bearer must not enter the compatibility path.
+    call(client,'POST','/api/participant/'+'z'*43+'/reveal',{},404)

@@ -5,12 +5,15 @@
  *
  * Run only AFTER an authorized deploy: node tools/release-smoke.mjs
  */
-const ORIGIN = 'https://shursh.vercel.app';
+import { createHash } from 'node:crypto';
+const ORIGINS = ['https://shursh.fun', 'https://shursh.vercel.app'];
+const ASSETS = ['app.js','santa-ui.js','social-ui.js','styles.css','polish.css','fonts.css'];
+let ORIGIN = ORIGINS[0];
 const path = name => new URL(name, ORIGIN);
 
 async function get(name) {
   const resource = path(name);
-  if (resource.origin !== ORIGIN || resource.search || resource.hash) {
+  if (resource.origin !== ORIGIN || resource.hash || (resource.search && !(ASSETS.includes(resource.pathname.slice(1)) && /^\?v=[a-f0-9]{20}$/.test(resource.search)))) {
     throw new Error('Unsafe smoke target');
   }
   const response = await fetch(resource, {
@@ -25,6 +28,7 @@ async function get(name) {
     cache: response.headers.get('cache-control') || '',
     frame: response.headers.get('x-frame-options') || '',
     csp: response.headers.get('content-security-policy') || '',
+    version: response.headers.get('x-shursh-ui-version') || '',
     body: await response.text()
   };
 }
@@ -44,13 +48,17 @@ async function run() {
   assert(home.frame.toUpperCase() === 'DENY', 'Homepage must block framing');
   assert(home.csp.includes("default-src 'self'"), 'Homepage needs a CSP');
 
-  const app = await get('/app.js');
-  assert(app.status === 200 && app.type.includes('javascript'),
-    'Cloud frontend JavaScript must load');
-
-  const styles = await get('/styles.css');
-  assert(styles.status === 200 && styles.type.includes('text/css'),
-    'Cloud frontend CSS must load');
+  assert(/^[a-f0-9]{20}$/.test(home.version), 'Homepage must identify the UI version');
+  const hashes = {};
+  for (const asset of ASSETS) {
+    const url = '/'+asset+'?v='+home.version;
+    assert(home.body.includes('"'+url+'"'), 'HTML must reference versioned assets');
+    const result = await get(url);
+    assert(result.status === 200 && result.version === home.version, 'Versioned UI asset must match homepage');
+    assert(result.type.includes(asset.endsWith('.js')?'javascript':'text/css'), 'Incorrect asset content type');
+    hashes[asset] = createHash('sha256').update(result.body).digest('hex');
+    if (asset === 'app.js') assert(result.body.includes("state.base+'/reveal'"), 'Santa reveal must use role-aware context');
+  }
 
   const me = anonymousMe;
   assert(me.status === 200 && me.type.includes('application/json'),
@@ -81,9 +89,20 @@ async function run() {
   console.log('SHURSH PUBLIC ANONYMOUS SMOKE: PASS');
   console.log('Checked homepage, assets, headers, no-session API and unknown route');
   console.log('Manual authenticated signup, email redirect and guest-flow checks are still required');
+  return { version:home.version, hashes };
 }
 
-run().catch(error => {
+async function runAll() {
+  let first;
+  for (const origin of ORIGINS) {
+    ORIGIN=origin;
+    const result=await run();
+    if (!first) first=result;
+    else assert(JSON.stringify(first)===JSON.stringify(result), 'Production domains serve different UI builds');
+  }
+  console.log('SHURSH PRODUCTION DOMAIN PARITY: PASS');
+}
+runAll().catch(error => {
   // Error messages are authored strings only; never output request URLs or response bodies
   console.error('SHURSH PUBLIC ANONYMOUS SMOKE: FAIL');
   console.error(error instanceof Error ? error.message : 'Unexpected smoke failure');

@@ -5,6 +5,7 @@ import json
 import os
 import re
 import hmac
+import hashlib
 import secrets
 import sqlite3
 from flask import g
@@ -17,6 +18,13 @@ from cloud.backend import CloudRequest, serialize, valid_auth_email
 from server import ApiError, LIMIT_BYTES
 
 ROOT = Path(__file__).resolve().parent
+# One fingerprint for the HTML and every first-party UI module. A new release
+# cannot reuse a cached app.js under the previous HTML's unversioned URL.
+UI_ASSETS=('app.js','santa-ui.js','social-ui.js','styles.css','polish.css','fonts.css')
+_ui_digest=hashlib.sha256()
+for _asset in ('index.html',*UI_ASSETS):
+    _ui_digest.update(_asset.encode('ascii')+b'\0'+(ROOT/'public'/_asset).read_bytes())
+UI_VERSION=_ui_digest.hexdigest()[:20]
 app = Flask(__name__, static_folder=None)
 app.config['MAX_CONTENT_LENGTH'] = LIMIT_BYTES
 
@@ -66,6 +74,7 @@ def security_headers(result):
         result.headers['Cache-Control'] = 'public, max-age=300, must-revalidate'
     else:
         result.headers['Cache-Control'] = 'no-store'
+    result.headers['X-Shursh-UI-Version'] = UI_VERSION
     result.headers['X-Content-Type-Options'] = 'nosniff'
     result.headers['Referrer-Policy'] = 'no-referrer'
     result.headers['X-Frame-Options'] = 'DENY'
@@ -106,6 +115,11 @@ def api(route):
             return response({'user': None, 'demo': False})
         if path == '/api/dashboard':
             return response({'user': None, 'demo': False, 'lists': [], 'events': []})
+    # An already-open pre-fix tab may still send a broken participant URL.
+    # No game identifier is present: never guess the user's game or reveal
+    # anything on this compatibility path.
+    if request.method=='POST' and path in ('/api/participant/reveal','/api/participant/null/reveal','/api/participant/undefined/reveal','/api/participant//reveal'):
+        return response({'error':'Открыта старая версия игры. Обнови страницу и попробуй ещё раз'},409)
     if native_login:
         cookie=request.cookies.get('__Host-shursh_login_csrf','')
         submitted=request.form.get('login_csrf','')
@@ -252,6 +266,8 @@ def frontend(route=''):
         if fresh:
             csrf=secrets.token_urlsafe(32)
         html=(ROOT/'public'/'index.html').read_text(encoding='utf-8')
+        for asset in UI_ASSETS:
+            html=html.replace(f'"/{asset}"',f'"/{asset}?v={UI_VERSION}"')
         html=html.replace('</head>',f'<meta name="shursh-login-csrf" content="{csrf}"></head>',1)
         reply=Response(html,mimetype='text/html')
         if fresh:
