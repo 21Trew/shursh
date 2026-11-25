@@ -2489,7 +2489,7 @@ def test_admin_user_directory_is_paginated_and_only_for_site_admin(application,m
     result=call(manager,'GET','/api/admin/users').json
     assert result['limit']==25 and result['offset']==0 and result['total']>=2
     allowed={'id','name','handle','avatar_emoji','created_at','discoverable',
-             'wishlists_count','organized_games','joined_games','last_seen_at','last_platform'}
+             'wishlists_count','organized_games','joined_games','last_seen_at','last_platform','last_seen_source'}
     assert all(set(u)==allowed for u in result['users'])
     assert all('@example.test' not in str(u) for u in result['users'])
     assert call(manager,'GET','/api/admin/users?q=owner').json['total']>=1
@@ -3065,5 +3065,72 @@ def test_browser_login_password_manager_contract(browser_http):
             assert page.evaluate("""() => ![...Object.values(localStorage),...Object.values(sessionStorage)].some(v=>v.includes('valid-password'))""")
             page.reload()
             expect(page.locator('.dashboard-page h1')).to_contain_text('Owner')
+        finally:
+            browser.close()
+
+def test_native_login_redirect_remember_and_admin_limit(application,monkeypatch):
+    from cloud.backend import SESSION_SECONDS,REMEMBER_SESSION_SECONDS
+    import time
+    ordinary=application.test_client()
+    data={'email':'other@example.test','password':'valid-password','remember':'on','return_path':'//evil.test'}
+    response=ordinary.post('/api/login',base_url=BASE,data=data,headers={'Origin':BASE})
+    assert response.status_code==303 and response.headers['Location']=='/?shursh_login=ok'
+    cookie=response.headers['Set-Cookie']
+    assert f'Max-Age={REMEMBER_SESSION_SECONDS}' in cookie and 'HttpOnly' in cookie and 'Secure' in cookie
+    assert call(ordinary,'GET','/api/me').json['user']['id']==str(IDS['other@example.test'])
+    anonymous=application.test_client()
+    denied=anonymous.post('/api/login',base_url=BASE,data=data,headers={'Origin':'https://evil.test'})
+    assert denied.status_code==403
+    invalid=anonymous.post('/api/login',base_url=BASE,data={**data,'password':'wrong-password'},headers={'Origin':BASE})
+    assert invalid.status_code==303 and invalid.headers['Location']=='/?shursh_login=invalid'
+    assert 'Set-Cookie' not in invalid.headers
+    monkeypatch.setenv('SHURSH_ADMIN_EMAILS','owner@example.test')
+    manager=application.test_client()
+    reply=manager.post('/api/login',base_url=BASE,data={**data,'email':'owner@example.test'},headers={'Origin':BASE})
+    assert f'Max-Age={SESSION_SECONDS}' in reply.headers['Set-Cookie']
+
+
+def test_admin_visit_fallback_uses_known_session(application,monkeypatch):
+    monkeypatch.setenv('SHURSH_ADMIN_EMAILS','owner@example.test')
+    manager=login(application)
+    member=login(application,'other@example.test')
+    with psycopg.connect(os.environ['SHURSH_DATABASE_URL']) as con:
+        con.execute('DELETE FROM public.admin_user_activity WHERE user_id=%s',(IDS['other@example.test'],))
+        expected=con.execute('SELECT max(created_at) FROM public.app_sessions WHERE user_id=%s',(IDS['other@example.test'],)).fetchone()[0]
+    from datetime import datetime
+    row=next(u for u in call(manager,'GET','/api/admin/users').json['users'] if u['id']==str(IDS['other@example.test']))
+    assert row['last_seen_source']=='session' and row['last_platform']=='unknown'
+    assert datetime.fromisoformat(row['last_seen_at'])==expected
+
+
+@pytest.mark.browser
+def test_touch_login_native_and_admin_date_labels(browser_http,monkeypatch):
+    from playwright.sync_api import sync_playwright,expect
+    monkeypatch.setenv('SHURSH_ADMIN_EMAILS','owner@example.test')
+    with sync_playwright() as play:
+        browser=play.chromium.launch(headless=True)
+        try:
+            context=browser.new_context(viewport={'width':390,'height':844},is_mobile=True,has_touch=True)
+            page=context.new_page()
+            page.goto(browser_http+'/')
+            page.locator('header [data-open="login"]').click()
+            page.locator('#fld-email').fill('other@example.test')
+            page.locator('#fld-password').fill('valid-password')
+            page.locator('[name=remember]').check()
+            with page.expect_navigation():
+                page.locator('.modal-fixed-footer [type=submit]').click()
+            expect(page.locator('.dashboard-page h1')).to_contain_text('Other')
+            assert page.evaluate("!location.search.includes('shursh_login')")
+            page.reload()
+            expect(page.locator('.dashboard-page h1')).to_contain_text('Other')
+            result=page.evaluate("""() => {
+                const now=new Date(2026,10,25,15,0),today=new Date(2026,10,25,9,48),yesterday=new Date(2026,10,24,23,15);
+                return [socialAdminVisitDate(today,now),socialAdminVisitDate(yesterday,now),
+                    socialAdminVisitMarkup({last_seen_at:today.toISOString(),last_platform:'ios'}),
+                    socialAdminVisitMarkup({last_seen_at:today.toISOString(),last_platform:'macos'})];
+            }""")
+            assert result[:2]==['сегодня, 09:48','вчера, 23:15']
+            assert 'aria-label="iOS"' in result[2] and '<rect' not in result[2]
+            assert '>Mac</span>' in result[3] and '<svg' not in result[3]
         finally:
             browser.close()

@@ -39,6 +39,21 @@ function setupGameGiftOverflow(root=document){
   if(document.fonts?.ready)void document.fonts.ready.then(update);
  });
 }
+async function refreshGameOwnWishes(state){
+ if(!state||activeGameContext!==state)return;
+ const root=document.querySelector('.my-wishes-list');
+ if(!root)return;
+ const result=await api(state.base+(state.base.startsWith('/api/santas/')?'/my-wishes':'/wishes'));
+ if(!root.isConnected||activeGameContext!==state)return;
+ const wishes=result.wishes||[];
+ const scrollY=window.scrollY,trackX=root.querySelector('.game-gifts-track')?.scrollLeft||0;
+ state.own=wishes;
+ if(!state.memberView&&loadedSanta?.event.id===state.event.id)loadedSanta.my_wishes=wishes;
+ root.innerHTML=wishesMarkup(wishes);
+ setupGameGiftOverflow(root);
+ const track=root.querySelector('.game-gifts-track');if(track)track.scrollLeft=trackX;
+ if(Math.abs(window.scrollY-scrollY)>1)window.scrollTo({top:scrollY,behavior:'instant'});
+}
 function showGameWishDetails(el){
  const state=activeGameContext;if(!state)return;
  const source=el.dataset.source||'own';
@@ -86,7 +101,7 @@ function gameGiftModal(edit=null){
     const url=state.base+(state.base.startsWith('/api/santas/')?'/my-wishes':'/wishes')+(isEdit?'/'+gift.id:'');
     await api(url,{method:isEdit?'PATCH':'POST',body:data});
     notice(isEdit?'Подарок обновлён':'Подарок добавлен');
-    await render();
+    await refreshGameOwnWishes(state);
    }});
  fixWishModalLayout();
   const desc=modalRoot.querySelector('#fld-description');if(desc)desc.maxLength=800;

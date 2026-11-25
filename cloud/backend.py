@@ -13,6 +13,7 @@ from server import Handler, ApiError, req, token, token_hash, decode_image, LIMI
 from cloud import auth, db, social, password_policy
 
 SESSION_SECONDS = 24 * 60 * 60
+REMEMBER_SESSION_SECONDS = 30 * SESSION_SECONDS
 IMAGE_USER_LIMIT = 12_000_000
 IMAGE_TOTAL_LIMIT = 100_000_000
 
@@ -192,12 +193,12 @@ class CloudRequest(Handler):
         name = display.strip()[:40] if isinstance(display,str) and display.strip() else 'Друг'
         return (uid,name,provider['email'])
 
-    def prepare_auth(self, path):
+    def prepare_auth(self, path, form_data=None):
         self.throttled('auth', 15)
         # Release the completed rate-limit transaction before waiting on HTTPS
         # so slow Supabase Auth does not reserve a PostgreSQL connection.
         db.close_request_connection()
-        data = self.body()
+        data = form_data if form_data is not None else self.body()
         email = valid_auth_email(data.get('email'))
         action = 'register' if path.endswith('register') else 'login'
         password = data.get('password') if action == 'register' else valid_auth_password(data.get('password'))
@@ -227,7 +228,7 @@ class CloudRequest(Handler):
         name = display.strip()[:40] if isinstance(display, str) and display.strip() else 'Друг'
         return (uid, name, provider.get('email') or email)
 
-    def finish_auth(self, con, prepared):
+    def finish_auth(self, con, prepared, remember=False):
         uid,name,verified_email = prepared
         con.execute('INSERT INTO profiles(id,name) VALUES(?,?) ON CONFLICT(id) DO NOTHING', (uid,name))
         value = token()
@@ -236,8 +237,6 @@ class CloudRequest(Handler):
         previous = self.request.cookies.get('shursh_sid','')
         if re.fullmatch(r'[A-Za-z0-9_-]{43}',previous):
             con.execute('DELETE FROM app_sessions WHERE token_hash=?',(token_hash(previous),))
-        con.execute('INSERT INTO app_sessions(token_hash,user_id,email,expires_at) VALUES(?,?,?,?)',
-                    (token_hash(value),uid,verified_email,now+SESSION_SECONDS))
         rec = con.execute('''SELECT p.id,p.name,p.avatar_emoji,p.handle,
                         (a.user_id IS NOT NULL) AS admin_granted
                         FROM profiles p LEFT JOIN site_admins a ON a.user_id=p.id
@@ -246,8 +245,11 @@ class CloudRequest(Handler):
         granted=dict(rec)
         is_admin=bool(granted.pop('admin_granted',False) or
                       (admins and verified_email.casefold() in admins))
+        ttl=REMEMBER_SESSION_SECONDS if remember and not is_admin else SESSION_SECONDS
+        con.execute('INSERT INTO app_sessions(token_hash,user_id,email,expires_at) VALUES(?,?,?,?)',
+                    (token_hash(value),uid,verified_email,now+ttl))
         return 200, {'user': {**granted,'email':verified_email,
-                 'is_admin':is_admin}}, self.send_cookie(value)
+                 'is_admin':is_admin}}, self.send_cookie(value,ttl)
 
     def handle_api(self, method, path, con):
         if method == 'GET' and path == '/api/me':

@@ -121,13 +121,13 @@ function invalidateOwnerDataForMutation(path){
  }
  // Chat, profile notes and support do not affect dashboard/list snapshots.
  // Clearing all cached owner views after every message caused needless work.
- if(/^\/api\/(?:santas\/\d+|participant\/[^/]+)\/(?:messages\/|preferences$)/.test(path)
+ if(/^\/api\/(?:santas\/\d+|member\/\d+|participant\/[^/]+)\/(?:messages\/|preferences$)/.test(path)
     ||path==='/api/feedback'||/^\/api\/admin\/feedback(?:\/|$)/.test(path))return;
  // Scoped invalidation: creating a wishlist does not change Santa games,
  // and changing a Santa event does not change owned wishlists.
  const listMutation=/^\/api\/(?:lists|wishes)(?:\/|$)/.test(path);
  const santaMutation=/^\/api\/santas(?:\/|$)/.test(path) ||
-  /^\/api\/participant\/[^/]+\/(?:wishes|claim)$/.test(path) ||
+  /^\/api\/(?:member\/\d+|participant\/[^/]+)\/(?:wishes(?:\/|$)|claim$|reveal$)/.test(path) ||
   /^\/api\/invites\/[^/]+\/join$/.test(path);
  if(!listMutation&&!santaMutation){clearOwnerDataCache();return;}
  ownerCacheVersion++;
@@ -274,7 +274,7 @@ function animateAuthModalHeight(dialog,from){
  const motion={dialog,animation,target};authModalMotion=motion;
  animation.onfinish=()=>{if(authModalMotion===motion)stopAuthModalMotion();};
 }
-function modal({title,subtitle='',content='',onSubmit=null,onError=null,submitLabel='Сохранить',size='normal',footer='',authScreen='' }){
+function modal({title,subtitle='',content='',onSubmit=null,onError=null,submitLabel='Сохранить',size='normal',footer='',authScreen='',nativeSubmit=false }){
  const priorDialog=modalRoot.querySelector('.modal');
  const reuseAuth=!!(authScreen&&priorDialog?.dataset.authScreen);
  const oldHeight=priorDialog?.getBoundingClientRect().height||0;
@@ -353,7 +353,7 @@ function modal({title,subtitle='',content='',onSubmit=null,onError=null,submitLa
   modalContentObserver.observe(scroller,{childList:true,characterData:true,subtree:true});
  }
  document.body.style.overflow='hidden';const bd=modalRoot.querySelector('[data-backdrop]');if(!reuseAuth)bd.addEventListener('click',e=>{if(e.target===bd)closeModal()});modalRoot.querySelectorAll('[data-close]').forEach(b=>b.addEventListener('click',closeModal));
- if(onSubmit){modalRoot.querySelector('form').addEventListener('submit',async e=>{e.preventDefault();const btn=e.currentTarget.querySelector('[type=submit]')||modalRoot.querySelector('.modal-fixed-footer [type=submit]');if(btn.disabled)return;btn.disabled=true;const submitted=e.currentTarget;try{await onSubmit(submitted);if(modalRoot.querySelector('form')===submitted)closeModal();}catch(err){if(onError){if(submitted.isConnected)onError(err,submitted);}else notice(err.message,true)}finally{if(btn.isConnected)btn.disabled=false;}});}
+ if(onSubmit){modalRoot.querySelector('form').addEventListener('submit',async e=>{if(nativeSubmit){if(e.defaultPrevented)return;const password=e.currentTarget.elements.password;if(password)password.type='password';return;}e.preventDefault();const btn=e.currentTarget.querySelector('[type=submit]')||modalRoot.querySelector('.modal-fixed-footer [type=submit]');if(btn.disabled)return;btn.disabled=true;const submitted=e.currentTarget;try{await onSubmit(submitted);if(modalRoot.querySelector('form')===submitted)closeModal();}catch(err){if(onError){if(submitted.isConnected)onError(err,submitted);}else notice(err.message,true)}finally{if(btn.isConnected)btn.disabled=false;}});}
  // No delayed autofocus: it can steal focus while the user types in the
  // password field, silently redirecting keystrokes to email after 10 ms.
  // Fields focus on the first intentional click; avoid noisy autofocus rings.
@@ -1161,14 +1161,14 @@ async function santaGamePage(id,marker=lastRenderToken,participantToken=null){
   button.disabled=true;
   try{await api(activeGameContext.base+(memberView?'/wishes':'/my-wishes'),
          {method:'POST',body:readForm(form)});
-      notice('Желание добавлено');await render();}
+      notice('Желание добавлено');await refreshGameOwnWishes(activeGameContext);}
   catch(err){notice(err.message,true);button.disabled=false;}
  });
 }
 async function myWishesForAdmin(id){const res=await api(`/api/santas/${id}/my-wishes`);return wishesMarkup(res.wishes);}
 function secretCard(assignment){if(!assignment||!assignment.revealed)return `<div class="secret-card">${envelopeArt()}<h2>Твой получатель ждёт внутри</h2><p>Никто, кроме тебя, не увидит это имя</p><button class="btn btn-dark" type="button" data-action="reveal">Узнать, кому я дарю ${ico('spark')}</button></div>`;
  return `<div class="secret-card revealed"><div class="recipient-summary">${ico('check')}<div><div class="recipient-eyebrow">Твой получатель</div><div class="recipient">${esc(assignment.receiver_name)}</div>${assignment.receiver_user_id?`<button class="text-link recipient-profile-link" data-nav="/users/${attr(assignment.receiver_user_id)}">Профиль получателя ${ico('arrow')}</button>`:""}</div></div><div class="recipient-wishes">
-  ${preferenceSummary(assignment.preferences)}
+  ${preferenceSummary(assignment.preferences,false)}
   <strong>Подарки получателя</strong>${assignment.wish_cards?.length?wishesMarkup(assignment.wish_cards,'recipient'):'<p class="recipient-empty">Пока без пожеланий - можно придумать сюрприз самому</p>'}</div></div>`;}
 function santaRuleMarkup(exclusions,people){
  return exclusions.length?exclusions.map(r=>'<span class="rule-chip">'+esc(people.find(p=>p.id===r.giver_id)?.name||'?')+' → '+esc(people.find(p=>p.id===r.receiver_id)?.name||'?')+' <button type="button" title="Убрать ограничение" aria-label="Убрать ограничение" data-action="remove-rule" data-from="'+r.giver_id+'" data-to="'+r.receiver_id+'">×</button></span>').join(''):'<span class="muted">Пока нет исключений</span>';
@@ -1208,8 +1208,8 @@ function editSantaIdentity(fieldName){
  control.replaceWith(editor);editor.focus({preventScroll:true});
  if(!budget&&!date)editor.select();
 }
-function preferenceSummary(preferences){
- const row=(title,value)=>'<button type="button" class="game-gift-note santa-pref-row" data-action="edit-santa-preferences" title="Редактировать пожелания"><strong>'+title+'</strong><p>'+(value?esc(value):'<span class="muted">Не указано</span>')+'</p></button>';
+function preferenceSummary(preferences,editable=true){
+ const row=(title,value)=>(editable?'<button type="button" class="game-gift-note santa-pref-row" data-action="edit-santa-preferences" title="Редактировать пожелания">':'<div class="game-gift-note santa-pref-row">')+'<strong>'+title+'</strong><p>'+(value?esc(value):'<span class="muted">Не указано</span>')+'</p>'+(editable?'</button>':'</div>');
  return '<div class="participant-preferences-summary">'+
  row('Что хотелось бы',preferences?.wanted)+row('Чего не хотелось бы',preferences?.unwanted)+'</div>';
 }
@@ -1843,21 +1843,26 @@ async function authSuccess(result,register){
 }
 function loginModal(mode='login',email=''){
  const register=mode==='register';
+ // Real touch browsers use a native POST/redirect login. AJAX remains for
+ // desktop and preview, where the Credential Management API is available.
+ const nativeSubmit=!register&&!isPreview&&matchMedia('(pointer: coarse)').matches;
  // Registering or logging in directly from a private participant page
  // is an explicit membership recovery action, even via the header.
  const pageToken=!currentUser&&currentPath().match(/^\/p\/([A-Za-z0-9_-]{43})$/)?.[1];
  if(pageToken&&!pendingGameClaim)savePendingGameClaim(pageToken);
- modal({authScreen:register?'register':'login',title:register?'Давай знакомиться!':'С возвращением!',
+ modal({nativeSubmit,authScreen:register?'register':'login',title:register?'Давай знакомиться!':'С возвращением!',
   subtitle:pendingGameClaim?'После входа сохраним эту игру в твоём аккаунте':register?'Создай аккаунт, чтобы хранить свои списки и организовывать игры':'Твои желания уже соскучились',
   content:(register?field('Как тебя зовут?','name','Например, Саша','text','',true,'maxlength="40" autocomplete="name"'):'')+
    field('Почта','email','you@example.com','text',email,true,'inputmode="email" autocomplete="username" autocapitalize="none" spellcheck="false" maxlength="200"')+passwordField(register)+
-   (register?confirmPasswordField():'')+authFormWarning(),
+   (register?confirmPasswordField():shurshCheckbox('remember','Оставаться в аккаунте 30 дней',false))+
+   (nativeSubmit?'<input type="hidden" name="return_path" value="'+attr(currentPath())+'">':'')+authFormWarning(),
   onError:showAuthFormWarning,
   submitLabel:register?'Создать аккаунт':'Войти',
   onSubmit:async form=>{
    clearAuthFormWarning(form);
    const payload=readForm(form);
    delete payload.confirm_password;
+   if(!register)payload.remember=!!form.elements.remember?.checked;
    const result=await api(register?'/api/register':'/api/login',{method:'POST',body:payload});
    if(result.pending_confirmation){if(register)persistSignupClaim();if(form.isConnected)confirmationModal(payload.email);return;}
    if(!register&&result.user)offerLoginCredential(payload.email,payload.password);
@@ -1968,9 +1973,9 @@ async function importOwnWishesModal(el){
  const collection=await api('/api/santa/library');
  const lists=collection.lists||[];
  if(!lists.length){notice('Сначала создай собственный вишлист',true);return;}
- const endpoint=activeGameContext?.base.startsWith('/api/member/')?activeGameContext.base+'/wishes/import':
-   el.dataset.key?'/api/participant/'+el.dataset.key+'/wishes/import':
-   '/api/santas/'+el.dataset.id+'/my-wishes/import';
+ const state=activeGameContext;
+ if(!state||!el.isConnected)return;
+ const endpoint=state.base+(state.base.startsWith('/api/santas/')?'/my-wishes/import':'/wishes/import');
  const options=lists.map(l=>'<option value="'+l.id+'">'+esc(l.title)+'</option>').join('');
  modal({title:'Добавить из вишлиста',subtitle:'Выбери список и подарки. Копируются название, описание, цена, ссылка и доступное фото',
    content:'<div class="field"><label for="import-list">Вишлист</label><select id="import-list" name="list_id">'+options+'</select></div>'+
@@ -1981,7 +1986,7 @@ async function importOwnWishesModal(el){
      if(!wish_ids.length)throw new Error('Выбери хотя бы один подарок');
      const result=await api(endpoint,{method:'POST',body:{list_id,wish_ids}});
      notice(result.added?'Добавлено '+ruCount(result.added,'подарок','подарка','подарков'):'Эти подарки уже добавлены');
-     await render();
+     if(result.added)await refreshGameOwnWishes(state);
    }});
  const select=modalRoot.querySelector('#import-list');
  const choices=modalRoot.querySelector('#import-wish-choices');
@@ -2082,9 +2087,9 @@ async function dispatch(action,el){try{
  if(action==='delete-game-gift'){
   const gift=activeGameContext?.own?.find(w=>Number(w.id)===Number(el.dataset.id));
   if(gift)confirmAction('Удалить подарок?','Подарок и его пожелания исчезнут из игры',async()=>{
-   const base=activeGameContext.base;
+   const state=activeGameContext,base=state.base;
    await api(base+(base.startsWith('/api/santas/')?'/my-wishes':'/wishes')+'/'+gift.id,{method:'DELETE'});
-   notice('Подарок удалён');await render();
+   notice('Подарок удалён');await refreshGameOwnWishes(state);
   });
  }
  if(action==='show-wish')showWishDetails(el);
@@ -2173,6 +2178,12 @@ let authReturnNotice = null;
 let authReturnError = false;
 let confirmationToken = null;
 const authFragment=new URLSearchParams(location.hash.slice(1));
+const nativeLoginQuery=new URLSearchParams(location.search);
+const nativeLoginResult=!isPreview?nativeLoginQuery.get('shursh_login'):null;
+if(nativeLoginResult){
+ nativeLoginQuery.delete('shursh_login');
+ history.replaceState(null,'',location.pathname+(nativeLoginQuery.size?'?'+nativeLoginQuery:'')+location.hash);
+}
 if(!isPreview && ['access_token','refresh_token','error','error_code','error_description']
     .some(key=>authFragment.has(key))){
  confirmationToken=authFragment.get('access_token');
@@ -2280,6 +2291,21 @@ if(!isPreview)(async()=>{
   }finally{confirmationToken=null;}
  }
  await render();
+ if(nativeLoginResult==='ok'&&currentUser){
+  broadcastSessionChange();
+  if(pendingGameClaim){
+   const claim=pendingGameClaim;
+   try{await claimPersonalGame(claim);}
+   catch(err){notice('Ты вошёл, но игру пока не удалось привязать',true);nav('/p/'+claim,{force:true});}
+   return;
+  }
+  notice('С возвращением!');
+ }else if(['invalid','rate','unavailable'].includes(nativeLoginResult)){
+  loginModal();
+  const form=modalRoot.querySelector('#modal-form');
+  const status=nativeLoginResult==='rate'?429:nativeLoginResult==='unavailable'?503:401;
+  showAuthFormWarning({status,message:'Проверь почту, пароль и подтверждение адреса'},form);
+ }
  if(authReturnError){
   modal({title:'Не получилось завершить подтверждение',
    subtitle:authReturnNotice||'Ссылка могла истечь или быть открыта повторно',

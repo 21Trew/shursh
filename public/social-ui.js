@@ -255,19 +255,29 @@ async function socialNotificationsPage(marker=lastRenderToken){
   '</section></main>');
  socialRefreshBadge();
 }
+function socialAdminVisitDate(date,now=new Date()){
+ const today=new Date(now.getFullYear(),now.getMonth(),now.getDate());
+ const yesterday=new Date(now.getFullYear(),now.getMonth(),now.getDate()-1);
+ const day=new Date(date.getFullYear(),date.getMonth(),date.getDate());
+ const time=date.toLocaleTimeString('ru-RU',{hour:'2-digit',minute:'2-digit'});
+ return +day===+today?'сегодня, '+time:+day===+yesterday?'вчера, '+time:
+  date.toLocaleString('ru-RU',{dateStyle:'medium',timeStyle:'short'});
+}
 function socialAdminVisitMarkup(u){
  if(!u.last_seen_at)return '<span class="muted">Нет данных</span>';
  const platforms={
   windows:['Windows','<path d="M2 4l9-1.3V11H2zm11-1.6L22 1v10h-9zM2 13h9v8.3L2 20zm11 0h9v10l-9-1.4z"/>'],
-  macos:['macOS','<path d="M16.2 2c.2 2-1.4 4-3.5 4.4-.3-2 1.5-4 3.5-4.4ZM20 13.8c-.9-1.3-1.3-2.8-.6-4.2-2.1-2.7-4.2-2-6-1.3-1 .4-1.8.3-2.8-.1C7 6.5 3.6 9.5 4.2 14c.5 3.4 2.9 7.9 5 7.9 1 0 1.6-.7 3.2-.7 1.5 0 2.2.7 3.3.7 2.1 0 4.1-3.6 4.9-6.1-1.7-.7-2.6-1.9-2.6-2Z"/>'],
+  macos:['Mac',null],
   linux:['Linux','<path d="M12 2c-3 0-4.5 2.4-4.5 5.5 0 3-3.5 6-3.5 10 0 1.6.8 3 2 3.4 1.6.5 3.7-.5 6-.5s4.4 1 6 .5c1.2-.4 2-1.8 2-3.4 0-4-3.5-7-3.5-10C16.5 4.4 15 2 12 2Z"/><ellipse cx="12" cy="15.5" rx="4.2" ry="4.6" fill="#fffefa"/><circle cx="10" cy="7" r=".9" fill="#fffefa"/><circle cx="14" cy="7" r=".9" fill="#fffefa"/><path d="m10 9 2 1.8L14 9l-2-.8z" fill="#fffefa"/>'],
   android:['Android','<path d="M3 16a9 9 0 0 1 18 0H3Z"/><path d="m6 8-2-3m14 3 2-3" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round"/><circle cx="8" cy="12" r="1" fill="#fffefa"/><circle cx="16" cy="12" r="1" fill="#fffefa"/>'],
-  ios:['iOS','<rect x="6" y="2" width="12" height="20" rx="3" fill="none" stroke="currentColor" stroke-width="1.8"/><path d="M10 5h4m-3 14h2" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round"/>']
+  ios:['iOS','<path d="M16.2 2c.2 2-1.4 4-3.5 4.4-.3-2 1.5-4 3.5-4.4ZM20 13.8c-.9-1.3-1.3-2.8-.6-4.2-2.1-2.7-4.2-2-6-1.3-1 .4-1.8.3-2.8-.1C7 6.5 3.6 9.5 4.2 14c.5 3.4 2.9 7.9 5 7.9 1 0 1.6-.7 3.2-.7 1.5 0 2.2.7 3.3.7 2.1 0 4.1-3.6 4.9-6.1-1.7-.7-2.6-1.9-2.6-2Z"/>']
  };
  const platform=Object.hasOwn(platforms,u.last_platform)?platforms[u.last_platform]:['Не определена','<circle cx="12" cy="12" r="9" fill="none" stroke="currentColor" stroke-width="1.6"/><path d="M9 9a3 3 0 0 1 6 0c0 2-3 2-3 4m0 3v1" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round"/>'];
  const date=new Date(u.last_seen_at);
  if(!Number.isFinite(date.getTime()))return '<span class="muted">Нет данных</span>';
- return '<div class="admin-user-identity"><svg width="20" height="20" viewBox="0 0 24 24" fill="currentColor" role="img" aria-label="'+attr(platform[0])+'" focusable="false"><title>'+esc(platform[0])+'</title>'+platform[1]+'</svg><span><time datetime="'+attr(u.last_seen_at)+'">'+esc(date.toLocaleString('ru-RU',{dateStyle:'medium',timeStyle:'short'}))+'</time></span></div>';
+ const symbol=platform[1]?'<svg width="20" height="20" viewBox="0 0 24 24" fill="currentColor" role="img" aria-label="'+attr(platform[0])+'" focusable="false"><title>'+esc(platform[0])+'</title>'+platform[1]+'</svg>':'<span aria-label="macOS" title="macOS">Mac</span>';
+ const provenance=u.last_seen_source==='session'?'Последний известный вход по сессии; устройство не записано':'Последний зафиксированный визит';
+ return '<div class="admin-user-identity">'+symbol+'<span><time title="'+attr(provenance)+'" datetime="'+attr(u.last_seen_at)+'">'+esc(socialAdminVisitDate(date))+'</time></span></div>';
 }
 function socialAdminUsersMarkup(page){
  const rows=(page.users||[]).map(u=>'<tr><td><div class="admin-user-identity"><span class="admin-user-emoji">'+

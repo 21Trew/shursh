@@ -122,8 +122,15 @@ def handle(handler, method, path, con):
         total=con.execute('SELECT count(*) AS n FROM profiles p '+where,args).fetchone()['n']
         # Backward-safe read during rollout: no invented historical activity.
         ready=con.execute("SELECT to_regclass('public.admin_user_activity') IS NOT NULL AS ready").fetchone()['ready']
-        activity_columns='a.last_seen_at,a.last_platform' if ready else 'NULL AS last_seen_at,NULL AS last_platform'
-        activity_join=' LEFT JOIN admin_user_activity a ON a.user_id=p.id ' if ready else ' '
+        seen='a.last_seen_at' if ready else 'NULL::timestamptz'
+        platform='a.last_platform' if ready else 'NULL::text'
+        recorded=f'({seen} IS NOT NULL AND (s.latest_session_at IS NULL OR {seen}>=s.latest_session_at))'
+        activity_columns=f'''GREATEST({seen},s.latest_session_at) AS last_seen_at,
+          CASE WHEN {recorded} THEN {platform} WHEN s.latest_session_at IS NOT NULL THEN 'unknown' END AS last_platform,
+          CASE WHEN {recorded} THEN 'visit' WHEN s.latest_session_at IS NOT NULL THEN 'session' END AS last_seen_source'''
+        activity_join=(' LEFT JOIN admin_user_activity a ON a.user_id=p.id ' if ready else ' ')+'''
+          LEFT JOIN LATERAL (SELECT max(created_at) AS latest_session_at FROM app_sessions
+                             WHERE user_id=p.id) s ON TRUE '''
         rows=con.execute('''SELECT p.id,p.name,p.handle,p.avatar_emoji,p.created_at,p.discoverable,
                  '''+activity_columns+''',
                  (SELECT count(*) FROM wishlists w WHERE w.owner_id=p.id) AS wishlists_count,

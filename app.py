@@ -7,7 +7,7 @@ import re
 import sqlite3
 from flask import g
 from pathlib import Path
-from flask import Flask, Response, request, send_from_directory
+from flask import Flask, Response, request, send_from_directory, redirect
 from werkzeug.exceptions import RequestEntityTooLarge
 
 from cloud import db, auth, password_policy, activity
@@ -99,6 +99,15 @@ def api(route):
             return response({'user': None, 'demo': False})
         if path == '/api/dashboard':
             return response({'user': None, 'demo': False, 'lists': [], 'events': []})
+    native_login=(path=='/api/login' and request.method=='POST' and
+                  request.mimetype=='application/x-www-form-urlencoded')
+    if native_login:
+        origin=request.headers.get('Origin')
+        if not origin and request.headers.get('Sec-Fetch-Site')!='same-origin':
+            return response({'error':'Запрос из другого источника отклонён'},403)
+        landing=request.form.get('return_path','/')
+        if not re.fullmatch(r'/(?:join/(?:p/)?[A-Za-z0-9_-]{1,128}|w/[A-Za-z0-9_-]{1,128}|p/[A-Za-z0-9_-]{43})?',landing):
+            landing='/'
     handler = CloudRequest(request)
     try:
         # Auth's upstream HTTP request must not run inside a DB transaction:
@@ -138,12 +147,20 @@ def api(route):
             activity.record_successful_visit(request,result[1].get('user'),app.logger)
             return response(result[1],result[0],result[2])
         if path in ('/api/register','/api/login') and request.method=='POST':
-            prepared=handler.prepare_auth(path)
+            form_data=request.form if native_login else None
+            prepared=handler.prepare_auth(path,form_data)
             if prepared is None:
                 return response({'user':None,'pending_confirmation':True},202)
+            remember=(request.form.get('remember')=='on' if native_login else
+                      (request.get_json(silent=True) or {}).get('remember') is True)
             with db.transaction(write=True,rate_limit=True) as con:
-                result=handler.finish_auth(con,prepared)
+                result=handler.finish_auth(con,prepared,remember=path=='/api/login' and remember)
             activity.record_successful_visit(request,result[1].get('user'),app.logger)
+            if native_login:
+                destination='/' if landing.startswith('/p/') else landing
+                reply=redirect(destination+'?shursh_login=ok',code=303)
+                reply.headers['Set-Cookie']=result[2]
+                return reply
             return response(result[1],result[0],result[2])
         # Authentication has a stricter dedicated limiter inside CloudRequest.
         # Avoid two separate PostgreSQL rate-limit transactions per login.
@@ -153,7 +170,7 @@ def api(route):
         # Avoid a second PostgreSQL connection/transaction while a chat write
         # holds the advisory write lock.
         if request.method=='POST' and re.fullmatch(
-            r'/api/(?:santas/\d+|participant/[A-Za-z0-9_-]+)/messages/(?:general|to-recipient|from-santa)',path
+            r'/api/(?:santas/\d+|member/\d+|participant/[A-Za-z0-9_-]+)/messages/(?:general|to-recipient|from-santa)',path
         ):
             handler.throttled('chat',20)
             handler._chat_rate_checked=True
@@ -170,7 +187,10 @@ def api(route):
                 and request.headers.get('X-Shursh-Visit')=='1' and result[0]==200):
             activity.record_successful_visit(request,result[1].get('user'),app.logger)
         return response(result[1],result[0],result[2])
-    except ApiError:
+    except ApiError as exc:
+        if native_login:
+            code='rate' if exc.status==429 else 'unavailable' if exc.status>=500 else 'invalid'
+            return redirect(landing+'?shursh_login='+code,code=303)
         raise
     except sqlite3.IntegrityError:
         return response({'error':'Конфликт данных. Обнови страницу и повтори'},409)
@@ -179,6 +199,8 @@ def api(route):
     except Exception as exc:
         # Never log request URLs (bearer capabilities), secrets, or raw DB errors.
         app.logger.error('Cloud API failure: %s',type(exc).__name__)
+        if native_login:
+            return redirect(landing+'?shursh_login=unavailable',code=303)
         return response({'error':'Сервис временно недоступен. Повтори позже'},503)
 
 
