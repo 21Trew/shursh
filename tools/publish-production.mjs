@@ -4,7 +4,7 @@ import {homedir} from 'node:os';
 import {join,resolve} from 'node:path';
 import {pathToFileURL} from 'node:url';
 import {setTimeout as sleep} from 'node:timers/promises';
-import {validateIntent,validateWorkflow,checkApproval,openCentralJournal,assertJournalBaseline} from './release-control.mjs';
+import {validateIntent,validateWorkflow,checkApproval,checkTrustedCI,openCentralJournal,assertJournalBaseline} from './release-control.mjs';
 
 export const REPO='21Trew/shursh', TEAM='team_JwJahAWZHQGMIoWnWAS0YWw3', PROJECT='prj_IRKWRDtNSrL0VXF0rPGmM358whHs';
 export const ASSETS=['app.js','santa-ui.js','social-ui.js','styles.css','polish.css','fonts.css'];
@@ -280,7 +280,7 @@ export async function main(argv=process.argv.slice(2)){
      }catch(error){save({...j,state:'rollback-required'});throw error;}
    }
    const sha=opts['--sha'],pr=opts['--pr'],run=opts['--run'],candidate=opts['--deployment'];
-   const ci=()=>getCI(pr,run,sha);
+   const ci=async()=>{await getCI(pr,run,sha);if(central)await checkTrustedCI(gh,sha,process.env.GITHUB_SHA)};
    await ci();
    assertProjectIdle(await getProject(),{publishing:true});
    const next=await getDeployment(candidate);validateDeployment(next,sha);

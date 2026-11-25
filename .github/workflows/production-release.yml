@@ -1,5 +1,5 @@
 name: Manual Production release
-run-name: Shursh ${{ inputs.operation }} · ${{ inputs.apply && 'APPLY' || 'DRY RUN' }} · ${{ inputs.sha }} · ${{ inputs.expected_live }}
+run-name: Shursh ${{ inputs.operation }} · ${{ inputs.apply && 'APPLY' || 'DRY RUN' }} · ${{ inputs.sha }} · ${{ inputs.deployment }} · ${{ inputs.expected_live }}
 on:
   workflow_dispatch:
     inputs:

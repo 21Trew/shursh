@@ -39,6 +39,12 @@ export function validateApproval(environment,run,reviews,env){
  const relevant=Array.isArray(reviews)?reviews.filter(r=>r.environments?.some(e=>e.id===environment.id&&e.name===RELEASE_ENV)):[];
  assert(relevant.length===1&&relevant[0].state==='approved'&&relevant[0].user?.id&&relevant[0].user.id!==run.actor.id,'Independent environment approval not verified');
 }
+export async function checkTrustedCI(gh,sha,controllerSHA){
+ assert(shaOK(sha)&&shaOK(controllerSHA),'Invalid candidate or controller SHA');
+ const path='/contents/.github/workflows/ci.yml?ref=';
+ const [candidate,controller]=await Promise.all([gh(path+sha),gh(path+controllerSHA)]);
+ assert(candidate.path==='.github/workflows/ci.yml'&&controller.path===candidate.path&&candidate.type==='file'&&controller.type==='file'&&shaOK(candidate.sha)&&candidate.sha===controller.sha,'Candidate CI definition differs from trusted controller; review it separately before release');
+}
 export async function checkApproval(gh,env){
  validateWorkflow(env,{apply:true});
  const id=env.GITHUB_RUN_ID;

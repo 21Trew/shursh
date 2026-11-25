@@ -1,7 +1,7 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import {readFileSync} from 'node:fs';
-import {validateIntent,validateWorkflow,validateApproval,checkApproval,openCentralJournal,assertJournalBaseline,RELEASE_REPO,RELEASE_ENV,JOURNAL_BRANCH,JOURNAL_PATH} from '../tools/release-control.mjs';
+import {validateIntent,validateWorkflow,validateApproval,checkApproval,checkTrustedCI,openCentralJournal,assertJournalBaseline,RELEASE_REPO,RELEASE_ENV,JOURNAL_BRANCH,JOURNAL_PATH} from '../tools/release-control.mjs';
 const sha='a'.repeat(40),prior='b'.repeat(40),previous='dpl_old',candidate='dpl_new';
 const env={GITHUB_ACTIONS:'true',GITHUB_REPOSITORY:RELEASE_REPO,GITHUB_EVENT_NAME:'workflow_dispatch',GITHUB_REF:'refs/heads/main',GITHUB_WORKFLOW_REF:RELEASE_REPO+'/.github/workflows/production-release.yml@refs/heads/main',GITHUB_REF_PROTECTED:'true',GITHUB_SHA:prior,GITHUB_RUN_ID:'42',GITHUB_RUN_ATTEMPT:'1',SHURSH_RELEASE_ENABLED:'true',DISPATCH_ACTION:'publish',DISPATCH_APPLY:'true',DISPATCH_SHA:sha,DISPATCH_PR:'19',DISPATCH_RUN:'480',DISPATCH_DEPLOYMENT:candidate,RELEASE_EXPECTED_LIVE:previous,RELEASE_CONFIRM:'PUBLISH '+sha};
 const environment={id:123,name:RELEASE_ENV,protection_rules:[{type:'required_reviewers',prevent_self_review:true,reviewers:[{type:'User',reviewer:{id:2}}]}],deployment_branch_policy:{custom_branch_policies:true}};
@@ -15,7 +15,7 @@ test('exact SHA, expected live and independent confirmation',()=>{
 test('audit cannot mutate and rollback cannot override deployment',()=>{
  assert.deepEqual(validateIntent({DISPATCH_ACTION:'audit',DISPATCH_APPLY:'false'}),['audit']);
  assert.throws(()=>validateIntent({DISPATCH_ACTION:'audit',DISPATCH_APPLY:'true'}));
- const e={DISPATCH_ACTION:'rollback',DISPATCH_APPLY:'true',DISPATCH_SHA:prior,RELEASE_EXPECTED_LIVE:candidate,RELEASE_CONFIRM:'ROLLBACK '+prior};
+ const e={DISPATCH_ACTION:'rollback',DISPATCH_APPLY:'true',DISPATCH_SHA:prior,DISPATCH_PR:'',DISPATCH_RUN:'',DISPATCH_DEPLOYMENT:'',RELEASE_EXPECTED_LIVE:candidate,RELEASE_CONFIRM:'ROLLBACK '+prior};
  assert.deepEqual(validateIntent(e),['rollback','--apply']);
  assert.throws(()=>validateIntent({...e,DISPATCH_DEPLOYMENT:previous}));
 });
@@ -88,4 +88,10 @@ test('workflow only manual, shared concurrency, protected environments and pinne
  assert.equal((w.match(/persist-credentials: false/g)||[]).length,2);
  for(const m of w.matchAll(/uses: [^@\n]+@([^\n]+)/g))assert.match(m[1],/^[a-f0-9]{40}$/);
  assert.doesNotMatch(w,/run:.*\$\{\{/);
+});
+
+test('candidate cannot substitute a green but different CI definition',async()=>{
+ const file={path:'.github/workflows/ci.yml',type:'file',sha:'c'.repeat(40)};
+ await checkTrustedCI(async()=>file,sha,prior);
+ await assert.rejects(checkTrustedCI(async path=>path.endsWith(sha)?{...file,sha:'d'.repeat(40)}:file,sha,prior),/differs from trusted/);
 });
