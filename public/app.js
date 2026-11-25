@@ -243,14 +243,54 @@ async function startupApi(path){
 }
 function notice(message,error=false){const n=document.createElement('div');n.className='toast'+(error?' error':'');n.textContent=message;document.getElementById('toast-root').replaceChildren(n);clearTimeout(toastTimeout);toastTimeout=setTimeout(()=>n.remove(),4500);}
 async function clipboard(value){try{await navigator.clipboard.writeText(value);notice('Ссылка скопирована!');}catch{modal({title:'Скопируй ссылку',content:`<div class="field"><label>Ссылка</label><input class="input" autofocus readonly value="${attr(value)}" onclick="this.select()"></div>`});}}
-let modalContentObserver=null;
-function modal({title,subtitle='',content='',onSubmit=null,onError=null,submitLabel='Сохранить',size='normal',footer=''}){
- const oldHeight=modalRoot.querySelector('.modal')?.getBoundingClientRect().height||0;
+let modalContentObserver=null,authModalMotion=null,authModalFrame=0;
+function stopAuthModalMotion(){
+ if(authModalFrame)cancelAnimationFrame(authModalFrame);
+ authModalFrame=0;
+ if(authModalMotion){
+  const {dialog,animation}=authModalMotion;authModalMotion=null;
+  animation.cancel();dialog.classList.remove('auth-height-motion');
+  dialog.style.removeProperty('--auth-dialog-height');
+ }
+}
+function animateAuthModalHeight(dialog,from){
+ if(!dialog.isConnected)return;
+ const current=authModalMotion?.dialog===dialog?authModalMotion:null;
+ if(current)dialog.classList.remove('auth-height-motion');
+ const target=dialog.getBoundingClientRect().height;
+ if(current)dialog.classList.add('auth-height-motion');
+ if(current&&Math.abs(target-current.target)<1)return;
+ stopAuthModalMotion();
+ if(!from||Math.abs(target-from)<1||matchMedia('(prefers-reduced-motion: reduce)').matches||!dialog.animate)return;
+ dialog.style.setProperty('--auth-dialog-height',from+'px');
+ dialog.classList.add('auth-height-motion');
+ const animation=dialog.animate(
+  [{'--auth-dialog-height':from+'px'},{'--auth-dialog-height':target+'px'}],
+  {duration:280,easing:'cubic-bezier(.22,.68,.28,1)',fill:'both'});
+ const motion={dialog,animation,target};authModalMotion=motion;
+ animation.onfinish=()=>{if(authModalMotion===motion)stopAuthModalMotion();};
+}
+function modal({title,subtitle='',content='',onSubmit=null,onError=null,submitLabel='Сохранить',size='normal',footer='',authScreen='' }){
+ const priorDialog=modalRoot.querySelector('.modal');
+ const reuseAuth=!!(authScreen&&priorDialog?.dataset.authScreen);
+ const oldHeight=priorDialog?.getBoundingClientRect().height||0;
+ const restoreDialogFocus=reuseAuth&&priorDialog.contains(document.activeElement);
+ stopAuthModalMotion();
+ for(const input of modalRoot.querySelectorAll('input'))suggestionObservers.get(input)?.disconnect();
+
  modalContentObserver?.disconnect();modalContentObserver=null;
  closeCalendar();closeUiSelect();
- modalRoot.innerHTML=`<div class="modal-backdrop" data-backdrop><div class="modal" role="dialog" aria-modal="true" aria-label="${attr(title)}"><button class="modal-close" type="button" data-close aria-label="Закрыть">×</button><div class="modal-scroll-area"><h2>${esc(title)}</h2>${subtitle?`<p class="modal-subtitle">${esc(subtitle)}</p>`:''}<form class="form" id="modal-form">${content}${onSubmit?`<div class="form-actions"><button type="button" class="btn btn-soft" data-close>Отмена</button><button type="submit" class="btn btn-dark">${esc(submitLabel)} ${ico('arrow')}</button></div>`:''}</form>${footer?`<div class="modal-foot">${footer}</div>`:''}</div></div></div>`;
+ const markup=`<div class="modal-backdrop" data-backdrop><div class="modal" role="dialog" aria-modal="true" aria-label="${attr(title)}"><button class="modal-close" type="button" data-close aria-label="Закрыть">×</button><div class="modal-scroll-area"><h2>${esc(title)}</h2>${subtitle?`<p class="modal-subtitle">${esc(subtitle)}</p>`:''}<form class="form" id="modal-form">${content}${onSubmit?`<div class="form-actions"><button type="button" class="btn btn-soft" data-close>Отмена</button><button type="submit" class="btn btn-dark">${esc(submitLabel)} ${ico('arrow')}</button></div>`:''}</form>${footer?`<div class="modal-foot">${footer}</div>`:''}</div></div></div>`;
+ if(reuseAuth){
+  const template=document.createElement('template');template.innerHTML=markup;
+  const fresh=template.content.querySelector('.modal');
+  priorDialog.replaceChildren(...fresh.childNodes);
+  priorDialog.setAttribute('aria-label',title);
+ }else modalRoot.innerHTML=markup;
  const scroller=modalRoot.querySelector('.modal-scroll-area');
  const dialog=modalRoot.querySelector('.modal');
+ if(authScreen){dialog.dataset.authScreen=authScreen;dialog.tabIndex=-1;}
+
  const titleNode=scroller.querySelector(':scope > h2');
  if(titleNode){
   const headerRail=document.createElement('div');headerRail.className='modal-fixed-header';
@@ -266,7 +306,31 @@ function modal({title,subtitle='',content='',onSubmit=null,onError=null,submitLa
  }
  enhanceSelects(modalRoot);enhanceCalendars(modalRoot);
  // Animate actual content-height changes instead of repeatedly forcing a layout on scroll.
- if(!matchMedia('(prefers-reduced-motion: reduce)').matches&&typeof dialog.animate==='function'){
+ if(authScreen){
+  // Keep the backdrop and dialog identity; never keep old credential fields.
+  if(reuseAuth){
+   animateAuthModalHeight(dialog,oldHeight);
+   if(!matchMedia('(prefers-reduced-motion: reduce)').matches&&dialog.animate){
+    for(const region of dialog.querySelectorAll('.modal-fixed-header,.modal-scroll-area,.modal-fixed-footer'))
+     region.animate([{opacity:.55,transform:'translateY(4px)'},{opacity:1,transform:'translateY(0)'}],
+      {duration:200,easing:'ease-out'});
+   }
+   if(restoreDialogFocus)dialog.focus({preventScroll:true});
+  }
+  let lastNatural=dialog.getBoundingClientRect().height;
+  if(authModalMotion?.dialog===dialog)lastNatural=authModalMotion.target;
+  modalContentObserver=new ResizeObserver(()=>{
+   if(!scroller.isConnected||authModalFrame)return;
+   authModalFrame=requestAnimationFrame(()=>{
+    authModalFrame=0;if(!dialog.isConnected||!scroller.isConnected)return;
+    const from=authModalMotion?.dialog===dialog?dialog.getBoundingClientRect().height:lastNatural;
+    animateAuthModalHeight(dialog,from);
+    lastNatural=authModalMotion?.dialog===dialog?authModalMotion.target:dialog.getBoundingClientRect().height;
+   });
+  });
+  for(const region of dialog.querySelectorAll('.modal-fixed-header,.modal-fixed-footer,.modal-subtitle,#modal-form'))
+   modalContentObserver.observe(region);
+ }else if(!matchMedia('(prefers-reduced-motion: reduce)').matches&&typeof dialog.animate==='function'){
   let priorHeight=oldHeight||dialog.getBoundingClientRect().height;
   const animateTo=current=>{
    if(!dialog.isConnected)return;
@@ -284,7 +348,7 @@ function modal({title,subtitle='',content='',onSubmit=null,onError=null,submitLa
   });
   modalContentObserver.observe(scroller,{childList:true,characterData:true,subtree:true});
  }
- document.body.style.overflow='hidden';const bd=modalRoot.querySelector('[data-backdrop]');bd.addEventListener('click',e=>{if(e.target===bd)closeModal()});modalRoot.querySelectorAll('[data-close]').forEach(b=>b.addEventListener('click',closeModal));
+ document.body.style.overflow='hidden';const bd=modalRoot.querySelector('[data-backdrop]');if(!reuseAuth)bd.addEventListener('click',e=>{if(e.target===bd)closeModal()});modalRoot.querySelectorAll('[data-close]').forEach(b=>b.addEventListener('click',closeModal));
  if(onSubmit){modalRoot.querySelector('form').addEventListener('submit',async e=>{e.preventDefault();const btn=e.currentTarget.querySelector('[type=submit]')||modalRoot.querySelector('.modal-fixed-footer [type=submit]');if(btn.disabled)return;btn.disabled=true;const submitted=e.currentTarget;try{await onSubmit(submitted);if(modalRoot.querySelector('form')===submitted)closeModal();}catch(err){if(onError){if(submitted.isConnected)onError(err,submitted);}else notice(err.message,true)}finally{if(btn.isConnected)btn.disabled=false;}});}
  // No delayed autofocus: it can steal focus while the user types in the
  // password field, silently redirecting keystrokes to email after 10 ms.
@@ -303,7 +367,7 @@ function contactDeveloperModal(){
   }});
  const message=modalRoot.querySelector('#fld-message');if(message){message.required=true;message.minLength=5;message.maxLength=3000;}
 }
-function closeModal(){modalContentObserver?.disconnect();modalContentObserver=null;closeCalendar();closeUiSelect();modalRoot.replaceChildren();document.body.style.overflow='';}
+function closeModal(){stopAuthModalMotion();for(const input of modalRoot.querySelectorAll('input'))suggestionObservers.get(input)?.disconnect();modalContentObserver?.disconnect();modalContentObserver=null;closeCalendar();closeUiSelect();modalRoot.replaceChildren();document.body.style.overflow='';}
 document.addEventListener('keydown',e=>{if(e.key==='Escape'){if(activeCalendar){e.preventDefault();closeCalendar(true);}else if(uiSelectOpen){e.preventDefault();closeUiSelect(true);}else closeModal();}});
 document.addEventListener('click',e=>{
  const picker=e.target.closest('input[type="date"]');
@@ -1153,20 +1217,264 @@ async function participantPage(key,marker=lastRenderToken){
  return santaGamePage(null,marker,key);
 }
 
-function passwordField(register){
+function passwordField(register,name='password',label='Пароль'){
  const generator=register?'<button type="button" class="password-generate" data-password-generate>'+ico('spark')+' Сгенерировать пароль</button>':'';
- return '<div class="field password-field"><div class="password-label-row"><label for="fld-password">Пароль (минимум 8 символов)</label>'+generator+'</div>'+
-  '<div class="password-input-row"><input id="fld-password" name="password" type="password" placeholder="Не менее 8 символов" required minlength="8" maxlength="200" autocomplete="'+(register?'new-password':'current-password')+'">'+
+ return '<div class="field password-field"><div class="password-label-row"><label for="fld-'+attr(name)+'">'+esc(label)+'</label>'+generator+'</div>'+
+  '<div class="password-input-row"><input id="fld-'+attr(name)+'" name="'+attr(name)+'" type="password" placeholder="'+(register?'От 8 символов':'Твой пароль')+'" required minlength="8" maxlength="200" autocomplete="'+(register?'new-password':'current-password')+'"'+(register?' aria-describedby="password-hint"':'')+'>'+
   '<button type="button" class="password-visibility" data-password-visibility aria-label="Показать пароль" aria-pressed="false">'+ico('eye')+'</button></div>'+
-  (register?'<p class="password-hint" id="password-hint">Используй уникальный пароль и сохрани его в менеджере паролей</p>':'')+'</div>';
+  (register?'<div class="password-strength" data-password-strength data-level="0" hidden><p data-password-strength-label role="status" aria-live="polite" aria-label="Надёжность пароля"></p><div class="password-strength-bars" aria-hidden="true"><i></i><i></i><i></i><i></i></div></div><p class="password-hint" id="password-hint" hidden aria-live="polite"></p><div class="password-suggestions" data-password-suggestions role="group" aria-label="Более надёжные варианты пароля" hidden></div>':'')+'</div>';
 }
-function securePassword(){
+function confirmPasswordField(){
+ return '<div class="field password-field"><label for="fld-confirm_password">Повтори пароль</label>'+
+  '<div class="password-input-row"><input id="fld-confirm_password" name="confirm_password" type="password" placeholder="Тот же пароль" required minlength="8" maxlength="200" autocomplete="new-password">'+
+  '<button type="button" class="password-visibility" data-password-visibility aria-label="Показать повтор пароля" aria-pressed="false">'+ico('eye')+'</button></div></div>';
+}
+function newPasswordIssue(value){
+ if(!value)return 'Введи пароль';
+ if(/[А-Яа-яЁё]/.test(value))return 'Убери русские буквы из пароля';
+ if(Array.from(value).length<8)return passwordLengthIssue(value);
+ if(/[\u0000-\u001f\u007f]/.test(value)||Array.from(value).some(c=>c.length===1&&/[\ud800-\udfff]/.test(c)))return 'В пароле есть недопустимые символы';
+ if(new TextEncoder().encode(value).length>72)return 'Пароль слишком длинный. Сократи его';
+ return '';
+}
+function passwordLengthIssue(value){
+ const count=8-Array.from(value).length;
+ if(count<=0)return '';
+ const word=count===1?'символ':count<=4?'символа':'символов';
+ return 'Добавь ещё '+count+' '+word;
+}
+function passwordAdvice(value,score=null,reason=''){
+ if(!value)return '';
+ const issue=newPasswordIssue(value);
+ // Mandatory errors block submission, never the help for replacing the password.
+ if(issue){
+  if(/[А-Яа-яЁё]/.test(value))return 'Варианты без русских букв';
+  if(new TextEncoder().encode(value).length>72)return 'Более короткие варианты';
+  if(Array.from(value).length<8)return 'Подходящие варианты от 8 символов';
+  return 'Варианты без недопустимых символов';
+ }
+ const missing=[];
+ if(!/[a-z]/.test(value))missing.push('1 строчную латинскую букву');
+ if(!/[A-Z]/.test(value))missing.push('1 заглавную латинскую букву');
+ if(!/[0-9]/.test(value))missing.push('1 цифру');
+ if(!/[^\p{L}\p{N}\s]/u.test(value))missing.push('1 спецсимвол');
+ if(missing.length){
+  const items=missing.length===1?missing[0]:missing.slice(0,-1).join(', ')+' и '+missing.at(-1);
+  return 'Добавь хотя бы '+items+', чтобы усилить пароль';
+ }
+ if(!Number.isInteger(score)||score>1)return '';
+ const advice={
+  sequence:'Замени последовательности букв или цифр случайными символами',
+  repeat:'Замени повторяющиеся символы случайными',
+  dictionary:'Замени распространённые слова и комбинации случайными символами',
+  spatial:'Избегай последовательностей клавиш на клавиатуре',
+  date:'Замени даты и годы случайными цифрами',
+  short:'Добавь несколько случайных символов, чтобы усложнить подбор'
+ };
+ return advice[reason]||'Добавь несколько случайных символов, чтобы усложнить подбор';
+}
+function setPasswordHint(hint,message){
+ if(!hint)return;
+ if(hint.textContent!==message)hint.textContent=message;
+ hint.hidden=!message;
+}
+// Use the input's length and missing classes to shape independent examples.
+// Never retain its literal characters, dictionary fragments or numeric patterns.
+const passwordSuggestions=new WeakMap();
+const suggestionObservers=new WeakMap();
+function suggestedPassword(value,index){
+ const groups=['abcdefghijkmnopqrstuvwxyz','ABCDEFGHJKLMNPQRSTUVWXYZ','23456789','!@#$%&*'];
+ const tests=[/[a-z]/,/[A-Z]/,/[0-9]/,/[^\p{L}\p{N}\s]/u];
+ const source=Array.from(value);
+ const counts=tests.map(test=>source.filter(c=>test.test(c)).length);
+ const missing=counts.filter(n=>n===0).length;
+ const length=Math.max(12,Math.min(32,source.length+Math.max(2,missing)+(index%3)));
+ const random=new Uint32Array(1);
+ const number=max=>{const limit=Math.floor(4294967296/max)*max;let n;do{crypto.getRandomValues(random);n=random[0];}while(n>=limit);return n%max;};
+ const pick=group=>group[number(group.length)];
+ const chars=groups.map(pick);
+ // Keep a modest bias toward the user's character mix while ensuring at
+ // least one of every class, and enough diversity for numeric-only input.
+ const weights=counts.map(n=>1+Math.min(3,Math.floor(4*n/Math.max(1,source.length))));
+ const weighted=groups.flatMap((group,i)=>Array(weights[i]).fill(group));
+ while(chars.length<length)chars.push(pick(weighted[number(weighted.length)]));
+ for(let i=chars.length-1;i>0;i--){const j=number(i+1);[chars[i],chars[j]]=[chars[j],chars[i]];}
+ return chars.join('');
+}
+function renderPasswordSuggestions(input,show=false){
+ const panel=input.closest('.password-field')?.querySelector('[data-password-suggestions]');
+ if(!panel)return false;
+ const previous=suggestionObservers.get(input);
+ const hint=input.closest('.password-field')?.querySelector('#password-hint');
+ const visibility=input.type==='text'?'visible':'masked';
+ if(show&&passwordSuggestions.has(input)&&!panel.hidden&&panel.dataset.visibility===visibility&&panel.firstChild){
+  const shown=!!panel.querySelector('button:not([hidden])');
+  const advice=hint?.textContent?.replace(/, например:$/,'')||'';
+  if(advice)setPasswordHint(hint,advice+(shown?', например:':''));
+  return shown;
+ }
+ if(previous){previous.disconnect();suggestionObservers.delete(input);}
+ if(!show||!window.crypto?.getRandomValues){
+  passwordSuggestions.delete(input);panel.replaceChildren();panel.hidden=true;return false;
+ }
+ let values=passwordSuggestions.get(input);
+ if(!values){
+  values=Array.from({length:6},(_,i)=>suggestedPassword(input.value,i));
+  passwordSuggestions.set(input,values);
+ }
+ const buttons=values.map((value,index)=>{
+  const button=document.createElement('button');button.type='button';
+  button.dataset.passwordSuggestion=String(index);
+  button.textContent=input.type==='text'?value:'Вариант '+(index+1);
+  return button;
+ });
+ panel.replaceChildren(...buttons);panel.dataset.visibility=visibility;panel.hidden=false;
+ let lastWidth=-1;
+ const fit=()=>{
+  if(!input.isConnected){previous?.disconnect();suggestionObservers.get(input)?.disconnect();suggestionObservers.delete(input);return;}
+  const width=panel.clientWidth;
+  if(width===lastWidth)return;
+  lastWidth=width;
+  for(const button of buttons)button.hidden=false;
+  const gap=parseFloat(getComputedStyle(panel).columnGap)||0;
+  let used=0,shown=0;
+  const measured=buttons.map(button=>({button,width:button.getBoundingClientRect().width}));
+  measured.sort((a,b)=>a.width-b.width);
+  for(const item of measured){
+   const next=item.width+(shown?gap:0);
+   if(used+next<=width+.1){used+=next;shown++;}
+   else item.button.hidden=true;
+  }
+  const advice=hint?.textContent?.replace(/, например:$/,'')||'';
+  if(advice)setPasswordHint(hint,advice+(shown?', например:':''));
+ };
+ fit();
+ if(typeof ResizeObserver==='function'){
+  const observer=new ResizeObserver(fit);observer.observe(panel);suggestionObservers.set(input,observer);
+ }
+ document.fonts?.ready.then(()=>{if(input.isConnected&&passwordSuggestions.get(input)===values&&panel.firstChild===buttons[0]){lastWidth=-1;fit();}});
+ return buttons.some(button=>!button.hidden);
+}
+// zxcvbn runs in a same-origin worker, loaded only on new-password input.
+let strengthWorker=null,strengthBusy=null,strengthPending=null,strengthDebounce=0,strengthRequestId=0,strengthRetryAt=0,strengthTimeout=0;
+const strengthRequests=new WeakMap();
+function currentStrengthRequest(job){
+ return job&&job.input.isConnected&&strengthRequests.get(job.input)===job.id;
+}
+function strengthUnavailable(job){
+ if(!currentStrengthRequest(job))return;
+ renderPasswordStrength(job.input,0);
+}
+function stopStrengthWorker(){
+ clearTimeout(strengthTimeout);strengthTimeout=0;
+ strengthWorker?.terminate();strengthWorker=null;
+ const pending=strengthPending,active=strengthBusy;
+ strengthPending=null;strengthBusy=null;strengthRetryAt=Date.now()+30000;
+ strengthUnavailable(active);strengthUnavailable(pending);
+}
+function pumpStrengthWorker(){
+ if(strengthBusy||!strengthPending)return;
+ const job=strengthPending;strengthPending=null;
+ if(!currentStrengthRequest(job))return;
+ if(Date.now()<strengthRetryAt){strengthUnavailable(job);return;}
+ try{
+  if(!strengthWorker){
+   strengthWorker=new Worker('/password-strength-worker.js');
+   strengthWorker.onerror=()=>stopStrengthWorker();
+   strengthWorker.onmessageerror=()=>stopStrengthWorker();
+   strengthWorker.onmessage=event=>{
+    const active=strengthBusy;
+    if(!active||event.data?.id!==active.id)return;
+    clearTimeout(strengthTimeout);strengthTimeout=0;
+    strengthBusy=null;
+    if(currentStrengthRequest(active)){
+     const score=event.data.score;
+     if(newPasswordIssue(active.input.value))
+      renderPasswordStrength(active.input,0,'Не подходит');
+     else if(Number.isInteger(score)&&score>=0&&score<=4){
+      renderPasswordStrength(active.input,Math.max(1,score));
+      const hint=active.input.closest('.password-field')?.querySelector('#password-hint');
+      const advice=hint?.dataset.generated==='true'?'':passwordAdvice(active.input.value,score,event.data.reason);
+      if(hint&&hint.dataset.generated!=='true')setPasswordHint(hint,advice);
+      renderPasswordSuggestions(active.input,!!advice);
+     }
+     else strengthUnavailable(active);
+    }
+    pumpStrengthWorker();
+   };
+  }
+  strengthBusy=job;
+  // No password in a URL, fetch, log, storage or telemetry. Only worker IPC.
+  const form=job.input.form;
+  const context=[form?.elements.email?.value,form?.elements.name?.value].filter(Boolean);
+  strengthWorker.postMessage({id:job.id,password:job.input.value,context});
+  strengthTimeout=setTimeout(stopStrengthWorker,15000);
+ }catch{stopStrengthWorker();strengthUnavailable(job);}
+}
+function updatePasswordStrength(input){
+ renderPasswordSuggestions(input,false);
+ const id=++strengthRequestId;
+ strengthRequests.set(input,id);
+ clearTimeout(strengthDebounce);
+ strengthPending=null;
+ // The server rejects passwords outside the bcrypt boundary. Do not score
+ // an arbitrarily truncated prefix or retain long invalid input in the queue.
+ if(!input.value){renderPasswordStrength(input,0);return;}
+ const advice=passwordAdvice(input.value);
+ if(newPasswordIssue(input.value)){
+  renderPasswordStrength(input,0,'Не подходит');
+  renderPasswordSuggestions(input,!!advice);return;
+ }
+ // Missing classes can be diagnosed immediately, even without the worker.
+ if(advice)renderPasswordSuggestions(input,true);
+ const indicator=input.closest('.password-field')?.querySelector('[data-password-strength]');
+ if(indicator?.querySelector('[data-password-strength-label]')?.textContent==='Не подходит')
+  renderPasswordStrength(input,0,'Оценка…');
+ strengthDebounce=setTimeout(()=>{
+  if(!input.isConnected||strengthRequests.get(input)!==id)return;
+  strengthPending={id,input};pumpStrengthWorker();
+ },60);
+}
+// One CSS progress value drives every segment. Retargeting starts from the
+// current interpolated value; no per-segment timers or queued animations.
+const passwordMeterMotion=new WeakMap();
+function renderPasswordStrength(input,target,status=''){
+ const indicator=input.closest('.password-field')?.querySelector('[data-password-strength]');
+ if(!indicator)return;
+ const node=indicator.querySelector('[data-password-strength-label]');
+ const label=status||['','Слабый','Средний','Хороший','Надёжный'][target];
+ if(node.textContent!==label)node.textContent=label;
+ const pending=passwordMeterMotion.get(indicator);
+ if(pending)clearTimeout(pending);
+ passwordMeterMotion.delete(indicator);
+ const reduced=window.matchMedia('(prefers-reduced-motion: reduce)').matches;
+ const show=target>0||!!status;
+ if(show&&indicator.hidden){
+  indicator.hidden=false;
+  // Establish the empty state before assigning the next CSS target.
+  void indicator.offsetWidth;
+ }
+ indicator.dataset.targetLevel=String(target);
+ indicator.dataset.level=String(target);
+ if(reduced){
+  indicator.getAnimations().forEach(animation=>animation.cancel());
+  indicator.style.setProperty('--shursh-strength-progress',String(target));
+ }else indicator.style.removeProperty('--shursh-strength-progress');
+ if(show)return;
+ if(reduced||indicator.hidden||!(parseFloat(getComputedStyle(indicator).getPropertyValue('--shursh-strength-progress'))>0)){indicator.hidden=true;return;}
+ const timer=setTimeout(()=>{
+  passwordMeterMotion.delete(indicator);
+  if(indicator.dataset.targetLevel==='0'&&!node.textContent)indicator.hidden=true;
+ },460);
+ passwordMeterMotion.set(indicator,timer);
+}
+function securePassword(length=20){
  if(!window.crypto || !crypto.getRandomValues)throw new Error('Для генерации пароля нужно защищённое HTTPS-соединение');
  const groups=['ABCDEFGHJKLMNPQRSTUVWXYZ','abcdefghijkmnopqrstuvwxyz','23456789','!@#$%&*'];
  const alphabet=groups.join(''),random=new Uint32Array(1);
  const pick=chars=>{const limit=Math.floor(4294967296/chars.length)*chars.length;let n;do{crypto.getRandomValues(random);n=random[0];}while(n>=limit);return chars[n%chars.length];};
  const chars=groups.map(pick);
- while(chars.length<20)chars.push(pick(alphabet));
+ while(chars.length<length)chars.push(pick(alphabet));
  for(let i=chars.length-1;i>0;i--){const j=Math.floor(crypto.getRandomValues(new Uint32Array(1))[0]*(i+1)/4294967296);[chars[i],chars[j]]=[chars[j],chars[i]];}
  return chars.join('');
 }
@@ -1184,7 +1492,7 @@ function showAuthFormWarning(error,form){
  let message;
  if(!status)message='Не удалось связаться с сервером. Попробуй ещё раз';
  else if(status===429)message='Слишком много попыток. Попробуй позже';
- else if(status>=500)message='Сервис входа временно недоступен. Попробуй позже';
+ else if(status>=500)message=error.message==='Сейчас не удалось проверить безопасность пароля. Попробуй ещё раз'?error.message:'Сервис входа временно недоступен. Попробуй позже';
  else message=error.message||'Проверь данные и попробуй ещё раз';
  warning.textContent=message.replace(/\.+$/,'');
  warning.hidden=false;
@@ -1198,7 +1506,7 @@ function confirmationModal(email){
 }
 function resendConfirmationModal(email=''){
  modal({title:'Повторить подтверждение',subtitle:'Если адрес ожидает подтверждения, отправим ещё одно письмо',
-  content:field('Почта','email','you@example.com','email',email,true,'autocomplete="email" maxlength="200"')+
+  content:field('Почта','email','you@example.com','text',email,true,'inputmode="email" autocomplete="email" autocapitalize="none" spellcheck="false" maxlength="200"')+
     '<p class="auth-confirm-help">Используй адрес, указанный при регистрации. Отправка нового письма может быть ограничена по частоте</p>'+authFormWarning(),
   onError:showAuthFormWarning,
   submitLabel:'Отправить письмо',
@@ -1213,90 +1521,314 @@ function resendConfirmationModal(email=''){
   footer:'Уже подтвердил адрес? <button type="button" data-open="login" data-email="'+attr(email)+'">Войти</button>'});
  setupAuthFormValidation(modalRoot.querySelector('#modal-form'),false);
 }
+function authEmailIssue(value){
+ const email=value.trim();
+ if(!email)return 'Укажи почту';
+ if(Array.from(email).length>200)return 'Адрес почты слишком длинный';
+ if(/\s/.test(email))return 'Убери пробелы из адреса';
+ if(/[\u0000-\u001f\u007f]/.test(email))return 'Убери управляющие символы из адреса';
+ if(email.includes(','))return 'Убери запятую из адреса';
+ if(email.includes('"'))return 'Убери двойные кавычки из адреса';
+ if(/[()[\]<>]/.test(email))return 'Убери скобки из адреса';
+ if(email.includes(':'))return 'Убери двоеточие из адреса';
+ if(email.includes(';'))return 'Убери точку с запятой из адреса';
+ if(email.includes('\\'))return 'Убери обратную косую черту из адреса';
+ const parts=email.split('@');
+ if(parts.length>2)return 'В адресе должен быть только один знак @';
+ const [local,domain]=parts;
+ if(!local)return 'Укажи имя почты перед @';
+ if(/[^\x21-\x7e]/.test(local))return 'Перед @ используй латинские буквы, цифры и допустимые знаки';
+ if(local.length>64)return 'Часть почты перед @ слишком длинная';
+ if(local.startsWith('.')||local.includes('..')||(parts.length===2&&local.endsWith('.')))return 'Исправь точки в части почты перед @';
+ if(!/^[A-Za-z0-9.!#$%&'*+/=?^_\x60{|}~-]+$/.test(local))return 'Проверь символы в части почты перед @';
+ if(parts.length===1)return 'Добавь знак @';
+ if(!domain)return 'Укажи домен после @';
+ if(/[^\x21-\x7e]/.test(domain))return 'Используй латинские буквы после @';
+ // Reject invalid characters before diagnosing an unfinished domain.
+ if(domain.includes('_'))return 'Убери нижнее подчёркивание из домена';
+ const badDomain=domain.match(/[^a-z0-9.-]/i)?.[0];
+ if(badDomain)return 'Убери символ '+badDomain+' из домена';
+ if(domain.startsWith('.')||domain.includes('..'))return 'Убери лишние точки в домене';
+ const labels=domain.split('.');
+ if(labels.some(label=>label.startsWith('-')||label.endsWith('-')))return 'Домен не должен начинаться или заканчиваться дефисом';
+ if(labels.some(label=>label.length>63))return 'Часть домена между точками слишком длинная';
+ if(domain.endsWith('.'))return 'Допиши окончание домена, например ru или com';
+ if(!domain.includes('.'))return 'Укажи домен с точкой, например example.com';
+ if(!/^(?:[a-z]{2,63}|xn--[a-z0-9-]{1,59})$/i.test(labels.at(-1)))return 'Проверь окончание домена, например .ru или .com';
+ if(/^(?:gmail|googlemail)\.com$/i.test(domain)){
+  const base=local.split('+',1)[0],bad=base.match(/[^a-z0-9.]/i)?.[0];
+  if(!base)return 'Укажи имя почты Gmail перед +';
+  if(bad)return 'Убери символ '+bad+' из имени почты Gmail';
+ }
+ if(email.toLowerCase()==='demo@shursh.local')return 'Этот адрес недоступен для входа';
+ return '';
+}
 function authFieldIssue(input, form, register){
  const value=input.value, kind=input.name;
+ if(kind==='code'&&!/^[0-9]{6}$/.test(value.trim()))return 'Введи шесть цифр из письма';
  if(kind==='name' && register){
   const trimmed=value.trim();
   if(!trimmed)return 'Укажи имя';
   if(trimmed.length>40)return 'Имя должно быть не длиннее 40 символов';
   if(/[\u0000-\u001f\u007f]/.test(trimmed))return 'В имени есть недопустимые символы';
  }
- if(kind==='email'){
-  const email=value.trim(), parts=email.split('@');
-  if(!email)return 'Укажи почту';
-  if(email.length>200||parts.length!==2)return 'Проверь адрес электронной почты';
-  const [local,domain]=parts;
-  const domainPattern=/^[a-z0-9](?:[a-z0-9-]{0,61}[a-z0-9])?(?:\.[a-z0-9](?:[a-z0-9-]{0,61}[a-z0-9])?)+$/i;
-  const localForbidden=/[\s"<>,:;()[\]\\]/;
-  if(!local||local.length>64||local.startsWith('.')||local.endsWith('.')||
-     local.includes('..')||localForbidden.test(local)||!domainPattern.test(domain)||
-     domain.split('.').at(-1).length<2||email.toLowerCase()==='demo@shursh.local'){
-    return 'Проверь адрес электронной почты';
-  }
- }
- if(kind==='password'){
+ if(kind==='email')return authEmailIssue(value);
+ if(kind==='password'||kind==='new_password'||kind==='current_password'){
   if(!value)return 'Введи пароль';
   const len=Array.from(value).length;
-  if(len<8||len>200||value.includes('\u0000')){
+  if(register&&kind!=='current_password')return newPasswordIssue(value);
+  if((len<8||len>200||value.includes('\u0000'))){
    return 'Пароль должен содержать от 8 до 200 символов';
   }
  }
  if(kind==='confirm_password' && register){
   if(!value)return 'Повтори пароль';
-  if(value!==form.elements.password.value)return 'Пароли не совпадают';
+  if(value!==(form.elements.new_password||form.elements.password)?.value)return 'Пароли не совпадают';
  }
  return '';
+}
+// Paint only error ranges over the real input; never duplicate password text.
+const authCharacterHighlights=new WeakMap();
+function authInvalidCharRanges(input,register,message){
+ if(!message)return [];
+ const value=input.value,ranges=[];
+ const add=(text,pattern,offset=0)=>{
+  for(const match of text.matchAll(pattern))ranges.push([offset+match.index,offset+match.index+match[0].length]);
+ };
+ if(register&&['password','new_password'].includes(input.name)){
+  if(input.type==='text')add(value,/[А-Яа-яЁё\u0000-\u001f\u007f]+/gu);
+  return ranges;
+ }
+ if(input.name!=='email')return ranges;
+ const email=value.trim(),offset=value.length-value.trimStart().length;
+ add(email,/[\s\u0000-\u001f\u007f,"()[\]<>:;\\]+/gu,offset);
+ const at=email.indexOf('@');
+ if(at<0){
+  add(email,/[^A-Za-z0-9.!#$%&'*+/=?^_\x60{|}~-]+/gu,offset);
+  for(let i=0;i<email.length;i++)if(email[i]==='.'&&(i===0||email[i-1]==='.'))ranges.push([offset+i,offset+i+1]);
+  return ranges;
+ }
+ const local=email.slice(0,at),domain=email.slice(at+1),domainOffset=offset+at+1;
+ add(domain,/@/g,domainOffset);
+ add(local,/[^A-Za-z0-9.!#$%&'*+/=?^_\x60{|}~-]+/gu,offset);
+ add(domain,/[^A-Za-z0-9.@-]+/gu,domainOffset);
+ const dots=(text,start,allowTrailing=false)=>{
+  for(let i=0;i<text.length;i++)if(text[i]==='.'&&(i===0||(!allowTrailing&&i===text.length-1)||text[i-1]==='.'))ranges.push([start+i,start+i+1]);
+ };
+ dots(local,offset);dots(domain,domainOffset,true);
+ if(/^(?:gmail|googlemail)\.com$/i.test(domain)){
+  const base=local.split('+',1)[0];
+  if(!base)ranges.push([offset,offset+1]);
+  else add(base,/[^a-z0-9.]+/gi,offset);
+ }
+ let start=domainOffset;
+ for(const label of domain.split('.')){
+  if(label.startsWith('-'))ranges.push([start,start+1]);
+  if(label.length>1&&label.endsWith('-'))ranges.push([start+label.length-1,start+label.length]);
+  start+=label.length+1;
+ }
+ const lastDot=domain.lastIndexOf('.');
+ if(lastDot>=0){
+  const tld=domain.slice(lastDot+1);
+  if(tld&&/^[a-z0-9-]+$/i.test(tld)&&!/^(?:[a-z]{2,63}|xn--[a-z0-9-]{1,59})$/i.test(tld))
+   ranges.push([domainOffset+lastDot+1,domainOffset+domain.length]);
+ }
+ return ranges;
+}
+function installAuthCharacterHighlights(input,register){
+ if(input.name!=='email'&&!(register&&['password','new_password'].includes(input.name)))return;
+ let wrapper=input.parentElement;
+ if(input.name==='email'){
+  wrapper=document.createElement('div');wrapper.className='auth-character-input-row';
+  input.before(wrapper);wrapper.append(input);
+ }
+ let canvas=null,message='',frame=0;
+ const clear=()=>{if(canvas){canvas.hidden=true;canvas.width=0;canvas.height=0;}};
+ const paint=()=>{
+  if(!input.isConnected||input.type==='password'||!message){clear();return;}
+  const ranges=authInvalidCharRanges(input,register,message);
+  if(!ranges.length){clear();return;}
+  // Mixed bidi text can reorder glyphs; retain the explicit error instead.
+  if(/[\u0590-\u08ff\u202a-\u202e\u2066-\u2069]/u.test(input.value)){clear();return;}
+  const rect=input.getBoundingClientRect();
+  if(!rect.width||!rect.height){clear();return;}
+  if(!canvas){
+   canvas=document.createElement('canvas');canvas.className='auth-character-overlay';
+   canvas.setAttribute('aria-hidden','true');wrapper.append(canvas);
+  }
+  const ratio=Math.min(window.devicePixelRatio||1,3),w=rect.width,h=rect.height;
+  canvas.style.width=w+'px';canvas.style.height=h+'px';
+  canvas.width=Math.ceil(w*ratio);canvas.height=Math.ceil(h*ratio);
+  const ctx=canvas.getContext('2d');
+  if(!ctx){clear();return;}
+  ctx.scale(ratio,ratio);
+  const style=getComputedStyle(input),px=name=>parseFloat(style[name])||0;
+  ctx.font=style.fontStyle+' '+style.fontWeight+' '+style.fontSize+' '+style.fontFamily;
+  if('letterSpacing' in ctx)ctx.letterSpacing=style.letterSpacing==='normal'?'0px':style.letterSpacing;
+  if('fontKerning' in ctx)ctx.fontKerning=style.fontKerning;
+  const left=px('borderLeftWidth')+px('paddingLeft');
+  const right=w-px('borderRightWidth')-px('paddingRight');
+  const size=px('fontSize'),top=(h-size)/2-2,bottom=top+size+4;
+  const origin=left-input.scrollLeft;
+  const width=text=>ctx.measureText(text).width+('letterSpacing' in ctx?0:Array.from(text).length*px('letterSpacing'));
+  ctx.beginPath();ctx.rect(left,0,Math.max(0,right-left),h);ctx.clip();
+  const merged=[];
+  for(const range of ranges.sort((a,b)=>a[0]-b[0])){
+   const last=merged.at(-1);
+   if(last&&range[0]<=last[1])last[1]=Math.max(last[1],range[1]);
+   else merged.push(range);
+  }
+  for(const [from,to] of merged){
+   const x=origin+width(input.value.slice(0,from));
+   const end=origin+width(input.value.slice(0,to));
+   const span=Math.max(2,end-x);
+   ctx.fillStyle='rgba(173,48,43,.15)';ctx.fillRect(x,top,span,bottom-top);
+   ctx.fillStyle='#9f302b';ctx.fillRect(x,bottom-1,span,2);
+  }
+  canvas.hidden=false;
+ };
+ const schedule=()=>{
+  if(!message||input.type==='password'||frame)return;
+  frame=requestAnimationFrame(()=>{frame=0;paint();});
+ };
+ const update=next=>{
+  if(typeof next==='string')message=next;
+  if(!message||input.type==='password'){
+   if(frame){cancelAnimationFrame(frame);frame=0;}
+   clear();return;
+  }
+  paint();schedule();
+ };
+ authCharacterHighlights.set(input,update);
+ // Insertion/paste and selection changes can move the native scroll offset
+ // after the input handler. Coalesce a post-layout repaint into one frame.
+ for(const event of ['input','scroll','focus','blur','keyup','click','select','compositionend'])
+  input.addEventListener(event,schedule);
+ document.fonts?.ready.then(()=>{if(message&&input.isConnected)paint();});
+}
+window.addEventListener('resize',()=>{
+ for(const input of document.querySelectorAll('#modal-form input[aria-invalid="true"]'))authCharacterHighlights.get(input)?.();
+});
+const AUTH_EMAIL_IDLE_MS=2000;
+function authEmailIncompleteIssue(value,message){
+ const email=value.trim();
+ if(message==='Добавь знак @')
+  return /^[A-Za-z0-9.!#$%&'*+/=?^_\x60{|}~-]+$/.test(email)&&!email.startsWith('.')&&!email.includes('..');
+ if(message==='Укажи домен после @'||message==='Укажи домен с точкой, например example.com'||message==='Допиши окончание домена, например ru или com')return true;
+ if(message==='Проверь окончание домена, например .ru или .com')
+  return /\.[a-z]$/i.test(email);
+ return false;
 }
 function setupAuthFormValidation(form,register){
  if(!form)return;
  // Inline errors, not native validation popups which differ across mobile browsers.
  form.noValidate=true;
- const names=register?['name','email','password','confirm_password']:['email','password'];
+ const names=register?['name','email','password','current_password','new_password','confirm_password']:['email','password','current_password','code'];
  const inputs=names.map(name=>form.elements.namedItem(name)).filter(Boolean);
  const touched=new Set();
- const validate=input=>{
-  const message=authFieldIssue(input,form,register), field=input.closest('.field');
+ let emailIdleTimer=0;
+ const cancelEmailIdle=()=>{if(emailIdleTimer)clearTimeout(emailIdleTimer);emailIdleTimer=0;};
+ const validate=(input,override)=>{
+  const message=override===undefined?authFieldIssue(input,form,register):override, field=input.closest('.field');
   const id='auth-error-'+input.name;
   let node=field?.querySelector('#'+id);
   if(!node&&field){
    node=document.createElement('p');
    node.id=id;node.className='auth-field-error';node.setAttribute('aria-live','polite');
-   node.hidden=true;field.append(node);
+   node.hidden=true;
+   const passwordHint=field.querySelector('#password-hint');
+   if(passwordHint)field.insertBefore(node,passwordHint);else field.append(node);
   }
-  if(node){node.textContent=message;node.hidden=!message;}
+  if(node){if(node.textContent!==message)node.textContent=message;node.hidden=!message;}
   if(message)input.setAttribute('aria-invalid','true');
   else input.removeAttribute('aria-invalid');
-  const hint=input.name==='password'&&register?'password-hint':'';
+  authCharacterHighlights.get(input)?.(message);
+  const hint=['password','new_password'].includes(input.name)&&register?'password-hint':'';
   const ids=[hint,message?id:''].filter(Boolean).join(' ');
   if(ids)input.setAttribute('aria-describedby',ids);
   else input.removeAttribute('aria-describedby');
   return message;
  };
  for(const input of inputs){
+  installAuthCharacterHighlights(input,register);
+  if(input.name==='email'&&input.value){touched.add(input.name);validate(input);}
   input.addEventListener('blur',event=>{
    // Modal footer controls are moved into a fixed rail. Creating an error while
    // pointer-down changes dialog height and can swallow a click on "Register".
    // Navigation does not require validating the old form; submit validates all.
    if(event.relatedTarget?.closest('[data-open],[data-close],[type="submit"]'))return;
-   touched.add(input.name);validate(input);
+   touched.add(input.name);
+   // Preserve the typing deadline even when focus moves to another field.
+   if(input.name==='email'&&emailIdleTimer)return;
+   validate(input);
   });
   input.addEventListener('input',()=>{
-   if(touched.has(input.name))validate(input);
-   if(register&&input.name==='password'&&touched.has('confirm_password')){
+   const newPassword=register&&['password','new_password'].includes(input.name);
+   if(newPassword){
+    const hint=form.querySelector('#password-hint');
+    if(hint){
+     delete hint.dataset.generated;
+     setPasswordHint(hint,passwordAdvice(input.value));
+    }
+   }
+   if(register&&input.name==='confirm_password'){
+    const hint=form.querySelector('#password-hint');
+    const primary=form.elements.new_password||form.elements.password;
+    if(hint?.dataset.generated==='true'&&primary&&input.value!==primary.value){
+     delete hint.dataset.generated;
+     setPasswordHint(hint,passwordAdvice(primary.value));
+    }
+   }
+   if(newPassword)updatePasswordStrength(input);
+   // Illegal characters are immediate; unfinished structure waits until
+   // the user has stopped editing for two seconds. No stale timer may paint
+   // an error on a replaced modal or an updated value.
+   if(input.name==='email'){
+    cancelEmailIdle();
+    if(input.value)touched.add(input.name);
+    if(touched.has(input.name)){
+     const message=authFieldIssue(input,form,register);
+     if(authEmailIncompleteIssue(input.value,message)){
+      validate(input,'');
+      const snapshot=input.value;
+      emailIdleTimer=setTimeout(()=>{
+       emailIdleTimer=0;
+       if(form.isConnected&&input.isConnected&&input.value===snapshot)validate(input);
+      },AUTH_EMAIL_IDLE_MS);
+     }else validate(input,message);
+    }
+   }else{
+    if(newPassword&&input.value)touched.add(input.name);
+    if(touched.has(input.name)||newPassword&&input.value)validate(input);
+   }
+   if(register&&['password','new_password'].includes(input.name)&&touched.has('confirm_password')){
     validate(form.elements.confirm_password);
    }
   });
  }
  form.addEventListener('submit',event=>{
+  cancelEmailIdle();
   const invalid=inputs.filter(input=>{touched.add(input.name);return !!validate(input);});
   if(invalid.length){
    event.preventDefault();event.stopImmediatePropagation();
    invalid[0].focus({preventScroll:false});
    return;
   }
-  form.elements.email.value=form.elements.email.value.trim().toLowerCase();
-  if(register)form.elements.name.value=form.elements.name.value.trim();
+  if(form.elements.email)form.elements.email.value=form.elements.email.value.trim().toLowerCase();
+  if(register&&form.elements.name)form.elements.name.value=form.elements.name.value.trim();
  },true);
+}
+async function authSuccess(result,register){
+ currentUser=result.user;broadcastSessionChange();
+ if(pendingGameClaim){
+  const claim=pendingGameClaim;
+  try{await claimPersonalGame(claim);}
+  catch(error){notice('Ты вошёл, но игру пока не удалось привязать: '+error.message,true);nav('/p/'+claim,{force:true});}
+  return;
+ }
+ notice(register?'Аккаунт создан!':'С возвращением!');
+ const landing=currentPath();
+ nav((/^\/join\/([A-Za-z0-9_-]+|p\/[A-Za-z0-9_-]{43})$/.test(landing)||/^\/w\/[A-Za-z0-9_-]+$/.test(landing))?landing:'/',{force:true});
 }
 function loginModal(mode='login',email=''){
  const register=mode==='register';
@@ -1304,11 +1836,11 @@ function loginModal(mode='login',email=''){
  // is an explicit membership recovery action, even via the header.
  const pageToken=!currentUser&&currentPath().match(/^\/p\/([A-Za-z0-9_-]{43})$/)?.[1];
  if(pageToken&&!pendingGameClaim)savePendingGameClaim(pageToken);
- modal({title:register?'Давай знакомиться!':'С возвращением!',
+ modal({authScreen:register?'register':'login',title:register?'Давай знакомиться!':'С возвращением!',
   subtitle:pendingGameClaim?'После входа сохраним эту игру в твоём аккаунте':register?'Создай аккаунт, чтобы хранить свои списки и организовывать игры':'Твои желания уже соскучились',
   content:(register?field('Как тебя зовут?','name','Например, Саша','text','',true,'maxlength="40" autocomplete="name"'):'')+
-   field('Почта','email','you@example.com','email',email,true,'autocomplete="email" maxlength="200"')+passwordField(register)+
-   (register?field('Повтори пароль','confirm_password','Тот же пароль','password','',true,'autocomplete="new-password" minlength="8" maxlength="200"'):'')+authFormWarning(),
+   field('Почта','email','you@example.com','text',email,true,'inputmode="email" autocomplete="email" autocapitalize="none" spellcheck="false" maxlength="200"')+passwordField(register)+
+   (register?confirmPasswordField():'')+authFormWarning(),
   onError:showAuthFormWarning,
   submitLabel:register?'Создать аккаунт':'Войти',
   onSubmit:async form=>{
@@ -1317,17 +1849,7 @@ function loginModal(mode='login',email=''){
    delete payload.confirm_password;
    const result=await api(register?'/api/register':'/api/login',{method:'POST',body:payload});
    if(result.pending_confirmation){if(register)persistSignupClaim();if(form.isConnected)confirmationModal(payload.email);return;}
-   currentUser=result.user;broadcastSessionChange();
-    if(pendingGameClaim){
-     const claim=pendingGameClaim;
-     try{await claimPersonalGame(claim);}
-     catch(error){
-      notice('Ты вошёл, но игру пока не удалось привязать: '+error.message,true);
-      nav('/p/'+claim,{force:true});
-     }
-     return;
-    }
-    notice(register?'Аккаунт создан!':'С возвращением!');const landing=currentPath();nav((/^\/join\/([A-Za-z0-9_-]+|p\/[A-Za-z0-9_-]{43})$/.test(landing)||/^\/w\/[A-Za-z0-9_-]+$/.test(landing))?landing:'/',{force:true});
+   await authSuccess(result,register);
   },
   footer:(register?'Уже есть аккаунт?':'Нет аккаунта?')+
    ' <button type="button" data-open="'+(register?'login':'register')+'">'+(register?'Войти':'Зарегистрироваться')+'</button>'+
@@ -1657,29 +2179,38 @@ document.addEventListener('click',async ev=>{
  const reveal=ev.target.closest('[data-password-visibility]');
  if(reveal){
   ev.preventDefault();
-  const input=reveal.closest('.password-field')?.querySelector('input[name="password"]');
+  const input=reveal.closest('.password-field')?.querySelector('.password-input-row input');
   if(!input)return;
   const visible=input.type==='password';input.type=visible?'text':'password';
   reveal.setAttribute('aria-pressed',String(visible));
-  reveal.setAttribute('aria-label',visible?'Скрыть пароль':'Показать пароль');
+  reveal.setAttribute('aria-label',(visible?'Скрыть':'Показать')+(input.name==='confirm_password'?' повтор пароля':' пароль'));
   reveal.innerHTML=ico(visible?'eye-off':'eye');
+  authCharacterHighlights.get(input)?.();
+  if(passwordSuggestions.has(input))renderPasswordSuggestions(input,true);
   input.focus({preventScroll:true});return;
  }
- const generator=ev.target.closest('[data-password-generate]');
+ const suggested=ev.target.closest('[data-password-suggestion]');
+ const generator=ev.target.closest('[data-password-generate]')||suggested;
  if(generator){
   ev.preventDefault();
   try{
-   const field=generator.closest('.password-field'),input=field?.querySelector('input[name="password"]');
+   const field=generator.closest('.password-field'),input=field?.querySelector('.password-input-row input');
    if(!input)return;
-   input.value=securePassword();input.type='text';
+   const value=suggested?passwordSuggestions.get(input)?.[Number(suggested.dataset.passwordSuggestion)]:securePassword();
+   if(!value)return;
+   input.value=value;if(!suggested)input.type='text';
    const confirmation=field.closest('form')?.elements.namedItem('confirm_password');
-   if(confirmation)confirmation.value=input.value;
+   if(confirmation){confirmation.value=input.value;confirmation.type='password';
+    const ct=confirmation.closest('.password-field')?.querySelector('[data-password-visibility]');
+    if(ct){ct.setAttribute('aria-pressed','false');ct.setAttribute('aria-label','Показать повтор пароля');ct.innerHTML=ico('eye');}
+   }
    input.dispatchEvent(new Event('input',{bubbles:true}));
    confirmation?.dispatchEvent(new Event('input',{bubbles:true}));
    const toggle=field.querySelector('[data-password-visibility]');
-   toggle.setAttribute('aria-pressed','true');toggle.setAttribute('aria-label','Скрыть пароль');toggle.innerHTML=ico('eye-off');
+   const visible=input.type==='text';
+   toggle.setAttribute('aria-pressed',String(visible));toggle.setAttribute('aria-label',visible?'Скрыть пароль':'Показать пароль');toggle.innerHTML=ico(visible?'eye-off':'eye');
    const hint=field.querySelector('#password-hint');
-   if(hint)hint.textContent='Новый пароль создан. Сохрани его в менеджере паролей перед регистрацией';
+   if(hint){hint.dataset.generated='true';setPasswordHint(hint,'Пароль создан и повторён. Сохрани его в менеджере паролей');}
    input.focus({preventScroll:true});
   }catch(err){notice(err.message,true)}
   return;

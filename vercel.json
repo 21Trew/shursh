@@ -3,7 +3,7 @@
   "framework": "flask",
   "functions": {
     "app.py": {
-      "includeFiles": "public/{index.html,styles.css,fonts.css,fonts/*.woff2,app.js,social-ui.js,santa-ui.js,polish.css,favicon.svg,favicon.ico}",
+      "includeFiles": "public/{index.html,styles.css,fonts.css,fonts/*.woff2,app.js,social-ui.js,santa-ui.js,password-strength-worker.js,zxcvbn-4.4.2.js,polish.css,favicon.svg,favicon.ico}",
       "excludeFiles": "{screenshots/**,tests/**,data/**,uploads/**,public/shursh-preview.html,public/preview-store.js}"
     }
   },

@@ -1293,8 +1293,24 @@ def test_mobile_webkit_signup_inline_validation(browser_https):
                     if req.url.endswith('/api/register') and req.method=='POST' else None)
             page.goto(browser_https+'/',wait_until='domcontentloaded')
             page.locator('header [data-open="login"]').click()
+            page.locator('#fld-password').fill('valid-password')
+            assert page.evaluate('strengthWorker===null'), 'Ordinary login must not load estimator'
             page.locator('.modal-foot [data-open="register"]').click()
             expect(page.locator('#fld-confirm_password')).to_be_visible()
+            assert page.evaluate('strengthWorker===null'), 'Opening registration must not load estimator before input'
+            email=page.locator('#fld-email')
+            email.fill('h@h.ю')
+            expect(email).to_have_value('h@h.ю')
+            expect(email).to_be_focused()
+            expect(email).to_have_attribute('aria-invalid','true')
+            expect(page.locator('#auth-error-email')).to_have_text('Используй латинские буквы после @')
+            overlay=page.locator('.auth-character-input-row .auth-character-overlay')
+            expect(overlay).to_be_visible()
+            assert overlay.evaluate("(c)=>Array.from(c.getContext('2d').getImageData(0,0,c.width,c.height).data).some((v,i)=>i%4===3&&v>0)")
+            email.fill('user@example.test')
+            expect(page.locator('#auth-error-email')).to_be_hidden()
+            expect(overlay).to_be_hidden()
+            email.fill('')
             page.locator('.modal-fixed-footer [type=submit]').click()
             expect(page.locator('#auth-error-email')).to_have_text('Укажи почту')
             expect(page.locator('#auth-error-confirm_password')).to_have_text('Повтори пароль')
@@ -1304,6 +1320,61 @@ def test_mobile_webkit_signup_inline_validation(browser_https):
             page.locator('[data-password-generate]').click()
             password=page.locator('#fld-password').input_value()
             assert password and page.locator('#fld-confirm_password').input_value()==password
+            expect(page.locator('[data-password-strength-label]')).to_have_text('Надёжный')
+            assert page.evaluate('strengthWorker instanceof Worker')
+            label=page.locator('[data-password-strength-label]')
+            bars=page.locator('.password-strength-bars')
+            assert label.bounding_box()['x'] < bars.bounding_box()['x']
+            assert abs(label.bounding_box()['y']+label.bounding_box()['height']/2 - bars.bounding_box()['y']-bars.bounding_box()['height']/2)<2
+            # The maintained estimator, not fixed length bands, owns the score.
+            password_input=page.locator('#fld-password')
+            toggle=page.locator('.password-field:has(#fld-password) [data-password-visibility]')
+            overlay=page.locator('.password-field:has(#fld-password) .auth-character-overlay')
+            password_input.fill('abЁcd123')
+            expect(page.locator('#auth-error-password')).to_have_text('Убери русские буквы из пароля')
+            expect(overlay).to_be_visible()
+            toggle.click()
+            expect(overlay).to_be_hidden()
+            assert overlay.evaluate('(c)=>c.width===0 && c.height===0')
+            toggle.click()
+            expect(overlay).to_be_visible()
+            password_input.fill('abcd1234')
+            expect(overlay).to_be_hidden()
+            page.locator('#fld-password').fill('Password1')
+            expect(label).to_have_text('Слабый')
+            page.locator('#fld-password').fill('Vq!7tZ#9mK2pF@8rYw4N')
+            expect(label).to_have_text('Надёжный')
+            # Rapid changes must not allow an obsolete strong result to win.
+            page.locator('#fld-password').fill('Vq!7tZ#9mK2pF@8rYw4N')
+            page.locator('#fld-password').fill('Password1')
+            expect(label).to_have_text('Слабый')
+            expect(page.locator('[data-password-strength]')).to_have_attribute('data-target-level','1')
+            page.locator('#fld-password').fill('qvR!NtMkY@pLW')
+            expect(label).to_have_text(__import__('re').compile('^(Хороший|Надёжный)$'))
+            expect(page.locator('#auth-error-password')).to_be_hidden()
+            page.locator('#fld-email').fill('почта@78.yy')
+            expect(page.locator('#auth-error-email')).to_have_text('Перед @ используй латинские буквы, цифры и допустимые знаки')
+            page.locator('#fld-email').fill('user,name@example.test')
+            expect(page.locator('#auth-error-email')).to_contain_text('Убери запятую из адреса')
+            page.locator('#fld-email').fill('not-email')
+            expect(page.locator('#auth-error-email')).to_have_text('Добавь знак @')
+            page.locator('#fld-email').fill('owner@example.test')
+            # Check the actual interpolated fills, not integer DOM updates.
+            meter=page.locator('[data-password-strength]')
+            page.locator('#fld-password').fill('')
+            expect(meter).to_be_hidden(timeout=3000)
+            page.locator('[data-password-generate]').click()
+            expect(label).to_have_text('Надёжный')
+            expect(meter).to_have_attribute('data-level','4',timeout=3000)
+            page.locator('#fld-password').fill('Password1')
+            expect(label).to_have_text('Слабый')
+            expect(meter).to_have_attribute('data-level','1',timeout=3000)
+            page.locator('[data-password-generate]').click()
+            expect(label).to_have_text('Надёжный')
+            page.locator('.password-field:has(#fld-confirm_password) [data-password-visibility]').click()
+            expect(page.locator('#fld-confirm_password')).to_have_attribute('type','text')
+            page.locator('.password-field:has(#fld-confirm_password) [data-password-visibility]').click()
+            expect(page.locator('#fld-confirm_password')).to_have_attribute('type','password')
             page.locator('.modal-fixed-footer [type=submit]').click()
             expect(page.get_by_role('dialog')).to_contain_text('Проверь почту',timeout=10000)
             assert requests==['signup']
@@ -1323,3 +1394,452 @@ def test_mobile_webkit_signup_inline_validation(browser_https):
             assert page.evaluate('document.documentElement.scrollWidth<=innerWidth+2')
         finally:
             browser.close()
+
+@pytest.mark.browser
+def test_auth_character_highlight_responsive(browser_https):
+    """Synthetic inputs only; check overlay pixels, scrolling and privacy in both engines."""
+    output=OUTPUT/"auth-character-highlights"
+    output.mkdir(parents=True,exist_ok=True)
+    pixel_test="""i=>{
+      const c=i.parentElement.querySelector('canvas');
+      if(!c||c.hidden||!c.width)return false;
+      const d=c.getContext('2d').getImageData(0,0,c.width,c.height).data;
+      for(let k=3;k<d.length;k+=4)if(d[k])return true;
+      return false;
+    }"""
+    with sync_playwright() as play:
+        for engine in (play.chromium,play.webkit):
+            browser=engine.launch(headless=True)
+            try:
+                for width in (375,390,1440):
+                    context=browser.new_context(viewport={"width":width,"height":844},
+                        device_scale_factor=2 if width<500 else 1,
+                        is_mobile=width<500,has_touch=width<500,ignore_https_errors=True)
+                    try:
+                        page=context.new_page()
+                        posts=[]
+                        page.on('request',lambda req: posts.append(req.method)
+                                if req.method=='POST' and '/api/' in req.url else None)
+                        page.goto(browser_https+'/',wait_until='domcontentloaded')
+                        page.locator('header [data-open="login"]').click()
+                        page.locator('.modal-foot [data-open="register"]').click()
+                        email=page.locator('#fld-email')
+                        password=page.locator('#fld-password')
+                        toggle=page.locator('.password-field:has(#fld-password) [data-password-visibility]')
+                        # Incomplete syntax must not be painted as an invalid character.
+                        for address,message,marked in (
+                            ('почта','Перед @ используй латинские буквы, цифры и допустимые знаки','почта'),
+                            ('почта@','Перед @ используй латинские буквы, цифры и допустимые знаки','почта'),
+                            ('a..b','Исправь точки в части почты перед @','.'),
+                            ('a.@','Исправь точки в части почты перед @','.'),
+                            ('12@mail.','Допиши окончание домена, например ru или com',''),
+                            ('12@#mail','Убери символ # из домена','#'),
+                            ('#username@gmail.com','Убери символ # из имени почты Gmail','#'),
+                            ('a@mail..','Убери лишние точки в домене','.')):
+                            email.fill(address)
+                            expect(page.locator('#auth-error-email')).to_have_text(message)
+                            expect(email).to_have_attribute('aria-invalid','true')
+                            assert email.evaluate("""(input,message)=>{
+                              const ranges=authInvalidCharRanges(input,true,message);
+                              return [...new Set(ranges.flatMap(([a,b])=>[...input.value.slice(a,b)]))].join('');
+                            }""",message)==marked
+                            assert email.evaluate(pixel_test)==bool(marked)
+                        for valid in ('name+tag@gmail.com','first.last+tag@gmail.com','#user@example.com','12@mail.ru'):
+                            email.fill(valid)
+                            expect(page.locator('#auth-error-email')).to_be_hidden()
+                            assert not email.evaluate(pixel_test)
+                        for value in ('почта','user@example.123','user@example,com','h@h.ю'):
+                            email.fill(value)
+                            expect(email).to_have_attribute('aria-invalid','true')
+                            assert email.evaluate(pixel_test)
+                        # insert_text follows the non-keyboard input path used by paste/IME.
+                        email.fill('')
+                        email.focus()
+                        page.keyboard.insert_text('x'*55+'я@example.com')
+                        expect(email).to_have_value('x'*55+'я@example.com')
+                        expect(email).to_have_attribute('aria-invalid','true')
+                        if width<500:
+                            email.evaluate("i=>{i.setSelectionRange(i.value.length,i.value.length);i.scrollLeft=i.scrollWidth;i.dispatchEvent(new Event('scroll'));}")
+                            page.wait_for_function("i=>i.scrollLeft>0",arg=email.element_handle())
+                            page.wait_for_function(pixel_test,arg=email.element_handle())
+                            email.evaluate("i=>{i.setSelectionRange(0,0);i.scrollLeft=0;i.dispatchEvent(new Event('scroll'));}")
+                            page.wait_for_function("i=>i.scrollLeft===0",arg=email.element_handle())
+                            page.wait_for_function("i=>!("+pixel_test+")(i)",arg=email.element_handle())
+                        email.fill('user@example,com')
+                        expect(email).to_have_attribute('aria-describedby','auth-error-email')
+                        email.locator('..').screenshot(path=str(output/f'{engine.name}-{width}-email.png'))
+                        hint=page.locator('#password-hint')
+                        field=password.locator('../..')
+                        assert hint.evaluate("h=>h.hidden")
+                        for count,word in ((7,'символов'),(6,'символов'),(5,'символов'),(4,'символа'),(3,'символа'),(2,'символа'),(1,'символ')):
+                            password.fill('a'*(8-count))
+                            expect(page.locator('#auth-error-password')).to_have_text(f'Добавь ещё {count} {word}')
+                            expect(hint).to_have_text('Подходящие варианты от 8 символов, например:')
+                            expect(page.locator('[data-password-suggestions] button:visible').first).to_be_visible()
+                            expect(page.locator('[data-password-strength-label]')).to_have_text('Не подходит')
+                        # Reproduce a six-character mixed password (synthetic fixture).
+                        password.fill('7u#nQZ')
+                        expect(page.locator('#auth-error-password')).to_have_text('Добавь ещё 2 символа')
+                        expect(hint).to_have_text('Подходящие варианты от 8 символов, например:')
+                        short_panel=page.locator('[data-password-suggestions]')
+                        toggle.click()
+                        short_option=short_panel.locator('button:visible').first
+                        candidate=short_option.inner_text()
+                        assert len(candidate)>=8 and candidate!='7u#nQZ'
+                        assert short_panel.evaluate('p=>p.scrollWidth<=p.clientWidth+1')
+                        field.screenshot(path=str(output/f'{engine.name}-{width}-length.png'))
+                        short_option.click()
+                        expect(password).to_have_value(candidate)
+                        expect(page.locator('#fld-confirm_password')).to_have_value(candidate)
+                        expect(page.locator('#auth-error-password')).to_be_hidden()
+                        expect(short_panel).to_be_hidden()
+                        toggle.click()
+                        password.fill('')
+                        expect(short_panel).to_be_hidden()
+                        expect(hint).to_be_hidden()
+                        for value,message in (
+                            ('qvR!NtMkY@pLW','Добавь хотя бы 1 цифру, чтобы усилить пароль'),
+                            ('qvr!ntmk9@plw','Добавь хотя бы 1 заглавную латинскую букву, чтобы усилить пароль'),
+                            ('QVR!NTMK9@PLW','Добавь хотя бы 1 строчную латинскую букву, чтобы усилить пароль'),
+                            ('qvR7NtMkY9pLW','Добавь хотя бы 1 спецсимвол, чтобы усилить пароль')):
+                            password.fill(value)
+                            expect(hint).to_contain_text(message)
+                            expect(hint).to_be_visible()
+                            expect(hint).to_contain_text(', например:')
+                            expect(page.locator('[data-password-suggestions] button:visible').first).to_be_visible()
+                            expect(page.locator('#auth-error-password')).to_be_hidden()
+                            assert hint.evaluate("h=>h.scrollWidth<=h.clientWidth+1")
+                        password.fill('abcdefgh1')
+                        expect(hint).to_contain_text('Добавь хотя бы 1 заглавную латинскую букву и 1 спецсимвол, чтобы усилить пароль')
+                        expect(hint).to_be_visible()
+                        expect(page.locator('[data-password-strength-label]')).to_have_text('Слабый')
+                        field.screenshot(path=str(output/f'{engine.name}-{width}-advice.png'))
+                        password.fill('12345678!aB')
+                        expect(page.locator('[data-password-strength-label]')).to_have_text('Слабый')
+                        expect(hint).to_contain_text('последовательности')
+                        panel=page.locator('[data-password-suggestions]')
+                        options=panel.locator('button:visible')
+                        expect(panel).to_be_visible()
+                        expect(hint).to_contain_text(', например:')
+                        expect(panel).to_have_attribute('aria-label','Более надёжные варианты пароля')
+                        assert panel.evaluate("p=>getComputedStyle(p).display==='flex' && getComputedStyle(p).flexWrap==='nowrap'")
+                        assert options.count()>=1
+                        assert panel.evaluate("p=>{const r=p.getBoundingClientRect(),buttons=[...p.querySelectorAll('button:not([hidden])')];return buttons.every(b=>{const x=b.getBoundingClientRect();return Math.abs(x.top-buttons[0].getBoundingClientRect().top)<1&&x.height>=30&&x.height<=34&&x.right<=r.right+.5;});}")
+                        expect(options.first).to_contain_text('Вариант')
+                        toggle.click()
+                        expect(password).to_have_attribute('type','text')
+                        candidate=options.first.inner_text()
+                        candidate_index=options.first.get_attribute('data-password-suggestion')
+                        assert 12<=len(candidate)<=32 and '12345678' not in candidate
+                        assert re.search('[a-z]',candidate) and re.search('[A-Z]',candidate) and re.search('[0-9]',candidate) and re.search('[!@#$%&*]',candidate)
+                        assert panel.evaluate("p=>p.scrollWidth<=p.clientWidth+1")
+                        # Compare the actual visible count against the optimal packing
+                        # of measured widths, not merely absence of overflow.
+                        assert panel.evaluate("""p=>{
+                          const buttons=[...p.querySelectorAll('button')],count=buttons.filter(b=>!b.hidden).length;
+                          const hidden=buttons.map(b=>b.hidden);
+                          buttons.forEach(b=>b.hidden=false);
+                          const sizes=buttons.map(b=>b.getBoundingClientRect().width).sort((a,b)=>a-b);
+                          buttons.forEach((b,i)=>b.hidden=hidden[i]);
+                          const gap=parseFloat(getComputedStyle(p).columnGap)||0;
+                          let sum=0,n=0;
+                          for(const width of sizes){const next=width+(n?gap:0);if(sum+next<=p.clientWidth+.1){sum+=next;n++;}else break;}
+                          return n===count;
+                        }""")
+                        field.screenshot(path=str(output/f'{engine.name}-{width}-suggestions.png'))
+                        toggle.click()
+                        expect(options.first).to_contain_text('Вариант')
+                        assert candidate not in panel.inner_text()
+                        option=panel.locator('button[data-password-suggestion="'+candidate_index+'"]')
+                        # Masked labels may pack differently; reveal if the selected
+                        # option is not currently in the masked row.
+                        if not option.is_visible():
+                            toggle.click()
+                            option.click()
+                            toggle.click()
+                        else:
+                            option.click()
+                        expect(password).to_have_value(candidate)
+                        expect(password).to_have_attribute('type','password')
+                        expect(page.locator('#fld-confirm_password')).to_have_value(candidate)
+                        expect(panel).to_be_hidden()
+                        password.fill('Vq!7tZ#9mK2pF@8rYw4N')
+                        expect(page.locator('[data-password-strength-label]')).to_have_text('Надёжный')
+                        expect(hint).to_be_hidden()
+                        field.screenshot(path=str(output/f'{engine.name}-{width}-strong.png'))
+                        password.fill('abЁcd123')
+                        expect(hint).to_have_text('Варианты без русских букв, например:')
+                        expect(page.locator('[data-password-suggestions] button:visible').first).to_be_visible()
+                        expect(password).to_have_attribute('type','password')
+                        expect(password).to_have_attribute('aria-invalid','true')
+                        assert not password.evaluate(pixel_test)
+                        toggle.click()
+                        expect(password).to_have_attribute('type','text')
+                        assert password.evaluate(pixel_test)
+                        password.locator('..').screenshot(path=str(output/f'{engine.name}-{width}-password.png'))
+                        toggle.click()
+                        expect(password).to_have_attribute('type','password')
+                        assert not password.evaluate(pixel_test)
+                        canvas=password.locator('..').locator('canvas')
+                        expect(canvas).to_be_hidden()
+                        assert canvas.evaluate('c=>c.width===0&&c.height===0')
+                        toggle.click()
+                        password.fill('abcd1234')
+                        expect(page.locator('#auth-error-password')).to_be_hidden()
+                        assert not password.evaluate(pixel_test)
+                        page.locator('[data-password-generate]').click()
+                        expect(hint).to_contain_text('Пароль создан и повторён')
+                        page.locator('#fld-confirm_password').fill('different-synthetic-value')
+                        expect(hint).to_be_hidden()
+                        email.fill('user@example.com')
+                        expect(page.locator('#auth-error-email')).to_be_hidden()
+                        assert not email.evaluate(pixel_test)
+                        assert not posts
+                        assert page.evaluate('document.documentElement.scrollWidth<=innerWidth+2')
+                    finally:
+                        context.close()
+            finally:
+                browser.close()
+
+
+@pytest.mark.browser
+def test_password_meter_continuous_motion(browser_https):
+    """Sample real computed transforms on each animation frame in both engines."""
+    with sync_playwright() as play:
+        for engine in (play.chromium,play.webkit):
+            browser=engine.launch(headless=True)
+            try:
+                for width in (375,1440):
+                    context=browser.new_context(viewport={"width":width,"height":844},
+                        reduced_motion="no-preference",ignore_https_errors=True)
+                    try:
+                        page=context.new_page()
+                        page.goto(browser_https+'/',wait_until='domcontentloaded')
+                        page.locator('header [data-open="login"]').click()
+                        page.locator('.modal-foot [data-open="register"]').click()
+                        samples=page.evaluate("""async () => {
+                          const input=document.querySelector('#fld-password');
+                          const meter=document.querySelector('[data-password-strength]');
+                          const bars=[...meter.querySelectorAll('i')];
+                          const values=()=>bars.map(b=>new DOMMatrixReadOnly(getComputedStyle(b,'::after').transform).a);
+                          const frame=()=>new Promise(requestAnimationFrame);
+                          const read=async (target,duration=550)=>{
+                            if(target!==null)renderPasswordStrength(input,target);
+                            const result=[], start=performance.now();
+                            do{await frame();result.push(values());}while(performance.now()-start<duration);
+                            return result;
+                          };
+                          const up=await read(4);
+                          const down=await read(1);
+                          // Reverse direction mid-flight without jumping to a boundary.
+                          renderPasswordStrength(input,4);
+                          const start=performance.now();
+                          while(performance.now()-start<120)await frame();
+                          const before=values();
+                          renderPasswordStrength(input,0,'Не подходит');
+                          const immediate=values();
+                          const reversed=await read(null);
+                          return {up,down,before,immediate,reversed};
+                        }""")
+                        def total(frame): return sum(frame)
+                        for key,direction,target in (('up',1,4),('down',-1,1),('reversed',-1,0)):
+                            frames=samples[key]
+                            assert len(frames)>=5
+                            assert abs(total(frames[-1])-target)<.03
+                            for frame in frames:
+                                assert all(-.01<=v<=1.01 for v in frame)
+                                assert sum(.02<v<.98 for v in frame)<=1
+                                assert all(a+.02>=b for a,b in zip(frame,frame[1:]))
+                            sums=[total(f) for f in frames]
+                            assert all(direction*(b-a)>=-.03 for a,b in zip(sums,sums[1:]))
+                            assert any(.02<v<.98 for f in frames for v in f)
+                        assert abs(total(samples['before'])-total(samples['immediate']))<.25
+                        page.emulate_media(reduced_motion='reduce')
+                        page.wait_for_function("()=>matchMedia('(prefers-reduced-motion: reduce)').matches")
+                        assert page.evaluate("""async () => {
+                          const i=document.querySelector('#fld-password');
+                          renderPasswordStrength(i,4);
+                          await new Promise(requestAnimationFrame);
+                          return [...document.querySelectorAll('.password-strength-bars i')].every(b=>new DOMMatrixReadOnly(getComputedStyle(b,'::after').transform).a===1);
+                        }""")
+                    finally:
+                        context.close()
+            finally:
+                browser.close()
+
+
+@pytest.mark.browser
+def test_auth_modal_shared_shell(browser_https):
+    """The backdrop and dialog survive mode changes; only one height animation."""
+    with sync_playwright() as play:
+        for engine in (play.chromium,play.webkit):
+            browser=engine.launch(headless=True)
+            try:
+                for width in (375,390,1440):
+                    context=browser.new_context(viewport={'width':width,'height':844},ignore_https_errors=True)
+                    try:
+                        page=context.new_page()
+                        page.goto(browser_https+'/',wait_until='domcontentloaded')
+                        page.locator('header [data-open="login"]').click()
+                        page.locator('#fld-email').fill('owner@example.test')
+                        page.locator('#fld-password').fill('synthetic-secret')
+                        page.evaluate("""()=>{window.authShell=document.querySelector('.modal');window.authBackdrop=document.querySelector('[data-backdrop]');}""")
+                        for mode in ('register','login','register','login'):
+                            page.locator('.modal-foot [data-open="'+mode+'"]').click()
+                            expect(page.locator('.modal')).to_have_attribute('data-auth-screen',mode)
+                            expect(page.locator('#fld-email')).to_have_value('owner@example.test')
+                            expect(page.locator('#fld-password')).to_have_value('')
+                            assert page.evaluate("document.querySelector('.modal')===window.authShell && document.querySelector('[data-backdrop]')===window.authBackdrop")
+                            assert page.evaluate("window.authShell.getAnimations().length<=1")
+                        page.wait_for_function("()=>!document.querySelector('.modal').classList.contains('auth-height-motion')",timeout=3000)
+                        # Retarget while the previous transition is still running.
+                        motion=page.evaluate("""async ()=>{
+                          const shell=window.authShell,frame=()=>new Promise(requestAnimationFrame);
+                          const height=()=>shell.getBoundingClientRect().height;
+                          const initial=height();
+                          shell.querySelector('[data-open="register"]').click();
+                          const start=performance.now(),samples=[];
+                          while(performance.now()-start<110){await frame();samples.push(height());}
+                          const before=height();
+                          shell.querySelector('[data-open="login"]').click();
+                          const after=height(),reverse=[],end=performance.now();
+                          while(performance.now()-end<400){await frame();reverse.push(height());}
+                          return {initial,before,after,samples,reverse,final:height()};
+                        }""")
+                        assert abs(motion['before']-motion['after'])<3, motion
+                        assert abs(motion['initial']-motion['final'])<3, motion
+                        assert max(motion['samples'])>motion['initial']+2, motion
+                        assert all(b<=a+3 for a,b in zip(motion['reverse'],motion['reverse'][1:])), motion
+                        assert page.evaluate('document.documentElement.scrollWidth<=innerWidth+2')
+                        page.emulate_media(reduced_motion='reduce')
+                        page.wait_for_function("()=>matchMedia('(prefers-reduced-motion: reduce)').matches")
+                        page.locator('.modal-foot [data-open="register"]').click()
+                        assert page.evaluate("!document.querySelector('.modal').classList.contains('auth-height-motion')")
+                    finally:
+                        context.close()
+            finally:
+                browser.close()
+
+
+@pytest.mark.browser
+def test_auth_mobile_bottom_sheet_and_compact_controls(browser_https):
+    """Auth-only edge-to-edge geometry and compact controls, including short viewports."""
+    out=OUTPUT/"auth-mobile-sheet"
+    out.mkdir(parents=True,exist_ok=True)
+    with sync_playwright() as play:
+        for engine in (play.chromium,play.webkit):
+            browser=engine.launch(headless=True)
+            try:
+                for width,height in ((320,568),(375,667),(390,844),(760,844),(768,844),(1440,900)):
+                    context=browser.new_context(viewport={"width":width,"height":height},
+                        is_mobile=width<=760,has_touch=width<=760,
+                        device_scale_factor=2 if width<=760 else 1,
+                        ignore_https_errors=True,reduced_motion="reduce")
+                    try:
+                        page=context.new_page()
+                        page.goto(browser_https+'/',wait_until='domcontentloaded')
+                        page.locator('header [data-open="login"]').click()
+                        modal=page.locator('.modal[data-auth-screen]')
+                        for index,mode in enumerate(('login','register','login')):
+                            expect(modal).to_have_attribute('data-auth-screen',mode)
+                            geometry=modal.evaluate("""m=>{
+                              const r=m.getBoundingClientRect(),s=getComputedStyle(m);
+                              const footer=m.querySelector('.modal-fixed-footer');
+                              const f=footer.getBoundingClientRect();
+                              const buttons=[...footer.querySelectorAll('.form-actions .btn')].map(b=>{
+                                const r=b.getBoundingClientRect(),s=getComputedStyle(b);
+                                return {height:r.height,width:r.width,padding:parseFloat(s.paddingTop),bottom:r.bottom};
+                              });
+                              return {x:r.x,right:r.right,bottom:r.bottom,top:r.top,
+                                width:innerWidth,height:innerHeight,
+                                radius:parseFloat(s.borderBottomLeftRadius),footerBottom:f.bottom,buttons};
+                            }""")
+                            if width<=760:
+                                assert abs(geometry['x'])<=1 and abs(geometry['right']-width)<=1,geometry
+                                assert abs(geometry['bottom']-height)<=1 and geometry['top']>=-1,geometry
+                                assert geometry['radius']==0,geometry
+                                assert abs(geometry['footerBottom']-height)<=1,geometry
+                                for button in geometry['buttons']:
+                                    assert 44<=button['height']<=64 and button['width']>=44 and button['padding']<=10,geometry
+                                    assert button['bottom']<=height,geometry
+                            else:
+                                assert geometry['x']>0 and geometry['right']<width and geometry['radius']>0,geometry
+                            if mode=='register':
+                                password=page.locator('#fld-password')
+                                password.fill('7u#nQZ')
+                                expect(page.locator('#auth-error-password')).to_have_text('Добавь ещё 2 символа')
+                                panel=page.locator('[data-password-suggestions]')
+                                expect(panel).to_be_visible()
+                                page.locator('.password-field:has(#fld-password) [data-password-visibility]').click()
+                                assert panel.evaluate("""p=>{
+                                  const r=p.getBoundingClientRect(),b=[...p.querySelectorAll('button:not([hidden])')];
+                                  return b.length>0&&b.every(x=>{
+                                    const q=x.getBoundingClientRect();
+                                    return q.height>=30&&q.height<=34&&q.right<=r.right+.5&&Math.abs(q.top-b[0].getBoundingClientRect().top)<1;
+                                  })&&p.scrollWidth<=p.clientWidth+1;
+                                }""")
+                                page.locator('#fld-confirm_password').scroll_into_view_if_needed()
+                                assert page.locator('#fld-confirm_password').evaluate("""e=>{
+                                  const r=e.getBoundingClientRect(),s=e.closest('.modal-scroll-area').getBoundingClientRect();
+                                  return r.top>=s.top-1&&r.bottom<=s.bottom+1;
+                                }""")
+                                page.screenshot(path=str(out/f'{engine.name}-{width}-register.png'),animations='disabled')
+                            else:
+                                page.screenshot(path=str(out/f'{engine.name}-{width}-login.png'),animations='disabled')
+                            if index<2:
+                                next_mode='register' if mode=='login' else 'login'
+                                page.locator('.modal-foot [data-open="'+next_mode+'"]').click()
+                        page.locator('.modal-close').click()
+                        expect(modal).to_have_count(0)
+                    finally:
+                        context.close()
+            finally:
+                browser.close()
+
+
+@pytest.mark.browser
+def test_auth_email_incomplete_feedback_waits_for_idle(browser_https):
+    """Typing, correcting, submitting and changing screens use the same deadline."""
+    with sync_playwright() as play:
+        for engine in (play.chromium,play.webkit):
+            browser=engine.launch(headless=True)
+            try:
+                for width in (375,1440):
+                    context=browser.new_context(viewport={"width":width,"height":844},
+                        ignore_https_errors=True,reduced_motion="reduce")
+                    try:
+                        page=context.new_page()
+                        page.goto(browser_https+'/',wait_until='domcontentloaded')
+                        page.locator('header [data-open="login"]').click()
+                        email=page.locator('#fld-email')
+                        error=page.locator('#auth-error-email')
+                        email.fill('12@mail')
+                        page.wait_for_timeout(1100)
+                        expect(error).to_be_hidden()
+                        email.fill('12@mail.')
+                        page.wait_for_timeout(1100)
+                        expect(error).to_be_hidden()
+                        assert email.get_attribute('aria-invalid') is None
+                        expect(error).to_have_text('Допиши окончание домена, например ru или com',timeout=2500)
+                        email.fill('12@mail.r')
+                        expect(error).to_be_hidden()
+                        email.fill('12@mail.ru')
+                        page.wait_for_timeout(2100)
+                        expect(error).to_be_hidden()
+                        assert email.get_attribute('aria-invalid') is None
+                        email.fill('12@#mail')
+                        expect(error).to_have_text('Убери символ # из домена',timeout=500)
+                        email.fill('12@mail.')
+                        expect(error).to_be_hidden()
+                        page.locator('#modal-form').evaluate('form=>form.requestSubmit()')
+                        expect(error).to_have_text('Допиши окончание домена, например ru или com',timeout=500)
+                        email.fill('12@mail')
+                        expect(error).to_be_hidden()
+                        page.locator('.modal-foot [data-open="register"]').click()
+                        page.locator('#fld-email').fill('valid@example.com')
+                        page.wait_for_timeout(2100)
+                        expect(page.locator('#auth-error-email')).to_be_hidden()
+                    finally:
+                        context.close()
+            finally:
+                browser.close()

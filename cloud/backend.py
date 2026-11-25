@@ -10,30 +10,62 @@ from uuid import UUID
 from flask import g
 
 from server import Handler, ApiError, req, token, token_hash, decode_image, LIMIT_BYTES
-from cloud import auth, db, social
+from cloud import auth, db, social, password_policy
 
 SESSION_SECONDS = 24 * 60 * 60
 IMAGE_USER_LIMIT = 12_000_000
 IMAGE_TOTAL_LIMIT = 100_000_000
 
 # Input-shape checks; Supabase owns password policy and authentication.
-AUTH_DOMAIN = re.compile(r'[a-z0-9](?:[a-z0-9-]{0,61}[a-z0-9])?(?:\.[a-z0-9](?:[a-z0-9-]{0,61}[a-z0-9])?)+', re.I)
-AUTH_INVALID_LOCAL = set('"<>,:;()[]\\')
+AUTH_DOMAIN_LABEL = re.compile(r'[a-z0-9-]+', re.I | re.ASCII)
+AUTH_DOMAIN_END = re.compile(r'(?:[a-z]{2,63}|xn--[a-z0-9-]{1,59})', re.I | re.ASCII)
+AUTH_LOCAL = re.compile(r"[A-Za-z0-9.!#$%&'*+/=?^_\x60{|}~-]+")
 
 def valid_auth_email(raw):
-    email = req(raw, 'Почта', 200).lower()
-    parts = email.split('@')
-    if len(parts) != 2:
-        raise ApiError(400, 'Укажи корректную почту')
-    local, domain = parts
-    if (not 1 <= len(local) <= 64 or not 1 <= len(domain) <= 253
-            or local.startswith('.') or local.endswith('.') or '..' in local
-            or any(ch.isspace() or ord(ch)<33 or ord(ch)==127 or ch in AUTH_INVALID_LOCAL for ch in local)
-            or not AUTH_DOMAIN.fullmatch(domain)
-            or len(domain.rsplit('.', 1)[-1]) < 2
-            or email == 'demo@shursh.local'):
-        raise ApiError(400, 'Укажи корректную почту')
-    return email
+    email = raw.strip() if isinstance(raw,str) else ''
+    def reject(message):
+        raise ApiError(400,message)
+    if not email: reject('Укажи почту')
+    if len(email)>200: reject('Адрес почты слишком длинный')
+    if any(ch.isspace() for ch in email): reject('Убери пробелы из адреса')
+    if any(ord(ch)<32 or ord(ch)==127 for ch in email): reject('Убери управляющие символы из адреса')
+    if ',' in email: reject('Убери запятую из адреса')
+    if '"' in email: reject('Убери двойные кавычки из адреса')
+    if any(ch in '()[]<>' for ch in email): reject('Убери скобки из адреса')
+    if ':' in email: reject('Убери двоеточие из адреса')
+    if ';' in email: reject('Убери точку с запятой из адреса')
+    if '\\' in email: reject('Убери обратную косую черту из адреса')
+    parts=email.split('@')
+    if len(parts)>2: reject('В адресе должен быть только один знак @')
+    local=parts[0]
+    if not local: reject('Укажи имя почты перед @')
+    if any(not 33<=ord(ch)<=126 for ch in local): reject('Перед @ используй латинские буквы, цифры и допустимые знаки')
+    if len(local)>64: reject('Часть почты перед @ слишком длинная')
+    if local.startswith('.') or '..' in local or (len(parts)==2 and local.endswith('.')):
+        reject('Исправь точки в части почты перед @')
+    if not AUTH_LOCAL.fullmatch(local): reject('Проверь символы в части почты перед @')
+    if len(parts)==1: reject('Добавь знак @')
+    domain=parts[1]
+    if not domain: reject('Укажи домен после @')
+    if any(not 33<=ord(ch)<=126 for ch in domain): reject('Используй латинские буквы после @')
+    if '_' in domain: reject('Убери нижнее подчёркивание из домена')
+    bad_domain=re.search(r'[^a-z0-9.-]',domain,re.I|re.ASCII)
+    if bad_domain: reject(f'Убери символ {bad_domain.group()} из домена')
+    if domain.startswith('.') or '..' in domain: reject('Убери лишние точки в домене')
+    labels=domain.split('.')
+    if any(label.startswith('-') or label.endswith('-') for label in labels):
+        reject('Домен не должен начинаться или заканчиваться дефисом')
+    if any(len(label)>63 for label in labels): reject('Часть домена между точками слишком длинная')
+    if domain.endswith('.'): reject('Допиши окончание домена, например ru или com')
+    if '.' not in domain: reject('Укажи домен с точкой, например example.com')
+    if not AUTH_DOMAIN_END.fullmatch(labels[-1]): reject('Проверь окончание домена, например .ru или .com')
+    if domain.lower() in ('gmail.com','googlemail.com'):
+        base=local.split('+',1)[0]
+        if not base: reject('Укажи имя почты Gmail перед +')
+        bad=re.search(r'[^a-z0-9.]',base,re.I|re.ASCII)
+        if bad: reject(f'Убери символ {bad.group()} из имени почты Gmail')
+    if email.lower()=='demo@shursh.local': reject('Этот адрес недоступен для входа')
+    return email.lower()
 
 
 def valid_auth_password(raw):
@@ -167,8 +199,10 @@ class CloudRequest(Handler):
         db.close_request_connection()
         data = self.body()
         email = valid_auth_email(data.get('email'))
-        password = valid_auth_password(data.get('password'))
         action = 'register' if path.endswith('register') else 'login'
+        password = data.get('password') if action == 'register' else valid_auth_password(data.get('password'))
+        if action == 'register':
+            password_policy.validate_new_password(password)
         payload = {'email': email, 'password': password}
         if action == 'register':
             payload['data'] = {'name': valid_signup_name(data.get('name'))}

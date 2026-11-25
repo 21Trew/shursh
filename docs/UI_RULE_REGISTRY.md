@@ -8,8 +8,8 @@ A **conflict** here means the same selector, CSS property and at-rule context
 have different declarations in source order. The last declaration is not
 necessarily the winner if specificity, importance or cascading conditions differ.
 
-- Qualified rule blocks: **898**
-- Unique selectors: **621**
+- Qualified rule blocks: **910**
+- Unique selectors: **633**
 - Selectors in multiple blocks: **184**
 - Differing declarations in the same context: **0**
 - At-rule contexts: **17**
@@ -212,7 +212,7 @@ necessarily the winner if specificity, importance or cascading conditions differ
 
 | Context | Declaration count |
 |---|---:|
-| `base` | 2250 |
+| `base` | 2290 |
 | `base > @media (max-width:760px)` | 320 |
 | `base > @media (max-width:420px)` | 30 |
 | `base > @media (max-width:400px)` | 23 |
@@ -221,8 +221,8 @@ necessarily the winner if specificity, importance or cascading conditions differ
 | `base > @media (max-width:480px)` | 14 |
 | `base > @media (max-width:1100px)` | 13 |
 | `base > @media (min-width:761px) and (max-width:980px)` | 12 |
+| `base > @media (prefers-reduced-motion:reduce)` | 11 |
 | `base > @media (max-width:760px),(pointer:coarse)` | 11 |
-| `base > @media (prefers-reduced-motion:reduce)` | 10 |
 | `base > @media (min-width:761px) and (max-width:920px)` | 5 |
 | `base > @media (max-width:920px)` | 5 |
 | `base > @media (max-width:580px)` | 4 |

@@ -165,12 +165,18 @@ async function socialAccountModal(kind){
  const email=kind==='email';
  modal({title:email?'Изменить почту':'Изменить пароль',subtitle:'Для защиты аккаунта сначала подтверди текущий пароль',
   content:field('Текущий пароль','current_password','Твой текущий пароль','password','',true,'autocomplete="current-password" minlength="8" maxlength="200"')+
-   (email?field('Новая почта','email','new@example.com','email','',true,'autocomplete="email" maxlength="254"'):
-    field('Новый пароль','new_password','Не менее 8 символов','password','',true,'autocomplete="new-password" minlength="8" maxlength="200"')),
+   (email?field('Новая почта','email','new@example.com','text','',true,'inputmode="email" autocomplete="email" autocapitalize="none" spellcheck="false" maxlength="200"'):
+    passwordField(true,'new_password','Новый пароль')+confirmPasswordField())+authFormWarning(),
+  onError:showAuthFormWarning,
   submitLabel:email?'Отправить подтверждение':'Обновить пароль',onSubmit:async form=>{
-   const result=await api('/api/account/'+kind,{method:'POST',body:readForm(form)});
+   clearAuthFormWarning(form);
+   const payload=readForm(form);
+   if(!email&&payload.new_password!==payload.confirm_password){const err=new Error('Пароли не совпадают');err.status=400;throw err;}
+   delete payload.confirm_password;
+   const result=await api('/api/account/'+kind,{method:'POST',body:payload});
    notice(email&&result.pending_confirmation?'Проверь новую почту и подтверди изменение':'Пароль изменён');
   }});
+ setupAuthFormValidation(modalRoot.querySelector('#modal-form'),!email);
 }
 function socialNotificationDate(date){
  const value=new Date(date);
