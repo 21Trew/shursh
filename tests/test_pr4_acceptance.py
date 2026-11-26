@@ -2998,15 +2998,38 @@ def test_service_crayon_covers_footer_and_circular_gift_gallery(browser_https,en
                         right:Math.abs(fr.right-cr.right),align:getComputedStyle(c).textAlign};
                     }""")
                     assert data['unique']==150 and data['art']==150 and data['stable'],data
-                    themed=page.evaluate("""()=>{
-                      const pools=Object.entries(wishlistOccasionArt);
-                      const lists=pools.flatMap(([occasion],i)=>Array.from({length:4},(_,j)=>({id:2000+i*4+j,occasion})));
+                    themed=page.evaluate("""async()=>{
+                      // Independent semantic allowlist: do not derive the oracle
+                      // from the implementation's own pools.
+                      const allowed={
+                        'День рождения':['step-gift','hero-gift'],
+                        'Годовщина':['privacy','step-share','hero-mail'],
+                        'Новоселье':['cup','step-gift','hero-gift'],
+                        'Свадьба':['step-share','privacy','hero-mail','hero-gift'],
+                        'Новый год':['santa','hero-gift','step-gift'],
+                        'Просто так':['camera','ticket','cup','step-list','step-gift','hero-gift','step-share','hero-mail','hero-mascot','privacy'],
+                        'Другое':['step-share','camera','hero-mascot','hero-mail','cup','ticket','step-list','step-gift','hero-gift','privacy']
+                      };
+                      const primary={'Новый год':['santa'],'Новоселье':['cup'],'Свадьба':['step-share','privacy','hero-mail']};
+                      const occasions=Object.keys(allowed);
+                      const lists=occasions.flatMap((occasion,i)=>Array.from({length:20},(_,j)=>({id:2000+i*100+j,occasion})));
                       const map=assignWishlistCovers(lists);
-                      return {pools:pools.length,valid:pools.every(([occasion,art])=>art.length===4&&new Set(art).size===4),
-                        unique:new Set(lists.map(l=>wishlistCoverParts(l,map.get(wishlistCoverKey(l))).join('|'))).size,
-                        thematic:lists.every(l=>wishlistOccasionArt[l.occasion].includes(wishlistCoverParts(l,map.get(wishlistCoverKey(l)))[0]))};
+                      const again=assignWishlistCovers([...lists].reverse());
+                      const node=document.createElement('div');
+                      node.innerHTML=lists.map(l=>wishlistCover(l,map)).join('');
+                      const cards=[...node.children];
+                      const names=cards.map(c=>[...c.querySelectorAll('img')].map(img=>img.dataset.serviceArt));
+                      const variants=names.map(a=>a.join('|'));
+                      const images=[...new Map([...node.querySelectorAll('img')].map(i=>[i.src,i])).values()];
+                      await Promise.all(images.map(i=>{i.loading='eager';return i.decode()}));
+                      const fallback=['','Unknown','__proto__','constructor',null].every(occasion=>
+                        wishlistCoverParts({occasion},50).every(name=>allowed['Другое'].includes(name)));
+                      return {pools:occasions.length,unique:new Set(variants).size,stable:lists.every(l=>map.get(wishlistCoverKey(l))===again.get(wishlistCoverKey(l))),
+                        thematic:lists.every((l,i)=>names[i].every(name=>allowed[l.occasion].includes(name))&&(primary[l.occasion]||allowed[l.occasion]).includes(names[i][0])),
+                        fallback,trimmed:wishlistCoverParts({occasion:' День рождения '},0)[0]==='step-gift',
+                        decoded:images.every(i=>i.naturalWidth>0&&i.naturalHeight>0)};
                     }""")
-                    assert themed=={'pools':7,'valid':True,'unique':28,'thematic':True},themed
+                    assert themed=={'pools':7,'unique':140,'stable':True,'thematic':True,'fallback':True,'trimmed':True,'decoded':True},themed
                     assert data['right']<=2 and data['align']=='right',data
                     page.evaluate("contactDeveloperModal()")
                     expect(page.locator('.modal')).not_to_contain_text('кабинет')
