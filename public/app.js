@@ -480,7 +480,32 @@ async function startupApi(path){
   throw error;
  }finally{clearTimeout(timeout);}
 }
-function notice(message,error=false){const n=document.createElement('div');n.className='toast'+(error?' error':'');n.textContent=message;document.getElementById('toast-root').replaceChildren(n);clearTimeout(toastTimeout);toastTimeout=setTimeout(()=>n.remove(),4500);}
+// A single notification keeps its lifetime when moved between page and sheet.
+const mobileToastMedia=matchMedia('(max-width:760px)');
+function toastRail(dialog=modalRoot.querySelector('.modal')){
+ return dialog?.querySelector(':scope > .modal-toast-rail')||null;
+}
+function restorePageToast(){
+ const n=toastRail()?.firstElementChild;
+ if(n)document.getElementById('toast-root').replaceChildren(n);
+}
+function syncToastPlacement(){
+ const rail=toastRail();
+ const root=document.getElementById('toast-root');
+ if(!mobileToastMedia.matches||!rail){restorePageToast();return;}
+ if(root.firstElementChild)rail.replaceChildren(root.firstElementChild);
+}
+function notice(message,error=false){
+ const n=document.createElement('div');
+ n.className='toast'+(error?' error':'');
+ n.setAttribute('role',error?'alert':'status');
+ n.setAttribute('aria-atomic','true');
+ n.textContent=message;
+ const root=document.getElementById('toast-root'),rail=toastRail();
+ root.replaceChildren();rail?.replaceChildren();
+ (mobileToastMedia.matches&&rail?rail:root).append(n);
+ clearTimeout(toastTimeout);toastTimeout=setTimeout(()=>n.remove(),4500);
+}
 async function clipboard(value){try{await navigator.clipboard.writeText(value);notice('Ссылка скопирована!');}catch{modal({title:'Скопируй ссылку',content:`<div class="field"><label>Ссылка</label><input class="input" autofocus readonly value="${attr(value)}" onclick="this.select()"></div>`});}}
 let modalContentObserver=null,authModalMotion=null,authModalFrame=0;
 let modalEntrance=[],modalExit=null;
@@ -490,7 +515,7 @@ function finishModalExit(){
  if(!modalExit)return;
  const exit=modalExit;modalExit=null;
  for(const a of exit.animations)a.cancel();
- if(exit.backdrop.isConnected)exit.backdrop.remove();
+ if(exit.backdrop.isConnected){restorePageToast();exit.backdrop.remove();}
  if(!modalRoot.firstElementChild)document.body.style.overflow='';
 }
 function animateModalEntrance(backdrop,dialog){
@@ -509,6 +534,7 @@ window.addEventListener('resize',()=>{
  if(!modalRoot.firstElementChild)return;
  cancelModalEntrance();stopAuthModalMotion();
  if(modalExit)finishModalExit();
+ else syncToastPlacement();
 },{passive:true});
 function stopAuthModalMotion(){
  if(authModalFrame)cancelAnimationFrame(authModalFrame);
@@ -537,7 +563,7 @@ function animateAuthModalHeight(dialog,from){
  animation.onfinish=()=>{if(authModalMotion===motion)stopAuthModalMotion();};
 }
 function modal({title,subtitle='',content='',onSubmit=null,onError=null,submitLabel='Сохранить',size='normal',footer='',authScreen='',nativeSubmit=false }){
- finishModalExit();cancelModalEntrance();
+ finishModalExit();cancelModalEntrance();restorePageToast();
  const priorDialog=modalRoot.querySelector('.modal');
  if(modalRoot.querySelector('.notification-dialog')){
   const bell=app.querySelector('.header-bell');if(bell)setAttrIfChanged(bell,'aria-expanded','false');
@@ -566,6 +592,8 @@ function modal({title,subtitle='',content='',onSubmit=null,onError=null,submitLa
   const headerRail=document.createElement('div');headerRail.className='modal-fixed-header';
   headerRail.append(titleNode);dialog.insertBefore(headerRail,scroller);
  }
+ const rail=document.createElement('div');rail.className='modal-toast-rail';
+ dialog.insertBefore(rail,scroller);syncToastPlacement();
  const actionRow=scroller.querySelector('#modal-form > .form-actions');
  const extra=scroller.querySelector(':scope > .modal-foot');
  if(actionRow||extra){
@@ -599,7 +627,7 @@ function modal({title,subtitle='',content='',onSubmit=null,onError=null,submitLa
     lastNatural=authModalMotion?.dialog===dialog?authModalMotion.target:dialog.getBoundingClientRect().height;
    });
   });
-  for(const region of dialog.querySelectorAll('.modal-fixed-header,.modal-fixed-footer,.modal-subtitle,#modal-form'))modalContentObserver.observe(region);
+  for(const region of dialog.querySelectorAll('.modal-fixed-header,.modal-fixed-footer,.modal-toast-rail,.modal-subtitle,#modal-form'))modalContentObserver.observe(region);
  }
  if(!priorDialog)animateModalEntrance(dialog.parentElement,dialog);
  document.body.style.overflow='hidden';const bd=modalRoot.querySelector('[data-backdrop]');if(!reuseAuth)bd.addEventListener('click',e=>{if(e.target===bd)closeModal()});modalRoot.querySelectorAll('[data-close]').forEach(b=>b.addEventListener('click',closeModal));
@@ -634,7 +662,7 @@ function closeModal({immediate=false}={}){
  for(const input of modalRoot.querySelectorAll('input'))suggestionObservers.get(input)?.disconnect();
  modalContentObserver?.disconnect();modalContentObserver=null;closeCalendar();closeUiSelect();
  if(wasNotifications){const bell=app.querySelector('.header-bell');if(bell){setAttrIfChanged(bell,'aria-expanded','false');bell.focus({preventScroll:true});}}
- if(immediate||motionReduced()||!dialog?.animate){backdrop.remove();document.body.style.overflow='';return;}
+ if(immediate||motionReduced()||!dialog?.animate){restorePageToast();backdrop.remove();document.body.style.overflow='';return;}
  // Do not leave controls or credentials interactive during a closing transition.
  backdrop.inert=true;backdrop.setAttribute('aria-hidden','true');
  dialog.style.setProperty('--auth-dialog-height',height+'px');dialog.classList.add('auth-height-motion');

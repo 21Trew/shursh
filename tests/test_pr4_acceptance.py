@@ -2639,3 +2639,84 @@ def test_mobile_shared_sheets_header_actions_and_swipes(browser_https,engine):
                 expect(page.locator('[data-santa-state="finished"]')).to_have_attribute('aria-selected','true')
                 ctx.close()
         finally:browser.close()
+
+
+@pytest.mark.browser
+@pytest.mark.parametrize('engine',['chromium','webkit'])
+def test_mobile_toast_in_sheet_flow_and_lifecycle(browser_https,engine):
+    """Use the shared modal/notice functions; no network mutations or mock CSS."""
+    out=OUTPUT/'mobile-toast';out.mkdir(parents=True,exist_ok=True)
+    with sync_playwright() as play:
+        browser=getattr(play,engine).launch(headless=True)
+        try:
+            for width,height in ((320,568),(390,844),(760,844),(568,320)):
+                ctx=browser.new_context(viewport={'width':width,'height':height},
+                    has_touch=True,is_mobile=True,ignore_https_errors=True,reduced_motion='no-preference')
+                page=ctx.new_page();page.goto(browser_https+'/')
+                expect(page.locator('main h1').first).to_be_visible()
+                page.evaluate("""()=>{
+                  notice('Уведомление перед открытием');
+                  modal({title:'Проверка',content:'<input id="toast-test-input" class="input" aria-label="Тест"><div style="height:1200px"></div>',
+                         onSubmit:async()=>{throw new Error('Проверь данные')}});
+                }""")
+                dialog=page.locator('.modal')
+                rail=dialog.locator('.modal-toast-rail')
+                toast=rail.locator('.toast')
+                expect(toast).to_have_text('Уведомление перед открытием')
+                expect(page.locator('#toast-root .toast')).to_have_count(0)
+                page.wait_for_function("()=>document.querySelector('.modal')?.getAnimations().length===0")
+                def geometry():
+                    return page.evaluate("""()=>{
+                      const d=document.querySelector('.modal'),rail=d.querySelector('.modal-toast-rail');
+                      const rect=e=>{const r=e.getBoundingClientRect();return {top:r.top,bottom:r.bottom,left:r.left,right:r.right,height:r.height}};
+                      const footer=d.querySelector('.modal-fixed-footer'),scroller=d.querySelector('.modal-scroll-area');
+                      return {sheet:rect(d),rail:rect(rail),header:rect(d.querySelector('.modal-fixed-header')),
+                        body:rect(scroller),footer:rect(footer),toast:rect(rail.querySelector('.toast')),
+                        scroll:scroller.scrollHeight>scroller.clientHeight,position:getComputedStyle(rail.querySelector('.toast')).position,
+                        width:innerWidth,height:innerHeight};
+                    }""")
+                def assert_geometry(g):
+                    assert g['position']=='static' and g['scroll'],g
+                    assert g['header']['bottom']<=g['rail']['top']+1,g
+                    assert g['rail']['bottom']<=g['body']['top']+1,g
+                    assert g['body']['bottom']<=g['footer']['top']+1,g
+                    assert g['footer']['bottom']<=g['height']+1,g
+                    assert g['body']['height']>0 and g['rail']['height']>0,g
+                    assert g['toast']['left']>=-1 and g['toast']['right']<=g['width']+1,g
+                assert_geometry(geometry())
+                field=dialog.locator('#toast-test-input');field.fill('Сохрани текст')
+                page.evaluate("notice('Новое сообщение')")
+                expect(toast).to_have_text('Новое сообщение')
+                expect(field).to_be_focused();expect(field).to_have_value('Сохрани текст')
+                expect(page.locator('.toast')).to_have_count(1)
+                dialog.locator('.modal-fixed-footer button[type=submit]').click()
+                expect(toast).to_have_text('Проверь данные')
+                expect(toast).to_have_attribute('role','alert')
+                expect(toast).to_have_class(re.compile(r'\berror\b'))
+                page.wait_for_function("()=>document.querySelector('.modal')?.getAnimations().length===0")
+                assert_geometry(geometry())
+                page.screenshot(path=str(out/f'{engine}-{width}x{height}-error.png'),animations='disabled')
+                page.evaluate("notice('Длинное сообщение '.repeat(45))")
+                page.wait_for_function("()=>document.querySelector('.modal')?.getAnimations().length===0")
+                assert_geometry(geometry())
+                assert rail.evaluate("el=>el.scrollHeight>el.clientHeight")
+                # Resizing to desktop restores the same node and its original timer.
+                page.evaluate("window.savedToast=document.querySelector('.toast')")
+                page.set_viewport_size({'width':900,'height':844})
+                expect(page.locator('#toast-root .toast')).to_have_count(1)
+                assert page.evaluate("savedToast===document.querySelector('#toast-root .toast')")
+                page.set_viewport_size({'width':width,'height':height})
+                expect(toast).to_have_count(1)
+                assert page.evaluate("savedToast===document.querySelector('.modal-toast-rail .toast')")
+                # Replace the sheet (and then close it); never duplicate or lose feedback.
+                page.evaluate("modal({title:'Следующая модалка',content:'<p>Новое содержимое</p>'})")
+                expect(toast).to_have_count(1)
+                assert page.evaluate("savedToast===document.querySelector('.modal-toast-rail .toast')")
+                page.evaluate("notice('Готово')")
+                expect(toast).to_have_text('Готово')
+                page.keyboard.press('Escape');expect(dialog).to_have_count(0)
+                expect(page.locator('#toast-root .toast')).to_have_text('Готово')
+                expect(page.locator('.toast')).to_have_count(1)
+                expect(page.locator('.toast')).to_have_count(0,timeout=6500)
+                ctx.close()
+        finally:browser.close()

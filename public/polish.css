@@ -944,3 +944,18 @@ input[type="checkbox"]:not(.shursh-checkbox input):checked::after{content:"✓";
 @media(prefers-reduced-motion:reduce){
  .site-header .nav,.site-header.is-condensed .nav{transition:none!important}
 }
+
+/* Modal notifications are a real flex row, never a fixed overlay. Keep the
+   header/footer actionable; long messages scroll within their bounded row. */
+.modal-toast-rail{display:none}
+@media(max-width:760px){
+ .modal>.modal-toast-rail:not(:empty){
+  display:block;flex:0 0 auto;min-width:0;max-height:min(112px,24dvh);
+  padding:6px 20px 0;overflow:auto;overscroll-behavior:contain;
+ }
+ .modal-toast-rail>.toast{
+  position:static;inset:auto;z-index:auto;width:100%;max-width:none;
+  padding:9px 12px;font-size:13px;line-height:1.35;border-radius:12px;
+  overflow-wrap:anywhere;box-shadow:none;animation:none;transform:none;
+ }
+}
