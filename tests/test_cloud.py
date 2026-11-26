@@ -3701,3 +3701,28 @@ def test_admin_detail_visibility_and_audit(application,monkeypatch):
     finally:
         with db.transaction(write=True) as con:
             con.execute('UPDATE profiles SET discoverable=true WHERE id=?',(uid,))
+
+
+def test_document_404_uses_brand_and_keeps_api_and_asset_contract(application):
+    from app import UI_VERSION
+    client=application.test_client()
+    pages={'/no-such-page':'Страница не найдена','/santa/invalid':'Игра не найдена','/list/invalid':'Вишлист не найден','/u/!':'Пользователь не найден','/join/!':'Приглашение не найдено','/p/!':'Личная ссылка недействительна','/r/!':'Бронь не найдена','/i/!':'Приглашение не найдено'}
+    for path,heading in pages.items():
+        result=client.get(path+'?secret=DO-NOT-REFLECT',base_url=BASE,headers={'Accept':'text/html','Sec-Fetch-Dest':'document'})
+        assert result.status_code==404 and result.mimetype=='text/html'
+        html=result.get_data(as_text=True)
+        assert '<h1>'+heading+'</h1>' in html and 'DO-NOT-REFLECT' not in html
+        assert 'error-page.js' in html and '/art/crayon/' in html
+        assert result.headers['Cache-Control']=='no-store'
+        assert result.headers['X-Robots-Tag']=='noindex, nofollow'
+        assert client.head(path,base_url=BASE,headers={'Accept':'text/html'}).status_code==404
+    assert client.get('/unknown',base_url=BASE).mimetype=='text/html'
+    assert client.get('/unknown',base_url=BASE,headers={'Accept':'application/json'}).mimetype=='application/json'
+    api=client.get('/api/no-such-endpoint',base_url=BASE,headers={'Accept':'text/html','Sec-Fetch-Dest':'document'})
+    assert api.status_code==404 and api.mimetype=='application/json'
+    asset=client.get('/ui/'+UI_VERSION+'/missing.js',base_url=BASE,headers={'Sec-Fetch-Dest':'script'})
+    assert asset.status_code==404 and asset.mimetype=='application/json'
+    direct=client.get('/ui/invalid/missing.js',base_url=BASE,headers={'Accept':'text/html','Sec-Fetch-Dest':'document'})
+    assert direct.status_code==404 and direct.mimetype=='text/html'
+    assert client.get('/ui/'+UI_VERSION+'/error-page.js',base_url=BASE).status_code==200
+    assert client.get('/u/legacy_nick',base_url=BASE).status_code==200

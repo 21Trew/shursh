@@ -1,0 +1,29 @@
+<!doctype html>
+<html lang="ru">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<meta name="theme-color" content="#f9f7ef">
+<meta name="robots" content="noindex,nofollow">
+<title>{{ heading }} · Шурш!</title>
+<link rel="icon" href="/ui/{{ version }}/favicon.svg" type="image/svg+xml">
+<link rel="stylesheet" href="/ui/{{ version }}/fonts.css">
+<link rel="stylesheet" href="/ui/{{ version }}/styles.css">
+<link rel="stylesheet" href="/ui/{{ version }}/polish.css">
+</head>
+<body class="standalone-error">
+<header class="container standalone-error-header"><a class="logo" href="/" aria-label="Шурш! На главную">шурш<span>!</span></a></header>
+<main class="container standalone-error-main" data-incident-route="{{ route }}" data-ui-version="{{ version }}">
+  <section class="error-page">
+    <div class="error-approved-art"><img src="/ui/{{ version }}/art/crayon/{{ art }}.webp" alt=""></div>
+    <h1>{{ heading }}</h1>
+    <div class="error-page-actions">
+      <a class="btn btn-dark" href="/">На главную</a>
+      <button class="btn btn-soft hide" type="button" data-report-404>Сообщить об ошибке</button>
+    </div>
+    <p class="note" data-report-status role="status"></p>
+  </section>
+</main>
+<script src="/ui/{{ version }}/error-page.js" defer></script>
+</body>
+</html>

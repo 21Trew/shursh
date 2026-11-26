@@ -10,7 +10,7 @@ import secrets
 import sqlite3
 from flask import g
 from pathlib import Path
-from flask import Flask, Response, request, send_from_directory, redirect
+from flask import Flask, Response, request, send_from_directory, redirect, render_template
 from werkzeug.exceptions import RequestEntityTooLarge
 
 from cloud import db, auth, password_policy, activity, audit
@@ -20,12 +20,13 @@ from server import ApiError, LIMIT_BYTES
 ROOT = Path(__file__).resolve().parent
 # One fingerprint for the HTML and every first-party UI module. A new release
 # cannot reuse a cached app.js under the previous HTML's unversioned URL.
-UI_ASSETS=('app.js','santa-ui.js','social-ui.js','styles.css','polish.css','fonts.css','favicon.svg','favicon.ico')
+UI_ASSETS=('app.js','santa-ui.js','social-ui.js','styles.css','polish.css','fonts.css','favicon.svg','favicon.ico','error-page.js')
 LANDING_ART_ASSETS=tuple('art/crayon/'+name+'.webp' for name in (
     'hero-accents', 'hero-mail', 'hero-gift', 'hero-mascot', 'step-list', 'step-share', 'step-gift', 'camera', 'cup', 'ticket', 'santa', 'privacy'
 ))
 _ui_digest=hashlib.sha256()
 _ui_digest.update(b'index.html\0'+(ROOT/'templates'/'index.html').read_bytes())
+_ui_digest.update(b'404.html\0'+(ROOT/'templates'/'404.html').read_bytes())
 for _asset in UI_ASSETS + LANDING_ART_ASSETS:
     _ui_digest.update(_asset.encode('ascii')+b'\0'+(ROOT/'public'/_asset).read_bytes())
 UI_VERSION=_ui_digest.hexdigest()[:20]
@@ -51,8 +52,44 @@ def release_database_connection(_error):
     db.close_request_connection()
 
 
+def document_not_found(result):
+    """Render a branded browser 404 without changing API or asset responses."""
+    if result.status_code != 404 or request.method not in ('GET','HEAD'):
+        return result
+    path=request.path
+    if path == '/api' or path.startswith('/api/'):
+        return result
+    dest=request.headers.get('Sec-Fetch-Dest','')
+    accept=request.headers.get('Accept','')
+    if dest and dest not in ('document','iframe','frame'):
+        return result
+    is_asset=path.startswith(('/ui/','/uploads/','/fonts/','/art/')) or path.lower().endswith(('.js','.css','.woff2','.ico','.svg','.png','.webp','.jpg','.jpeg','.gif','.map'))
+    if is_asset and dest not in ('document','iframe','frame') and 'text/html' not in accept:
+        return result
+    if 'application/json' in accept and 'text/html' not in accept and not dest:
+        return result
+    group=path.split('/')[1] if path.startswith('/') else ''
+    messages={
+        'list':('Вишлист не найден','step-list','/list/*'),
+        'w':('Вишлист не найден','step-list','/w/*'),
+        'santa':('Игра не найдена','santa','/santa/*'),
+        'users':('Пользователь не найден','hero-mail','/users/*'),
+        'u':('Пользователь не найден','hero-mail','/u/*'),
+        'join':('Приглашение не найдено','hero-mail','/join/*'),
+        'i':('Приглашение не найдено','hero-mail','/i/*'),
+        'p':('Личная ссылка недействительна','hero-mail','/p/*'),
+        'r':('Бронь не найдена','step-gift','/r/*'),
+        'uploads':('Изображение не найдено','camera','other'),
+    }
+    heading,art,route=messages.get(group,('Страница не найдена','step-gift','other'))
+    # Never reflect raw paths, query strings or capability tokens.
+    return Response(render_template('404.html',heading=heading,art=art,route=route,version=UI_VERSION),
+                    status=404,mimetype='text/html')
+
+
 @app.after_request
 def security_headers(result):
+    result=document_not_found(result)
     if request.path.startswith('/api/'):
         elapsed = (time.perf_counter() - g.request_started) * 1000
         db_ms=getattr(g,'db_connect_ms',0.0)
@@ -75,7 +112,7 @@ def security_headers(result):
     # avoids repeated downloads on reload; HTML, APIs and capability URLs
     # must always remain private and uncached.
     versioned_asset=(result.status_code in (200,304) and request.path.startswith('/ui/'+UI_VERSION+'/') and request.path[len('/ui/'+UI_VERSION+'/'):] in UI_ASSETS + LANDING_ART_ASSETS)
-    if versioned_asset or (result.status_code in (200,304) and request.path.lstrip('/') in LANDING_ART_ASSETS) or request.path in ('/app.js','/santa-ui.js','/social-ui.js','/styles.css','/polish.css','/fonts.css','/favicon.svg','/favicon.ico') or request.path.startswith('/fonts/'):
+    if result.status_code in (200,304) and (versioned_asset or request.path.lstrip('/') in LANDING_ART_ASSETS or request.path in ('/app.js','/santa-ui.js','/social-ui.js','/styles.css','/polish.css','/fonts.css','/favicon.svg','/favicon.ico') or request.path.startswith('/fonts/')):
         result.headers['Cache-Control'] = 'public, max-age=300, must-revalidate'
     else:
         result.headers['Cache-Control'] = 'no-store'
