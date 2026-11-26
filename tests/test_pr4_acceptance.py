@@ -2549,11 +2549,11 @@ def test_friends_exact_search_and_qr_invite(browser_https,application,engine):
                 expect(page.locator('#personal-invite-qr')).to_be_visible()
                 page.wait_for_function("()=>document.querySelector('#personal-invite-qr')?.complete && document.querySelector('#personal-invite-qr')?.naturalWidth>0")
                 assert page.locator('#personal-invite-qr').evaluate("img=>img.complete&&img.naturalWidth>0&&img.src.startsWith('data:image/png')")
-                assert page.locator('a[download="shursh-invite.png"]').count()==1
+                expect(page.get_by_role('button',name='Поделиться QR',exact=True)).to_be_visible()
                 expect(page.locator('.personal-invite-modal .modal-fixed-header .modal-close')).to_be_visible()
                 expect(page.locator('.personal-invite-modal .modal-fixed-footer')).to_be_visible()
-                # The downloadable PNG contains branding once, outside the
-                # matrix; compare every module including its quiet zone.
+                # The shareable PNG keeps branding outside the matrix.
+                # Compare every module outside the intentional avatar overlay, including its quiet zone.
                 assert page.locator('.personal-invite-modal .invite-brand').count()==0
                 pixels=page.locator('#personal-invite-qr').evaluate("""(img,rows)=>{
                     const c=document.createElement('canvas');c.width=img.naturalWidth;c.height=img.naturalHeight;
