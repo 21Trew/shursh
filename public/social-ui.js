@@ -345,14 +345,14 @@ function socialAdminUsersMarkup(page){
    '<small>ID: '+esc(String(u.id).slice(0,8))+'</small></span></a></td>'+
    '<td>'+(u.handle?'@'+esc(u.handle):'<span class="muted">—</span>')+'</td>'+
    '<td><time datetime="'+attr(u.created_at)+'">'+esc(new Date(u.created_at).toLocaleString('ru-RU',{dateStyle:'medium',timeStyle:'short'}))+'</time></td>'+
-   '<td data-admin-visit-user="'+attr(u.id)+'">'+socialAdminVisitMarkup(u)+'</td><td>'+Number(u.wishlists_count||0)+'</td><td>'+Number(u.organized_games||0)+'</td>'+
+   '<td data-admin-visit-user="'+attr(u.id)+'">'+socialAdminVisitMarkup(u)+'</td><td>'+Number(u.wishlists_count||0)+'</td><td data-admin-count="gifts">'+Number(u.gifts_count||0)+'</td><td data-admin-count="referrals">'+Number(u.referral_count||0)+'</td><td>'+Number(u.organized_games||0)+'</td>'+
    '<td>'+Number(u.joined_games||0)+'</td><td>'+(u.discoverable?'Виден':'Скрыт')+'</td></tr>').join('');
  const from=page.total?Number(page.offset)+1:0;
  const to=Math.min(Number(page.offset)+Number(page.limit),Number(page.total));
  return '<div class="admin-users-table-scroll"><table class="admin-users-table"><thead><tr>'+
-   '<th>Игрок</th><th>Ник</th><th>Регистрация</th><th>Последний визит</th><th>Вишлисты</th>'+
+   '<th>Игрок</th><th>Ник</th><th>Регистрация</th><th>Последний визит</th><th>Вишлисты</th><th>Подарки</th><th>Рефы</th>'+
    '<th>Свои Санты</th><th>Участие</th><th>В поиске</th></tr></thead><tbody>'+
-   (rows||'<tr><td colspan="8" class="muted">Игроки не найдены</td></tr>')+'</tbody></table></div>'+
+   (rows||'<tr><td colspan="10" class="muted">Игроки не найдены</td></tr>')+'</tbody></table></div>'+
    '<div class="admin-users-pager"><span>'+from+'–'+to+' из '+Number(page.total)+'</span>'+
    '<div class="btn-row"><button type="button" class="btn btn-soft btn-small" data-social-action="admin-users-prev" data-offset="'+Math.max(0,page.offset-page.limit)+'"'+(page.offset===0?' disabled':'')+'>Назад</button>'+
    '<button type="button" class="btn btn-soft btn-small" data-social-action="admin-users-next" data-offset="'+(page.offset+page.limit)+'"'+(to>=page.total?' disabled':'')+'>Вперёд</button></div></div>';
@@ -400,6 +400,7 @@ async function socialRefreshAdminPresence(){
    const user=users.get(cell.dataset.adminVisitUser);
    if(!user)continue;
    const next=cell.cloneNode(false);next.innerHTML=socialAdminVisitMarkup(user);patchOwnerNode(cell,next);
+   const row=cell.closest('tr');for(const [key,value] of [['gifts',user.gifts_count],['referrals',user.referral_count]]){const count=row?.querySelector('[data-admin-count="'+key+'"]');if(count&&count.textContent!==String(Number(value||0)))count.textContent=String(Number(value||0));}
   }
  }catch{ /* Presence is advisory; leave existing data and expire stale indicators. */ }
  finally{adminPresenceBusy=false;}
@@ -565,15 +566,29 @@ function inviteQrData(rows){
  ctx.textBaseline='middle';ctx.font='800 38px Unbounded, sans-serif';ctx.fillStyle='#27272b';ctx.fillText('шурш',24,band/2);
  ctx.fillStyle='#e58b67';ctx.fillText('!',24+ctx.measureText('шурш').width,band/2);
  const n=rows.length,center=(n-1)/2;
- ctx.fillStyle='#000';rows.forEach((r,y)=>{for(let x=0;x<n;x++)if(r[x]==='1'){
-  const finder=(x<13&&y<13)||(x>=n-13&&y<13)||(x<13&&y>=n-13);
-  if(finder||x===10||y===10||typeof ctx.roundRect!=='function')ctx.fillRect(x*scale,y*scale+band,scale,scale);
-  else{ctx.beginPath();ctx.roundRect(x*scale,y*scale+band,scale,scale,2.2);ctx.fill();}
+ const rounded=(x,y,w,h,r)=>{ctx.beginPath();ctx.moveTo(x+r,y);ctx.lineTo(x+w-r,y);ctx.quadraticCurveTo(x+w,y,x+w,y+r);ctx.lineTo(x+w,y+h-r);ctx.quadraticCurveTo(x+w,y+h,x+w-r,y+h);ctx.lineTo(x+r,y+h);ctx.quadraticCurveTo(x,y+h,x,y+h-r);ctx.lineTo(x,y+r);ctx.quadraticCurveTo(x,y,x+r,y);ctx.closePath();ctx.fill();};
+ const anchors=[[4,4],[n-11,4],[4,n-11]];
+ const finder=(x,y)=>anchors.some(([a,b])=>x>=a&&x<a+7&&y>=b&&y<b+7);
+ ctx.fillStyle='#000';
+ rows.forEach((row,y)=>{for(let x=0;x<n;x++)if(row[x]==='1'&&!finder(x,y)){
+  if(x===10||y===10){ctx.fillRect(x*scale,y*scale+band,scale,scale);continue;}
+  // Connect touching modules and round only their exposed corners.
+  const px=x*scale,py=y*scale+band,r=scale*.46,black=(a,b)=>rows[b]?.[a]==='1';
+  const tl=black(x-1,y)||black(x,y-1)?0:r,tr=black(x+1,y)||black(x,y-1)?0:r,br=black(x+1,y)||black(x,y+1)?0:r,bl=black(x-1,y)||black(x,y+1)?0:r;
+  ctx.beginPath();ctx.moveTo(px+tl,py);ctx.lineTo(px+scale-tr,py);ctx.quadraticCurveTo(px+scale,py,px+scale,py+tr);
+  ctx.lineTo(px+scale,py+scale-br);ctx.quadraticCurveTo(px+scale,py+scale,px+scale-br,py+scale);
+  ctx.lineTo(px+bl,py+scale);ctx.quadraticCurveTo(px,py+scale,px,py+scale-bl);
+  ctx.lineTo(px,py+tl);ctx.quadraticCurveTo(px,py,px+tl,py);ctx.closePath();ctx.fill();
  }});
+ for(const [x,y] of anchors){
+  ctx.fillStyle='#000';rounded(x*scale,y*scale+band,7*scale,7*scale,scale*.45);
+  ctx.fillStyle='#fff';rounded((x+1)*scale,(y+1)*scale+band,5*scale,5*scale,scale*.35);
+  ctx.fillStyle='#000';rounded((x+2)*scale,(y+2)*scale+band,3*scale,3*scale,scale*.3);
+ }
  const cx=(center+.5)*scale,cy=band+cx;
- ctx.fillStyle='#fff';ctx.beginPath();ctx.arc(cx,cy,2.45*scale,0,Math.PI*2);ctx.fill();
- ctx.fillStyle='#f9e7a3';ctx.beginPath();ctx.arc(cx,cy,2*scale,0,Math.PI*2);ctx.fill();
- ctx.font='29px sans-serif';ctx.textAlign='center';ctx.fillText(currentUser?.avatar_emoji||'🎁',cx,cy+1);
+ ctx.fillStyle='#fff';ctx.beginPath();ctx.arc(cx,cy,3.25*scale,0,Math.PI*2);ctx.fill();
+ ctx.fillStyle='#f9e7a3';ctx.beginPath();ctx.arc(cx,cy,2.8*scale,0,Math.PI*2);ctx.fill();
+ ctx.font='42px sans-serif';ctx.textAlign='center';ctx.fillText(currentUser?.avatar_emoji||'🎁',cx,cy+1);
  return canvas.toDataURL('image/png');
 }
 async function sharePersonalQr(){
@@ -583,6 +598,9 @@ async function sharePersonalQr(){
  const file=new File([bytes],'shursh-invite.png',{type:'image/png'});
  if(navigator.share&&navigator.canShare?.({files:[file]})){
   try{await navigator.share({files:[file],title:'Шурш!'});return;}catch(e){if(e.name==='AbortError')return;}
+ }
+ if(navigator.clipboard?.write&&typeof ClipboardItem==='function'){
+  try{await navigator.clipboard.write([new ClipboardItem({'image/png':file})]);notice('QR-код скопирован');return;}catch{}
  }
  await sharePersonalInvite();
 }
@@ -595,25 +613,29 @@ async function socialPersonalInviteModal(){
  if(url!==data.url)throw new Error('Адрес приглашения не совпадает с сайтом');
  const qr=inviteQrData(data.qr);
  modal({title:'Пригласить друга',content:
-  '<div class="personal-invite-card">'+
-  '<img id="personal-invite-qr" alt="QR-код приглашения от '+attr(currentUser.name||'')+'" width="208" src="'+attr(qr)+'">'+
-  '<div class="personal-invite-download"><button class="btn btn-soft btn-small" type="button" data-social-action="share-personal-qr">Поделиться QR</button></div></div>'+
-  '<div class="field"><label for="personal-invite-link">Твоя ссылка</label><div class="share-field invite-link-row"><input class="input" aria-label="Персональная ссылка" id="personal-invite-link" readonly value="'+attr(url)+'"><button class="btn btn-soft btn-small" type="button" data-social-action="copy-personal-invite" aria-label="Копировать ссылку">'+ico('copy')+'</button></div></div>'+
-  '<div class="personal-invite-social"><a class="btn btn-soft btn-small" target="_blank" rel="noopener noreferrer" href="https://t.me/share/url?url='+encodeURIComponent(url)+'">Telegram</a>'+
+  '<div class="personal-invite-card"><img id="personal-invite-qr" alt="QR-код приглашения от '+attr(currentUser.name||'')+'" width="244" src="'+attr(qr)+'"></div>'+
+  '<div class="personal-invite-social" role="group" aria-label="Поделиться приглашением">'+
+  '<button class="btn btn-soft btn-small" type="button" id="personal-invite-link" data-invite-url="'+attr(url)+'" data-social-action="copy-personal-invite">Ссылка '+ico('copy')+'</button>'+
+  '<button class="btn btn-soft btn-small" type="button" data-social-action="share-personal-qr">QR</button>'+
+  '<a class="btn btn-soft btn-small" target="_blank" rel="noopener noreferrer" href="https://t.me/share/url?url='+encodeURIComponent(url)+'">Telegram</a>'+
   '<a class="btn btn-soft btn-small" target="_blank" rel="noopener noreferrer" href="https://vk.com/share.php?url='+encodeURIComponent(url)+'">VK</a><a class="btn btn-soft btn-small" target="_blank" rel="noopener noreferrer" href="https://max.ru/:share?text='+encodeURIComponent(url)+'">MAX</a></div>'+
-  '<p class="note">Новая подтверждённая регистрация засчитывается один раз</p>',
-  footer:'<div class="personal-invite-footer"><button class="text-link" type="button" data-social-action="revoke-personal-invite">Отозвать ссылку</button><button class="btn btn-dark" type="button" data-social-action="share-personal-invite">Поделиться ссылкой '+ico('arrow')+'</button></div>'});
+  '<div class="personal-invite-count"><span>По твоей ссылке зарегистрировались</span><strong data-referral-count>'+Number(data.referral_count||0)+'</strong></div>'+
+  '<p class="note">Учитываются только подтверждённые регистрации</p>',
+  footer:'<div class="personal-invite-footer"><button class="text-link" type="button" data-social-action="revoke-personal-invite">Отозвать ссылку</button></div>'});
  modalRoot.querySelector('.modal')?.classList.add('personal-invite-modal');
 }
 async function copyPersonalInvite(){
- const input=modalRoot.querySelector('#personal-invite-link');if(!input)return;
- try{await navigator.clipboard.writeText(input.value);notice('Ссылка скопирована');}
- catch{input.focus();input.select();notice('Скопируй выделенную ссылку');}
+ const button=modalRoot.querySelector('#personal-invite-link'),url=button?.dataset.inviteUrl;if(!url)return false;
+ try{await navigator.clipboard.writeText(url);notice('Ссылка скопирована');return true;}catch{}
+ const helper=document.createElement('textarea');helper.value=url;helper.setAttribute('readonly','');helper.style.cssText='position:fixed;top:0;left:0;opacity:0;width:1px;height:1px;pointer-events:none';
+ modalRoot.append(helper);
+ try{helper.select();if(document.execCommand('copy')){notice('Ссылка скопирована');return true;}}catch{}finally{helper.remove();button.focus({preventScroll:true});}
+ notice('Не удалось скопировать ссылку',true);return false;
 }
 async function sharePersonalInvite(){
- const input=modalRoot.querySelector('#personal-invite-link');if(!input)return;
- if(navigator.share){try{await navigator.share({title:'Шурш!',text:'Давай дружить в Шурш!',url:input.value});return;}catch(e){if(e.name==='AbortError')return;}}
- await copyPersonalInvite();
+ const url=modalRoot.querySelector('#personal-invite-link')?.dataset.inviteUrl;if(!url)return;
+ if(navigator.share){try{await navigator.share({title:'Шурш!',text:'Давай дружить в Шурш!',url});return;}catch(e){if(e.name==='AbortError')return;}}
+ if(await copyPersonalInvite())notice('QR недоступен для отправки, ссылка скопирована');
 }
 async function socialFriendInvitePage(code,marker=lastRenderToken){
  const result=await api('/api/friend-invites/'+encodeURIComponent(code));

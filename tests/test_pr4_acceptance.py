@@ -2545,11 +2545,18 @@ def test_friends_exact_search_and_qr_invite(browser_https,application,engine):
                 rows=invite_response.value.json()['qr']
                 link=page.locator('#personal-invite-link')
                 expect(link).to_be_visible()
-                url=link.input_value();assert url.startswith(browser_https+'/i/')
+                url=link.get_attribute('data-invite-url');assert url.startswith(browser_https+'/i/')
+                expect(page.locator('.personal-invite-modal input')).to_have_count(0)
+                expect(page.locator('[data-referral-count]')).to_have_text(str(invite_response.value.json()['referral_count']))
+                expect(page.get_by_role('button',name='Поделиться ссылкой',exact=True)).to_have_count(0)
+                page.evaluate("Object.defineProperty(navigator,'clipboard',{configurable:true,value:{writeText:async text=>{window.copiedInvite=text;}}})")
+                link.click()
+                page.wait_for_function('(url)=>window.copiedInvite===url',arg=url)
+                assert page.locator('.personal-invite-social').evaluate("el=>{const r=[...el.children].map(c=>c.getBoundingClientRect());return r.length===5&&r.every(x=>Math.abs(x.top-r[0].top)<1)&&r.every(x=>x.width>0&&x.height>=44)}")
                 expect(page.locator('#personal-invite-qr')).to_be_visible()
                 page.wait_for_function("()=>document.querySelector('#personal-invite-qr')?.complete && document.querySelector('#personal-invite-qr')?.naturalWidth>0")
                 assert page.locator('#personal-invite-qr').evaluate("img=>img.complete&&img.naturalWidth>0&&img.src.startsWith('data:image/png')")
-                expect(page.get_by_role('button',name='Поделиться QR',exact=True)).to_be_visible()
+                expect(page.get_by_role('button',name='QR',exact=True)).to_be_visible()
                 expect(page.locator('.personal-invite-modal .modal-fixed-header .modal-close')).to_be_visible()
                 expect(page.locator('.personal-invite-modal .modal-fixed-footer')).to_be_visible()
                 # The shareable PNG keeps branding outside the matrix.
@@ -2563,7 +2570,8 @@ def test_friends_exact_search_and_qr_invite(browser_https,application,engine):
                     let correct=true;
                     for(let y=0;y<rows.length;y++)for(let x=0;x<rows.length;x++){
                       const i=4*((band+y*scale+Math.floor(scale/2))*c.width+x*scale+Math.floor(scale/2));
-                      if(Math.hypot(x-(rows.length-1)/2,y-(rows.length-1)/2)<=3)continue;
+                      if(Math.hypot(x-(rows.length-1)/2,y-(rows.length-1)/2)<=4)continue;
+                      if([[4,4],[rows.length-11,4],[4,rows.length-11]].some(([a,b])=>x>=a&&x<a+7&&y>=b&&y<b+7))continue;
                       const v=rows[y][x]==='1'?0:255;
                       if(data[i]!==v||data[i+1]!==v||data[i+2]!==v||data[i+3]!==255)correct=false;
                     }
@@ -2578,6 +2586,8 @@ def test_friends_exact_search_and_qr_invite(browser_https,application,engine):
                 output=OUTPUT/'friend-invite';output.mkdir(parents=True,exist_ok=True)
                 page.screenshot(path=str(output/f'{engine}-mobile-qr.png'),animations='disabled')
                 assert page.evaluate("document.documentElement.scrollWidth<=innerWidth+1")
+                page.set_viewport_size({'width':320,'height':780})
+                assert page.locator('.personal-invite-social').evaluate("el=>{const r=[...el.children].map(c=>c.getBoundingClientRect());return r.length===5&&r.every(x=>Math.abs(x.top-r[0].top)<1)&&r.every(x=>x.left>=0&&x.right<=innerWidth+1&&x.height>=44)}")
                 page.set_viewport_size({'width':1440,'height':900})
                 page.screenshot(path=str(output/f'{engine}-desktop-qr.png'),animations='disabled')
                 assert page.evaluate("document.documentElement.scrollWidth<=innerWidth+1")
@@ -2600,7 +2610,7 @@ def test_friends_exact_search_and_qr_invite(browser_https,application,engine):
                 page.set_viewport_size({'width':390,'height':844})
                 page.get_by_role('button',name='Пригласить друга').click()
                 expect(page.locator('#personal-invite-link')).to_be_visible()
-                new_url=page.locator('#personal-invite-link').input_value()
+                new_url=page.locator('#personal-invite-link').get_attribute('data-invite-url')
                 assert new_url==url
                 profile=call(owner,'GET','/api/profile/me').json['profile']
                 assert profile['discoverable'] is False and profile['allow_friend_invites'] is False
@@ -3025,6 +3035,20 @@ def test_service_crayon_covers_footer_and_circular_gift_gallery(browser_https,en
                         decoded:images.every(i=>i.naturalWidth>0&&i.naturalHeight>0)};
                     }""")
                     assert themed=={'pools':7,'unique':140,'stable':True,'thematic':True,'fallback':True,'trimmed':True,'decoded':True},themed
+                    order=page.evaluate("""async()=>{
+                      const l={id:98765,occasion:'День рождения'},slot=2;
+                      const host=document.createElement('div');host.className='list-cover';
+                      host.style.cssText='position:fixed;left:0;top:0;width:280px;height:150px;visibility:hidden';
+                      host.innerHTML=wishlistCover(l,new Map([[wishlistCoverKey(l),slot]]));
+                      document.body.append(host);
+                      try{
+                        const art=host.firstElementChild,big=art.firstElementChild,small=art.querySelector('.cover-companions img');
+                        if(!small)return false;
+                        const a=big.getBoundingClientRect(),b=small.getBoundingClientRect();
+                        return art.classList.contains('wishlist-cover-gifts-reversed')&&a.width>b.width&&a.left+a.width/2>b.left+b.width/2;
+                      }finally{host.remove();}
+                    }""")
+                    assert order
                     assert data['right']<=2 and data['align']=='right',data
                     page.evaluate("contactDeveloperModal()")
                     expect(page.locator('.modal')).not_to_contain_text('кабинет')
@@ -3373,6 +3397,9 @@ def test_admin_device_presence_color_and_refresh(browser_https, application, mon
             expect(icon).to_have_css('color','rgb(22, 163, 74)')
             expect(icon).to_have_attribute('title',re.compile('В сети'))
             expect(search).to_be_focused()
+            assert page.locator('.admin-users-table th').all_text_contents()[4:7]==['Вишлисты','Подарки','Рефы']
+            expect(page.locator('.admin-users-table [data-admin-count="gifts"]').first).to_be_visible()
+            expect(page.locator('.admin-users-table [data-admin-count="referrals"]').first).to_be_visible()
             assert page.evaluate("presenceSearch===document.querySelector('#admin-users-query')&&presenceTable===document.querySelector('.admin-users-table')")
             boundaries=page.evaluate("""()=>{
                 const now=Date.now(),stamp=delta=>new Date(now-delta).toISOString();

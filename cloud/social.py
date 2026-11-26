@@ -175,9 +175,12 @@ def handle(handler, method, path, con):
         activity_join=(' LEFT JOIN admin_user_activity a ON a.user_id=p.id ' if ready else ' ')+'''
           LEFT JOIN LATERAL (SELECT max(created_at) AS latest_session_at FROM app_sessions
                              WHERE user_id=p.id) s ON TRUE '''
+        referral_count_sql='(SELECT count(*) FROM referral_attributions r WHERE r.referrer_id=p.id)' if referrals.ready(con) else '0'
         rows=con.execute('''SELECT p.id,p.name,p.handle,p.avatar_emoji,p.created_at,p.discoverable,
                  '''+activity_columns+''',
                  (SELECT count(*) FROM wishlists w WHERE w.owner_id=p.id) AS wishlists_count,
+                  (SELECT count(*) FROM wishes g JOIN wishlists w ON w.id=g.list_id WHERE w.owner_id=p.id) AS gifts_count,
+                  '''+referral_count_sql+''' AS referral_count,
                  (SELECT count(*) FROM santa_events e WHERE e.owner_id=p.id) AS organized_games,
                  (SELECT count(*) FROM participants m WHERE m.user_id=p.id) AS joined_games
                  FROM profiles p '''+activity_join+where+'''

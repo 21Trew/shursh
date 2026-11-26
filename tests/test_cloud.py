@@ -2518,8 +2518,13 @@ def test_admin_user_directory_is_paginated_and_only_for_site_admin(application,m
     result=call(manager,'GET','/api/admin/users').json
     assert result['limit']==25 and result['offset']==0 and result['total']>=2
     allowed={'id','name','handle','avatar_emoji','created_at','discoverable',
-             'wishlists_count','organized_games','joined_games','last_seen_at','last_platform','last_seen_source'}
+             'wishlists_count','gifts_count','referral_count','organized_games','joined_games','last_seen_at','last_platform','last_seen_source'}
     assert all(set(u)==allowed for u in result['users'])
+    from cloud import db
+    with db.transaction() as con:
+        for u in result['users']:
+            assert u['gifts_count']==con.execute('SELECT count(*) AS n FROM wishes g JOIN wishlists w ON w.id=g.list_id WHERE w.owner_id=?',(u['id'],)).fetchone()['n']
+            assert u['referral_count']==con.execute('SELECT count(*) AS n FROM referral_attributions WHERE referrer_id=?',(u['id'],)).fetchone()['n']
     assert all('@example.test' not in str(u) for u in result['users'])
     assert call(manager,'GET','/api/admin/users?q=owner').json['total']>=1
     assert call(manager,'GET','/api/admin/users?offset=10000').json['users']==[]
@@ -3491,13 +3496,22 @@ def test_referral_verified_confirmation_exactly_once_and_revocation(application,
         assert count(owner)==initial+1 and count(other)==initial_other
         assert 'invite_path' not in confirm('referral-a@example.test')
         assert count(owner)==initial+1
+        current=call(owner,'POST','/api/friend-invites/me',{}).json
+        assert current['path']=='/i/'+invite and current['referral_count']==initial+1
+        register('referral-second@example.test',invite)
+        assert confirm('referral-second@example.test')['invite_path']=='/i/'+invite
+        assert count(owner)==initial+2 and count(other)==initial_other
+        assert call(owner,'POST','/api/friend-invites/me',{}).json['referral_count']==initial+2
+        monkeypatch.setenv('SHURSH_ADMIN_EMAILS','owner@example.test')
+        row=next(u for u in call(owner,'GET','/api/admin/users').json['users'] if u['id']==aid)
+        assert row['referral_count']==initial+2
         # A fake duplicate signup must not attribute an already verified account,
         # including a self-referral attempt.
         monkeypatch.setattr(auth,'auth_request',lambda action,**payload: {'id':aid,'identities':[],'email':'owner@example.test'} if action=='register' else upstream(action,**payload))
         register('owner@example.test',alternative)
         register('owner@example.test',invite)
         login(application)
-        assert count(owner)==initial+1 and count(other)==initial_other
+        assert count(owner)==initial+2 and count(other)==initial_other
         monkeypatch.setattr(auth,'auth_request',provider)
         # Revocation before confirmation and expiration both fail closed.
         register('referral-b@example.test',invite)
@@ -3507,7 +3521,7 @@ def test_referral_verified_confirmation_exactly_once_and_revocation(application,
         call(owner,'DELETE','/api/friend-invites/me',{})
         assert 'invite_path' not in confirm('referral-b@example.test')
         assert 'invite_path' not in confirm('referral-expired@example.test')
-        assert count(owner)==initial+1 and count(other)==initial_other
+        assert count(owner)==initial+2 and count(other)==initial_other
         call(guest,'POST','/api/register',{'name':'Revoked','email':'referral-c@example.test','password':'valid-password','invite_code':invite},404)
         assert 'referral-c@example.test' not in users
         with psycopg.connect(os.environ['SHURSH_DATABASE_URL']) as con:
@@ -3537,7 +3551,7 @@ def test_landing_crayon_assets_versioning_and_cache(application):
         'privacy': '7b0fb6332041f1c5b7fe4ec296e9d6052815b11a',
         'santa': 'c9383a06e60cf78b5da0196eccd8758e49cc0f94',
         'step-gift': '3fbcbc8a2621e7464256a17ab246d18471908fab',
-        'step-list': '2e0ff54f6df9dcb3af827cfaf3168e938d3f0742',
+        'step-list': 'aeac0b155c044b5f70a76b61054488079826c055',
         'step-share': '046f34f841efd5b762e0b5275cdfa4ef13c8a423',
         'ticket': '6571738a2ccec66225843c72d8ba329569b64dcf',
     }

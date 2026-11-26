@@ -98,4 +98,5 @@ def own_invite(con, uid, origin):
     qr=qrcode.QRCode(error_correction=qrcode.constants.ERROR_CORRECT_H,border=4,box_size=1)
     qr.add_data(url)
     qr.make(fit=True)
-    return {'path':'/i/'+code,'url':url,'qr':[''.join('1' if bit else '0' for bit in row) for row in qr.get_matrix()]}
+    count=con.execute('SELECT count(*) AS n FROM referral_attributions WHERE referrer_id=?',(uid,)).fetchone()['n']
+    return {'path':'/i/'+code,'url':url,'referral_count':count,'qr':[''.join('1' if bit else '0' for bit in row) for row in qr.get_matrix()]}

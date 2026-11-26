@@ -1157,3 +1157,18 @@ input[type="checkbox"]:not(.shursh-checkbox input):checked::after{content:"✓";
 .invite-link-row .btn{border-radius:12px}
 @media(max-width:1000px){.santa-detail-layout>div{gap:14px}.santa-detail-layout{gap:14px}}
 @media(max-width:760px){.santa-detail-layout{grid-template-columns:minmax(0,1fr)}}
+
+/* Compact share row: no raw invite URL on screen. */
+.personal-invite-social{display:grid;grid-template-columns:repeat(5,minmax(0,1fr));gap:6px}
+.personal-invite-social .btn{padding:9px 4px;min-height:44px;font-size:clamp(10px,2.5vw,13px);white-space:nowrap;gap:3px;letter-spacing:-.02em}
+.personal-invite-social .btn svg{width:14px;height:14px;flex-shrink:0}
+.personal-invite-card #personal-invite-qr{width:min(100%,244px)}
+.personal-invite-count{display:flex;align-items:center;justify-content:space-between;gap:12px;background:#f4efe8;border-radius:12px;padding:12px 15px;margin-top:12px;font-size:13px}
+.personal-invite-count strong{font-size:22px;font-variant-numeric:tabular-nums}
+.personal-invite-footer{justify-content:flex-start}
+.admin-users-table{min-width:1000px}
+.admin-users-table [data-admin-count]{font-variant-numeric:tabular-nums}
+.wishlist-cover-gifts-reversed>.service-art:first-child{justify-self:end}
+.wishlist-cover-gifts-reversed>.cover-companions{right:auto;left:4%}
+.wishlist-cover-gifts-reversed>.cover-companions>.service-art{transform:rotate(-8deg)}
+@media(max-width:359px){.personal-invite-social{gap:3px}.personal-invite-social .btn{padding-inline:2px;font-size:10px}.personal-invite-social .btn svg{width:12px;height:12px}}

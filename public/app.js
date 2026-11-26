@@ -983,7 +983,8 @@ function assignWishlistCovers(lists){
 function wishlistCover(list,assignments){
  const key=wishlistCoverKey(list),slot=assignments?.get(key)??wishlistCoverSlots.get(key)??wishlistCoverSeed(list)%4;
  const [primary,...companions]=wishlistCoverParts(list,slot);
- return `<span class="wishlist-cover-art${companions.length?' wishlist-cover-paired':''}" data-cover-variant="${attr(wishlistOccasion(list)+':'+slot)}">${serviceArt(primary)}${companions.length?`<span class="cover-companions">${companions.map(name=>serviceArt(name)).join('')}</span>`:''}</span>`;
+ const mirrored=companions.length&&[primary,...companions].every(name=>['step-gift','hero-gift'].includes(name));
+ return `<span class="wishlist-cover-art${companions.length?' wishlist-cover-paired':''}${mirrored?' wishlist-cover-gifts-reversed':''}" data-cover-variant="${attr(wishlistOccasion(list)+':'+slot)}">${serviceArt(primary)}${companions.length?`<span class="cover-companions">${companions.map(name=>serviceArt(name)).join('')}</span>`:''}</span>`;
 }
 function heroArt(){return `<div class="hero-stage" aria-hidden="true">${landingArt('hero-accents','hero-layer')}${landingArt('hero-mail','hero-layer float-one')}${landingArt('hero-gift','hero-layer float-two')}${landingArt('hero-mascot','hero-layer wobble')}</div>`;}
 function santaArt(){return landingArt('santa');}
