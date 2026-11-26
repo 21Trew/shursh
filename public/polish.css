@@ -971,3 +971,14 @@ input[type="checkbox"]:not(.shursh-checkbox input):checked::after{content:"✓";
 @media(max-width:420px){.hero-visual{height:340px}}
 @media(max-width:350px){.hero-visual{height:310px}.hero h1{font-size:30px}.showcase-mock{padding:10px}.mock-top{flex-wrap:wrap}.mock-items{gap:5px}.mock-item .mock-copy{overflow-wrap:anywhere}}
 @media(prefers-reduced-motion:reduce){.hero-stage img{animation:none!important}}
+
+/* Keep the landing's showcase copy and sample card in intrinsic, unclipped rows. */
+@media(max-width:760px){
+ .showcase{display:grid;grid-template-columns:minmax(0,1fr);grid-template-rows:auto auto;align-items:start;align-content:start;height:auto;min-height:0;gap:20px}
+ .showcase-copy,.showcase-mock{position:relative;min-width:0;min-height:0}
+ .showcase-mock{justify-self:center;transform:none}
+ .mock-top h3{min-width:0;overflow-wrap:anywhere}
+ .mock-top .chip{flex-shrink:0;white-space:nowrap}
+ .mock-items{grid-template-columns:repeat(3,minmax(0,1fr))}
+ .mock-copy{overflow-wrap:anywhere}
+}

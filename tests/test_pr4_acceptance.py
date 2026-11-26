@@ -2667,6 +2667,13 @@ def test_landing_crayon_art_responsive_motion_and_decoding(browser_https, engine
                     page.on('response', lambda res: failures.append(res.url) if '/art/crayon/' in res.url and res.status not in (200,304) else None)
                     page.goto(browser_https+'/', wait_until='domcontentloaded')
                     expect(page.locator('.hero-copy h1')).to_contain_text('Подарки, о которых',timeout=10000)
+                    # The cookie acknowledgment is independently covered by the
+                    # existing cookie tests. Dismiss it for clean visual evidence.
+                    notice = page.locator('.cookie-notice button')
+                    expect(notice).to_be_visible()
+                    notice.click()
+                    expect(page.locator('.cookie-notice')).to_have_count(0)
+                    page.evaluate("()=>document.fonts.ready")
                     expect(page.locator('img[data-art]')).to_have_count(12)
                     assert set(page.locator('img[data-art]').evaluate_all('(imgs)=>imgs.map(i=>i.dataset.art)')) == expected
                     # Hero layers are eagerly requested and move continuously.
@@ -2698,6 +2705,22 @@ def test_landing_crayon_art_responsive_motion_and_decoding(browser_https, engine
                         labels:document.querySelectorAll('.hero-visual > .tiny-bubble').length,
                         svgArt:document.querySelectorAll('.hero-stage svg,.step-art svg,.mock-art svg,.santa-art svg,.privacy-illustration svg').length};
                     }""")
+                    # Bounding-box visibility: a heading clipped by its overflow
+                    # ancestor can still pass Playwright's to_be_visible assertion.
+                    showcase = page.evaluate("""() => {
+                      const card=document.querySelector('.showcase');
+                      const box=card.getBoundingClientRect();
+                      const copy=card.querySelector('.showcase-copy').getBoundingClientRect();
+                      const mock=card.querySelector('.showcase-mock').getBoundingClientRect();
+                      const pieces=[...card.querySelectorAll('.showcase-copy .section-label,.showcase-copy h2,.showcase-copy p,.showcase-copy button,.showcase-mock')];
+                      return {contained:pieces.every(el=>{
+                        const r=el.getBoundingClientRect();
+                        return r.width>0&&r.height>0&&r.top>=box.top-1&&r.bottom<=box.bottom+1&&r.left>=box.left-1&&r.right<=box.right+1;
+                      }),ordered:mock.top>=copy.bottom-1,gap:box.bottom-mock.bottom};
+                    }""")
+                    assert showcase['contained'], (engine,width,showcase)
+                    if width<=760:
+                        assert showcase['ordered'] and 0<=showcase['gap']<=60, (engine,width,showcase)
                     assert metrics['overflow']<=2, (engine,width,metrics)
                     assert metrics['layers']==4 and metrics['labels']==2 and metrics['svgArt']==0
                     for item in metrics['images']:
