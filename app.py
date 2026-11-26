@@ -224,6 +224,9 @@ def api(route):
         if (request.method=='GET' and path in ('/api/me','/api/dashboard')
                 and request.headers.get('X-Shursh-Visit')=='1' and result[0]==200):
             activity.record_successful_visit(request,result[1].get('user'),app.logger)
+        elif (request.method=='GET' and path=='/api/notifications/unread'
+                and request.headers.get('X-Shursh-Visit')=='1' and result[0]==200):
+            activity.record_successful_visit(request,handler._user,app.logger,heartbeat=True)
         reply=response(result[1],result[0],result[2])
         # Bind cached authenticated reads to the actual server-side session.
         # No additional database query and no token or email is exposed.
