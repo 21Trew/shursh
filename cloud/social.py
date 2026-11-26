@@ -219,16 +219,16 @@ def handle(handler, method, path, con):
                 old=con.execute('SELECT show_last_name,show_patronymic FROM profiles WHERE id=?',(user['id'],)).fetchone()
                 fields['show_full_name']=fields.get('show_last_name',old['show_last_name']) and fields.get('show_patronymic',old['show_patronymic'])
             if 'handle' in data:
-                handle=data['handle']
-                if not isinstance(handle,str):
+                nickname_value=data['handle']
+                if not isinstance(nickname_value,str):
                     raise ApiError(400,'Неверный никнейм')
-                handle=handle.strip().lower().removeprefix('@')
+                nickname_value=nickname_value.strip().lower().removeprefix('@')
                 old_handle=con.execute('SELECT handle FROM profiles WHERE id=?',(user['id'],)).fetchone()['handle']
-                if handle and handle!=old_handle and not re.fullmatch(r'[a-z0-9]{3,20}',handle):
+                if nickname_value and nickname_value!=old_handle and not re.fullmatch(r'[a-z0-9]{3,20}',nickname_value):
                     raise ApiError(400,'Никнейм: от 3 до 20 латинских букв и цифр')
-                if handle and con.execute('SELECT 1 FROM profiles WHERE lower(handle)=? AND id<>?',(handle,user['id'])).fetchone():
+                if nickname_value and con.execute('SELECT 1 FROM profiles WHERE lower(handle)=? AND id<>?',(nickname_value,user['id'])).fetchone():
                     raise ApiError(409,'Этот никнейм уже занят')
-                fields['handle']=handle or None
+                fields['handle']=nickname_value or None
             if 'avatar_emoji' in data:
                 if not isinstance(data['avatar_emoji'],str) or data['avatar_emoji'] not in PROFILE_EMOJIS:
                     raise ApiError(400,'Выбери аватар из предложенных эмодзи')

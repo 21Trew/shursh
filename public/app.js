@@ -150,6 +150,7 @@ document.addEventListener('click',event=>{if(swipeClickUntil>performance.now()&&
 
 function nav(path,{force=false}={}){
  if(currentPath()===path&&!force)return;
+ closeCalendar();
  stopGameLifecycle();
  if(!force)rememberOwnerTab();else clearOwnerTabViews();
  if(isPreview){if(currentPath()===path)render();else location.hash=path;}
@@ -665,7 +666,7 @@ function contactDeveloperModal(){
   }});
  const message=modalRoot.querySelector('#fld-message');if(message){message.required=true;message.minLength=5;message.maxLength=3000;}
  const reply=modalRoot.querySelector('[name="reply_email"]'),email=modalRoot.querySelector('#fld-email');
- const sync=()=>{email.required=reply.checked;email.disabled=!reply.checked;email.closest('.field').hidden=!reply.checked;};
+ const sync=()=>{email.required=reply.checked;email.disabled=!reply.checked;const field=email.closest('.field');field.hidden=!reply.checked;field.classList.toggle('hide',!reply.checked);};
  reply.addEventListener('change',sync);sync();
 }
 function closeModal({immediate=false}={}){
@@ -842,7 +843,7 @@ function closeCalendar(refocus=false){
 }
 function enhanceCalendars(root){
  root.querySelectorAll('input[type="date"]:not([data-ui-calendar])').forEach(input=>{
-  input.dataset.uiCalendar='true';input.classList.add('ui-calendar-native');input.tabIndex=-1;input.setAttribute('aria-hidden','true');
+  input.dataset.uiCalendar='true';input.classList.add('ui-calendar-native');if(input.hasAttribute('data-santa-date-input'))input.classList.add('hide');input.tabIndex=-1;input.setAttribute('aria-hidden','true');
   const button=document.createElement('button');button.type='button';button.className='ui-calendar-trigger';
   button.setAttribute('aria-label',input.closest('.field')?.querySelector('label')?.textContent||'Дата');
   button.setAttribute('aria-haspopup','dialog');button.setAttribute('aria-expanded','false');
@@ -863,8 +864,9 @@ function enhanceCalendars(root){
    closeCalendar();const date=parse(input.value)||new Date();
    const popup=document.createElement('div');popup.className='ui-calendar-popover';
    popup.setAttribute('role','dialog');popup.setAttribute('aria-label','Календарь');
-   const state={popup,button,year:date.getFullYear(),month:date.getMonth()};activeCalendar=state;
-   button.setAttribute('aria-expanded','true');modalRoot.append(popup);
+   const inline=input.hasAttribute('data-santa-date-input');
+   const state={popup,button,inline,year:date.getFullYear(),month:date.getMonth()};activeCalendar=state;
+   button.setAttribute('aria-expanded','true');(inline?document.body:modalRoot).append(popup);
    const choose=value=>{
     if(!value&&input.hasAttribute('data-santa-date-input'))return;
     if(value&&((input.min&&value<input.min)||(input.max&&value>input.max)))return;
@@ -884,10 +886,14 @@ function enhanceCalendars(root){
      '</strong><button type="button" data-shift="1" aria-label="Следующий месяц">›</button></div>'+
      '<div class="ui-calendar-days">'+['Пн','Вт','Ср','Чт','Пт','Сб','Вс'].map(d=>'<span>'+d+'</span>').join('')+'</div>'+
      '<div class="ui-calendar-grid">'+cells+'</div><div class="ui-calendar-actions"><button type="button" data-clear>Очистить</button><button type="button" data-today>Сегодня</button></div>';
+    position();
+   };
+   const position=()=>{
     const r=button.getBoundingClientRect(),h=popup.getBoundingClientRect().height;
     popup.style.left=Math.max(8,Math.min(r.left,innerWidth-popup.getBoundingClientRect().width-8))+'px';
     popup.style.top=Math.max(8,Math.min(r.bottom+h+8<innerHeight?r.bottom+6:r.top-h-6,innerHeight-h-8))+'px';
    };
+   state.position=position;
    popup.addEventListener('click',event=>{
     const b=event.target.closest('button');if(!b||b.disabled)return;
     if(b.dataset.shift){const next=new Date(state.year,state.month+Number(b.dataset.shift),1,12);state.year=next.getFullYear();state.month=next.getMonth();draw();}
@@ -900,7 +906,7 @@ function enhanceCalendars(root){
  });
 }
 document.addEventListener('pointerdown',event=>{if(activeCalendar&&!activeCalendar.popup.contains(event.target)&&!activeCalendar.button.contains(event.target))closeCalendar();});
-document.addEventListener('scroll',event=>{if(activeCalendar&&!activeCalendar.popup.contains(event.target))closeCalendar();},{capture:true,passive:true});
+document.addEventListener('scroll',event=>{const state=activeCalendar;if(!state||state.popup.contains(event.target))return;if(state.inline&&state.button.isConnected){state.position();}else closeCalendar();},{capture:true,passive:true});
 window.addEventListener('resize',()=>closeCalendar());
 
 function selectField(label,name,options,selected){return `<div class="field"><label for="fld-${name}">${esc(label)}</label><select id="fld-${name}" name="${name}">${options.map(([value,text])=>`<option value="${attr(value)}" ${String(value)===String(selected)?'selected':''}>${esc(text)}</option>`).join('')}</select></div>`;}
@@ -2774,7 +2780,7 @@ if(!isPreview && ['access_token','refresh_token','error','error_code','error_des
  // navigating or drawing any UI. Do not store tokens in localStorage.
  history.replaceState(null,'',location.pathname+location.search);
 }
-async function render(){stopGameLifecycle();const marker=++lastRenderToken;try{
+async function render(){closeCalendar();stopGameLifecycle();const marker=++lastRenderToken;try{
  const path=currentPath();
  syncNavigationSelection(path);
  if(!renderStarted&&path==='/'&&!isPreview){

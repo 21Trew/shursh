@@ -3506,6 +3506,10 @@ def test_profile_feedback_and_inline_santa_polish(browser_https,application,engi
             expect(page.locator('[name=reply_email]')).to_be_checked()
             page.locator('label.shursh-checkbox').filter(has=page.locator('[name=reply_email]')).click()
             expect(page.locator('#fld-email')).to_be_hidden()
+            expect(page.locator('#fld-email')).to_be_disabled()
+            page.locator('label.shursh-checkbox').filter(has=page.locator('[name=reply_email]')).click()
+            expect(page.locator('#fld-email')).to_be_visible()
+            expect(page.locator('#fld-email')).to_be_enabled()
             expect(page.locator('[name=notify_site]')).to_be_visible()
             assert page.locator('[name=topic] option[value=thanks]').count()==1
             page.keyboard.press('Escape')
@@ -3521,6 +3525,9 @@ def test_profile_feedback_and_inline_santa_polish(browser_https,application,engi
             page.locator('.santa-date-inline .ui-calendar-trigger').click()
             expect(page.locator('.ui-calendar-popover')).to_be_visible()
             expect(page.locator('.modal-backdrop')).to_have_count(0)
+            page.locator('.ui-calendar-toolbar [data-shift="1"]').click()
+            expect(page.locator('.ui-calendar-day[data-date="2027-03-13"]')).to_be_visible()
+            page.locator('.ui-calendar-toolbar [data-shift="-1"]').click()
             page.locator('.ui-calendar-day[data-date="2027-02-13"]').click()
             expect(page.locator('[data-santa-date-input]')).to_have_value('2027-02-13')
         finally:
