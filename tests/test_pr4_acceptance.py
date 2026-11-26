@@ -1214,6 +1214,16 @@ def test_cookie_notice_responsive_alignment_chromium_and_webkit(browser_https):
                         assert all(abs(line["left"]-metrics["textLeft"])<=1
                                    for line in metrics["lines"]),(engine,width,metrics)
                         assert metrics["flexDirection"]=="row",(engine,width,metrics)
+                        if width<=760:
+                            assert notice.evaluate("(el)=>getComputedStyle(el).position")=="relative"
+                            assert notice.evaluate("(el)=>el.parentElement.id")=="app"
+                            assert notice.evaluate("""el=>{
+                                const view=document.querySelector('#page-view');
+                                return el.getBoundingClientRect().bottom<=view.getBoundingClientRect().top+1;
+                            }"""),(engine,width,"cookie overlaps page")
+                        else:
+                            assert notice.evaluate("(el)=>getComputedStyle(el).position")=="fixed"
+
                         assert abs(metrics["textCenterY"]-metrics["buttonCenterY"])<=1,(engine,width,metrics)
                         assert metrics["buttonLeft"]>=metrics["textLeft"]+metrics["textWidth"]-1,(engine,width,metrics)
                         expected=metrics["textWidth"]+metrics["buttonWidth"]+metrics["gap"]
@@ -3068,3 +3078,42 @@ def test_service_crayon_covers_footer_and_circular_gift_gallery(browser_https,en
                     expect(dialog.locator('.gift-dialog-fallback img.service-art')).to_be_visible()
                 finally:ctx.close()
         finally:browser.close()
+
+
+@pytest.mark.browser
+def test_mobile_cookie_notice_never_overlays_owner_tabs(browser_https):
+    from playwright.sync_api import sync_playwright, expect
+
+    with sync_playwright() as play:
+        for engine in ("chromium", "webkit"):
+            browser = getattr(play, engine).launch(headless=True)
+            try:
+                for width in (320, 390, 760):
+                    context = browser.new_context(viewport={"width":width,"height":640},
+                        ignore_https_errors=True, reduced_motion="reduce", has_touch=True)
+                    try:
+                        page = context.new_page()
+                        page.goto(browser_https + "/", wait_until="domcontentloaded")
+                        notice = page.locator(".cookie-notice")
+                        expect(notice).to_be_visible()
+                        browser_login(page)
+                        expect(page.locator(".dashboard-page")).to_be_visible()
+                        for path, heading, selector in ROUTES:
+                            page.evaluate("(path)=>nav(path)", path)
+                            expect(page.locator("#page-view main h1").first).to_contain_text(heading)
+                            expect(page.locator("#page-view")).not_to_have_attribute("aria-busy","true")
+                            expect(notice).to_have_count(1)
+                            assert notice.evaluate("""el=>{
+                                const r=el.getBoundingClientRect();
+                                const v=document.querySelector('#page-view').getBoundingClientRect();
+                                return getComputedStyle(el).position==='relative' && r.bottom<=v.top+1;
+                            }"""),(engine,width,path)
+                        notice.locator("button").click()
+                        expect(notice).to_have_count(0)
+                        page.reload(wait_until="domcontentloaded")
+                        expect(page.locator("#page-view main h1").first).to_be_visible()
+                        expect(notice).to_have_count(0)
+                    finally:
+                        context.close()
+            finally:
+                browser.close()
