@@ -559,7 +559,7 @@ function stopAuthModalMotion(){
  }
 }
 function animateAuthModalHeight(dialog,from){
- if(!dialog.isConnected)return;
+ if(!dialog.isConnected||dialog.classList.contains('gift-deck-modal'))return;
  const current=authModalMotion?.dialog===dialog?authModalMotion:null;
  if(current)dialog.classList.remove('auth-height-motion');
  const target=dialog.offsetHeight;
@@ -589,7 +589,7 @@ function modal({title,subtitle='',content='',onSubmit=null,onError=null,submitLa
 
  modalContentObserver?.disconnect();modalContentObserver=null;
  closeCalendar();closeUiSelect();
- const markup=`<div class="modal-backdrop" data-backdrop><div class="modal" role="dialog" aria-modal="true" aria-label="${attr(title)}"><button class="modal-close" type="button" data-close aria-label="Закрыть">×</button><div class="modal-scroll-area"><h2>${esc(title)}</h2>${subtitle?`<p class="modal-subtitle">${esc(subtitle)}</p>`:''}<form class="form" id="modal-form">${content}${onSubmit?`<div class="form-actions"><button type="button" class="btn btn-soft" data-close>Отмена</button><button type="submit" class="btn btn-dark">${esc(submitLabel)} ${ico('arrow')}</button></div>`:''}</form>${footer?`<div class="modal-foot">${footer}</div>`:''}</div></div></div>`;
+ const markup=`<div class="modal-backdrop" data-backdrop><div class="modal${size==='gift-deck'?' gift-deck-modal':''}" role="dialog" aria-modal="true" aria-label="${attr(title)}"><button class="modal-close" type="button" data-close aria-label="Закрыть">×</button><div class="modal-scroll-area"><h2>${esc(title)}</h2>${subtitle?`<p class="modal-subtitle">${esc(subtitle)}</p>`:''}<form class="form" id="modal-form">${content}${onSubmit?`<div class="form-actions"><button type="button" class="btn btn-soft" data-close>Отмена</button><button type="submit" class="btn btn-dark">${esc(submitLabel)} ${ico('arrow')}</button></div>`:''}</form>${footer?`<div class="modal-foot">${footer}</div>`:''}</div></div></div>`;
  if(reuseAuth){
   const template=document.createElement('template');template.innerHTML=markup;
   const fresh=template.content.querySelector('.modal');
@@ -2815,9 +2815,6 @@ document.addEventListener('click',async ev=>{
  const n=ev.target.closest('[data-nav]');if(n){if(n.tagName==='A'&&(ev.ctrlKey||ev.metaKey||ev.shiftKey||ev.altKey||ev.button!==0))return;ev.preventDefault();nav(n.dataset.nav);return;}const op=ev.target.closest('[data-open]');if(op){ev.preventDefault();const key=op.dataset.open;if(key==='login'||key==='register'||key==='resend'){const email=op.closest('.modal')?.querySelector('#fld-email')?.value||op.dataset.email||'';if(key==='resend')resendConfirmationModal(email);else loginModal(key,email);}if(key==='list')listModal();if(key==='wish')wishModal();if(key==='santa')santaModal();return;}const a=ev.target.closest('[data-action]');if(a){ev.preventDefault();await dispatch(a.dataset.action,a);}});
 window.addEventListener('popstate',()=>{stopGameLifecycle();rememberOwnerTab();if(restoreOwnerTab(currentPath()))lastRenderToken++;else render();});window.addEventListener('hashchange',()=>{if(isPreview)render();});
 async function startApplication(){
- if(typeof socialAdminUsersPage!=='function'||typeof showGameWishDetails!=='function'){
-  errorView(new ReferenceError('UI modules unavailable'),'Не получилось загрузить Шурш');return;
- }
  if(confirmationToken&&!authReturnError){
   try{
    const token=confirmationToken;confirmationToken=null;

@@ -1102,24 +1102,25 @@ input[type="checkbox"]:not(.shursh-checkbox input):checked::after{content:"✓";
  #app>.cookie-notice{position:relative;inset:auto;transform:none;z-index:auto;margin:10px auto;max-width:calc(100% - 20px)}
 }
 
-/* Santa gift deck: same visual card size, side cards tucked behind the active one. */
-.modal-backdrop .gift-deck-modal{height:min(760px,calc(100dvh - 2 * clamp(14px,3vw,28px)))}
-.gift-deck-modal>.modal-fixed-header{height:92px;box-sizing:border-box}
+/* Equal-size Santa deck. The full preview art is positioned against the gallery,
+   not the narrow clickable side rail; the center occludes the two cards. */
+.modal-backdrop .modal.gift-deck-modal{height:min(760px,calc(100dvh - 2 * clamp(14px,3vw,28px)))!important;flex:0 0 auto}
+.modal-backdrop .modal.gift-deck-modal>.modal-fixed-header{height:92px;box-sizing:border-box}
 .gift-deck-modal>.modal-fixed-header h2{display:-webkit-box;-webkit-box-orient:vertical;-webkit-line-clamp:2;overflow:hidden;line-height:1.15}
-.gift-deck-modal .gift-gallery{--peek:clamp(44px,12%,84px);--deck-height:clamp(120px,40dvh,340px);container-type:inline-size;width:min(100%,640px);margin-inline:auto;grid-template-columns:var(--peek) minmax(0,1fr) var(--peek);grid-template-rows:var(--deck-height) auto;gap:0;isolation:isolate;overflow:hidden;user-select:none;cursor:grab}
-.gift-deck-modal .gift-gallery:active{cursor:grabbing}
-.gift-deck-modal .gift-gallery>.gift-dialog-media{position:relative;z-index:2;box-sizing:border-box;width:100%;height:100%;min-height:0;max-height:none;border-radius:18px;background:#f6ede4;box-shadow:0 0 18px rgba(39,39,43,.15)}
-.gift-deck-modal .gift-gallery-peek{height:100%;overflow:visible;isolation:auto;background:transparent;border-radius:18px;transform:none}
-.gift-deck-modal .gift-gallery-preview-art{inset:0 auto 0 0;width:calc(100cqw - 2 * clamp(44px,12cqw,84px));height:100%;border-radius:18px;background:#f6ede4;filter:brightness(.72);box-sizing:border-box}
-.gift-deck-modal .gift-gallery-next .gift-gallery-preview-art{inset:0 0 0 auto}
-.gift-deck-modal .gift-gallery-arrow{z-index:1}
-.gift-deck-modal .gift-gallery :is(.gift-dialog-image,.gift-dialog-fallback){width:100%;height:100%;min-height:0;max-height:none;max-width:none;object-fit:contain;border-radius:18px}
-.gift-deck-modal .gift-gallery .gift-dialog-fallback>.service-art{width:min(72%,210px);height:auto;max-height:85%;object-fit:contain}
-.gift-deck-modal .gift-gallery-count{margin:8px 0 0}
+.gift-gallery-layout .gift-gallery{--peek:clamp(44px,12%,84px);--deck-height:clamp(120px,40dvh,340px);position:relative;width:min(100%,640px);margin-inline:auto;grid-template-columns:var(--peek) minmax(0,1fr) var(--peek);grid-template-rows:var(--deck-height) auto;gap:0;isolation:isolate;overflow:hidden;user-select:none;cursor:grab}
+.gift-gallery-layout .gift-gallery:active{cursor:grabbing}
+.gift-gallery-layout .gift-gallery>.gift-dialog-media{position:relative;z-index:2;box-sizing:border-box;width:100%;height:100%;min-height:0;max-height:none;border-radius:18px;background:#f6ede4;box-shadow:0 0 18px rgba(39,39,43,.15)}
+.gift-gallery-layout .gift-gallery .gift-gallery-peek{position:static;height:100%;overflow:visible;isolation:auto;background:transparent;border-radius:18px;transform:none;z-index:auto}
+.gift-gallery-layout .gift-gallery .gift-gallery-preview-art{position:absolute;inset:0 auto auto 0;width:calc(100% - var(--peek) - var(--peek));height:var(--deck-height);border-radius:18px;background:#f6ede4;filter:brightness(.72);box-sizing:border-box;z-index:0}
+.gift-gallery-layout .gift-gallery .gift-gallery-next .gift-gallery-preview-art{inset:0 0 auto auto}
+.gift-gallery-layout .gift-gallery .gift-gallery-arrow{z-index:3}
+.gift-gallery-layout .gift-gallery :is(.gift-dialog-image,.gift-dialog-fallback){width:100%;height:100%;min-height:0;max-height:none;max-width:none;object-fit:contain;border-radius:18px}
+.gift-gallery-layout .gift-gallery .gift-dialog-fallback>.service-art{width:min(72%,210px);height:auto;max-height:85%;object-fit:contain}
+.gift-gallery-layout .gift-gallery-count{margin:8px 0 0}
 @media(max-width:760px){
- .modal-backdrop .gift-deck-modal{height:min(760px,calc(100dvh - max(12px,env(safe-area-inset-top))))}
- .gift-deck-modal>.modal-fixed-header{height:78px}
- .gift-deck-modal .gift-gallery{--deck-height:clamp(100px,35dvh,260px)}
+ .modal-backdrop .modal.gift-deck-modal{height:min(760px,calc(100dvh - max(12px,env(safe-area-inset-top))))!important}
+ .modal-backdrop .modal.gift-deck-modal>.modal-fixed-header{height:78px}
+ .gift-gallery-layout .gift-gallery{--deck-height:clamp(100px,35dvh,260px)}
 }
 
 /* Hotfix: error report screen, contrast and responsive profile form. */

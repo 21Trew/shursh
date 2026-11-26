@@ -82,7 +82,7 @@ function showGameWishDetails(el){
   const edit=mine?'<button type="button" class="gift-dialog-edit" data-action="edit-game-gift" data-id="'+gift.id+'" aria-label="Изменить подарок" data-tooltip="Изменить">'+ico('edit',20)+'</button>':'';
   return (multiple?'':edit)+media+'<div class="gift-dialog-copy">'+(multiple?edit:'')+'<div class="gift-dialog-price">'+money(gift.price_cents,gift.currency)+'</div>'+description+store+'</div>';
  }
- modal({title:gifts[index].title,content:'<div class="gift-dialog-layout'+(multiple?' gift-gallery-layout':'')+'">'+content()+'</div>',footer:'<div class="gift-dialog-footer"><button type="button" class="btn btn-dark" data-close>Закрыть</button></div>'});
+ modal({title:gifts[index].title,size:multiple?'gift-deck':'normal',content:'<div class="gift-dialog-layout'+(multiple?' gift-gallery-layout':'')+'">'+content()+'</div>',footer:'<div class="gift-dialog-footer"><button type="button" class="btn btn-dark" data-close>Закрыть</button></div>'});
  const dialog=modalRoot.querySelector('.modal');if(!dialog)return;
  dialog.classList.add('gift-details-modal');if(!multiple)return;
  dialog.classList.add('gift-deck-modal');
@@ -95,6 +95,7 @@ function showGameWishDetails(el){
   const gift=gifts[index];dialog.setAttribute('aria-label',gift.title);
   dialog.querySelector('.modal-fixed-header h2').textContent=gift.title;
   layout.innerHTML=content();
+  dialog.querySelector('.modal-scroll-area').scrollTop=0;
   if(focused)layout.querySelector('[data-gallery-step="'+focused+'"]')?.focus({preventScroll:true});
   else if(focusInside)dialog.focus({preventScroll:true});
   const deck=layout.querySelector('.gift-dialog-media');

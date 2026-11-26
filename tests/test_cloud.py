@@ -1042,7 +1042,7 @@ def test_browser_register_wishlist_reservation_and_isolation(browser_http):
             expect(page.locator('.alert')).to_contain_text('Список приватный')
             assert guest.evaluate('''async k => (await fetch('/api/public/' + k)).status''', key) == 404
             guest.goto(share)
-            expect(guest.locator('main')).to_contain_text('Страница не загрузилась')
+            expect(guest.locator('.error-page h1')).to_have_text('Страница не найдена')
         finally:
             browser.close()
 

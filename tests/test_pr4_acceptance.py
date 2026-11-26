@@ -1277,7 +1277,9 @@ def test_guest_bootstrap_resilience_on_mobile_chromium_and_webkit(browser_https)
                     page.goto(browser_https+'/',wait_until='domcontentloaded')
                     expect(page.locator('.error-page h1')).to_have_text(
                         'Не получилось загрузить Шурш',timeout=10000)
-                    assert page.locator('.error-page a[href="/"]').count()==1
+                    expect(page.locator('.error-page [data-nav="/"]')).to_be_visible()
+                    expect(page.get_by_role('button',name='Попробовать снова')).to_be_visible()
+                    expect(page.get_by_role('button',name='Сообщить об ошибке')).to_be_visible()
                 finally:
                     context.close()
 
@@ -3083,10 +3085,11 @@ def test_service_crayon_covers_footer_and_circular_gift_gallery(browser_https,en
                       return {ordered:a.right<=b.left+1&&b.right<=c.left+1,peeks:a.width>=44&&c.width>=44,
                         sameSize:Math.abs(left.width-b.width)<=1&&Math.abs(right.width-b.width)<=1&&Math.abs(left.height-b.height)<=1&&Math.abs(right.height-b.height)<=1,
                         overlap:left.right>b.left&&right.left<b.right,
+                        hit:[a,b,c].every((r,i)=>document.elementFromPoint(r.left+r.width/2,r.top+r.height/2)?.closest(['.gift-gallery-prev','.gift-dialog-media','.gift-gallery-next'][i])),
                         dark:getComputedStyle(el.querySelector('.gift-gallery-preview-art')).filter,
                         overflow:el.scrollWidth-el.clientWidth};
                     }""")
-                    assert geometry['ordered'] and geometry['peeks'] and geometry['sameSize'] and geometry['overlap'] and 'brightness' in geometry['dark'] and geometry['overflow']<=2,geometry
+                    assert geometry['ordered'] and geometry['peeks'] and geometry['sameSize'] and geometry['overlap'] and geometry['hit'] and 'brightness' in geometry['dark'] and geometry['overflow']<=2,geometry
                     def deck_size():
                         return dialog.evaluate("""el=>[el.offsetWidth,el.offsetHeight,el.querySelector('.gift-dialog-media').offsetWidth,el.querySelector('.gift-dialog-media').offsetHeight]""")
                     initial_size=deck_size()
@@ -3411,13 +3414,16 @@ def test_hotfix_admin_direct_reload_and_error_report(browser_https,application,m
             assert response.value.status in (200,201)
             expect(btn).to_be_disabled()
             expect(page.locator('[data-incident-result]')).to_contain_text('получила сообщение')
+            output=OUTPUT/'hotfix';output.mkdir(parents=True,exist_ok=True)
+            page.screenshot(path=str(output/f'{engine}-error-report.png'))
             page.evaluate("nav('/profile')")
-            expect(page.locator('main h1')).to_have_text('Мой профиль')
+            expect(page.get_by_role('heading',name='Мой профиль',exact=True)).to_be_visible()
             page.get_by_role('button',name='Редактировать профиль').click()
             modal=page.locator('.profile-edit-modal')
             expect(modal).to_be_visible()
             assert modal.evaluate("el=>el.offsetWidth>=760")
             assert modal.locator('#modal-form').evaluate("el=>getComputedStyle(el).gridTemplateColumns.split(' ').length===2")
+            modal.screenshot(path=str(output/f'{engine}-profile-edit.png'))
             page.keyboard.press('Escape')
             assert page.evaluate("new Set([1,2,3,4].map(santaCardArt)).size===4&&santaCardArt(3)===santaCardArt(3)")
             ctx.close()
