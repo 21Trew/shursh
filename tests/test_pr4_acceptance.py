@@ -2674,7 +2674,17 @@ def test_mobile_shared_sheets_header_actions_and_swipes(browser_https,engine):
                 page.goto(browser_https+'/');browser_login(page)
                 page.wait_for_function("()=>ownerWarmupReady",timeout=15000)
                 buttons=page.locator('.dashboard-welcome .btn-row .btn')
-                boxes=[b.bounding_box() for b in buttons.all()]
+                expect(buttons).to_have_count(2)
+                # Compare both buttons in one layout snapshot. Sequential protocol
+                # calls can sample different frames of the shared page translation.
+                page.wait_for_function("""()=>{
+                    const main=document.querySelector('#page-view > main');
+                    return main && main.getAnimations().every(a=>a.playState!=='running'&&a.playState!=='pending');
+                }""")
+                boxes=buttons.evaluate_all("""els=>els.map(el=>{
+                    const r=el.getBoundingClientRect();
+                    return {x:r.x,y:r.y,width:r.width,height:r.height};
+                })""")
                 assert len(boxes)==2 and abs(boxes[0]['y']-boxes[1]['y'])<=1 and boxes[0]['x']+boxes[0]['width']<=boxes[1]['x']+1,boxes
                 assert all(b['height']>=43.9 for b in boxes),boxes # subpixel tolerance, CSS min-height remains 44px
                 assert page.evaluate("document.documentElement.scrollWidth<=innerWidth+1")
@@ -2771,6 +2781,20 @@ def test_mobile_shared_sheets_header_actions_and_swipes(browser_https,engine):
                 expect(page).to_have_url(re.compile(r'/santas$'))
                 swipe('#santa-state-panel',-100)
                 expect(page.locator('[data-santa-state="finished"]')).to_have_attribute('aria-selected','true')
+                # Exercise a cached owner-tab transition in addition to guest routes.
+                page.evaluate("notice('Только на странице Санты')")
+                expect(page.locator('#toast-root .toast')).to_have_text('Только на странице Санты')
+                page.locator('.site-header .nav a[data-nav="/lists"]').click()
+                expect(page).to_have_url(re.compile(r'/lists$'))
+                expect(page.locator('.toast')).to_have_count(0)
+                page.evaluate("notice('Только на странице вишлистов')")
+                page.go_back()
+                expect(page).to_have_url(re.compile(r'/santas$'))
+                expect(page.locator('.toast')).to_have_count(0)
+                page.evaluate("notice('Не переносить вперёд')")
+                page.go_forward()
+                expect(page).to_have_url(re.compile(r'/lists$'))
+                expect(page.locator('.toast')).to_have_count(0)
                 ctx.close()
         finally:browser.close()
 
