@@ -88,14 +88,17 @@ function showGameWishDetails(el){
  dialog.classList.add('gift-deck-modal');
  const layout=dialog.querySelector('.gift-dialog-layout');
  function step(dir){
+  if(![-1,1].includes(dir))return;
   if(activeGameContext!==state||!dialog.isConnected||dialog.closest('[inert]'))return;
   const focusInside=layout.contains(document.activeElement);
   const focused=document.activeElement?.closest('[data-gallery-step]')?.dataset.galleryStep;
   index=wrap(index+dir);
   const gift=gifts[index];dialog.setAttribute('aria-label',gift.title);
   dialog.querySelector('.modal-fixed-header h2').textContent=gift.title;
+  // Replace only the deck contents, retaining the modal and its fixed rails.
+  for(const image of layout.querySelectorAll('img'))image.getAnimations?.().forEach(a=>a.cancel());
   layout.innerHTML=content();
-  dialog.querySelector('.modal-scroll-area').scrollTop=0;
+  const scroller=dialog.querySelector('.modal-scroll-area');if(scroller)scroller.scrollTop=0;
   if(focused)layout.querySelector('[data-gallery-step="'+focused+'"]')?.focus({preventScroll:true});
   else if(focusInside)dialog.focus({preventScroll:true});
   const deck=layout.querySelector('.gift-gallery');

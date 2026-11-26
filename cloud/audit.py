@@ -10,6 +10,9 @@ CATEGORIES={
  'organized':("SELECT e.id,e.title,e.created_at,e.status FROM santa_events e WHERE e.owner_id=? ORDER BY e.id DESC",),
  'joined':("SELECT e.id,e.title,p.created_at,e.status FROM participants p JOIN santa_events e ON e.id=p.event_id WHERE p.user_id=? ORDER BY p.id DESC",),
 }
+IMPORTANT_EVENTS=frozenset(('auth.confirmed','auth.sessions_revoked','wishlist.deleted','gift.deleted','santa.created','santa.deleted','santa.drawn','santa.finished','santa.photo_deleted','feedback.created','feedback.updated','invite.revoked','admin.user_details','admin.visibility_changed','admin.visibility_rejected'))
+# Keep administrator access to sensitive details and account-security events.
+IMPORTANT_SQL="(a.event IN ('auth.confirmed','auth.sessions_revoked','wishlist.deleted','gift.deleted','santa.created','santa.deleted','santa.drawn','santa.finished','santa.photo_deleted','feedback.created','feedback.updated','invite.revoked','admin.user_details','admin.visibility_changed','admin.visibility_rejected') OR (a.audience='admins' AND a.event='auth.login'))"
 MUTATIONS=(
  ('POST',r'/api/lists','wishlist.created'),
  ('PATCH',r'/api/lists/(\d+)','wishlist.updated'),
@@ -33,7 +36,7 @@ MUTATIONS=(
  ('POST',r'/api/feedback','feedback.created'),
  ('PATCH',r'/api/admin/feedback/(\d+)','feedback.updated'),
  ('DELETE',r'/api/friend-invites/me','invite.revoked'),
- ('POST',r'/api/logout','auth.logout'),
+ ('DELETE',r'/api/sessions/(?:others|[0-9a-f]{64})','auth.sessions_revoked'),
 )
 
 def ready(con):
@@ -45,6 +48,8 @@ def require_ready(con):
 
 def record(con,actor,event,*,target=None,object_id=None,category=None,before=None,after=None,success=True,required=False):
     if not actor:
+        return
+    if event not in IMPORTANT_EVENTS and not (event=='auth.login' and actor.get('is_admin')):
         return
     if not ready(con):
         if required: raise ApiError(503,'Журнал событий пока недоступен')
@@ -106,7 +111,7 @@ def handle(handler,method,path,con):
         page=offset(handler.request)
         rows=con.execute("""SELECT a.id,a.created_at,a.event,a.success,p.name AS actor_name
           FROM admin_audit_events a LEFT JOIN profiles p ON p.id=a.actor_id
-          WHERE a.audience=? AND a.created_at>=now()-interval '90 days'
+          WHERE a.audience=? AND a.created_at>=now()-interval '90 days' AND """+IMPORTANT_SQL+"""
           ORDER BY a.id DESC LIMIT 26 OFFSET ?""",(audience,page)).fetchall()
         return 200,{'items':[dict(row) for row in rows[:25]],'offset':page,'more':len(rows)>25},None
     match=re.fullmatch(r'/api/admin/audit/(\d{1,18})',path)
@@ -115,7 +120,7 @@ def handle(handler,method,path,con):
         row=con.execute("""SELECT a.id,a.created_at,a.event,a.success,a.audience,a.actor_id,a.target_id,a.object_id,
           a.category,a.before_visible,a.after_visible,p.name AS actor_name,t.name AS target_name
           FROM admin_audit_events a LEFT JOIN profiles p ON p.id=a.actor_id LEFT JOIN profiles t ON t.id=a.target_id
-          WHERE a.id=? AND a.created_at>=now()-interval '90 days'""",(int(match.group(1)),)).fetchone()
+          WHERE a.id=? AND a.created_at>=now()-interval '90 days' AND """+IMPORTANT_SQL,(int(match.group(1)),)).fetchone()
         if not row: raise ApiError(404,'Событие не найдено')
         return 200,{'event':dict(row)},None
     return None

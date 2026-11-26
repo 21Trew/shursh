@@ -14,6 +14,7 @@ const ico = (name, size=20) => `<svg class="icon" width="${size}" height="${size
    gift:'<rect x="3" y="9" width="18" height="12" rx="2"/><path d="M3 12h18M12 9v12M12 9c-6 0-6-6-2-6 2 0 2 3 2 6Zm0 0c6 0 6-6 2-6-2 0-2 3-2 6Z"/>',
   heart:'<path d="M20.8 4.9a5.5 5.5 0 0 0-7.8 0l-1 1-1-1a5.5 5.5 0 0 0-7.8 7.8l1 1L12 21l7.8-7.3 1-1a5.5 5.5 0 0 0 0-7.8Z"/>',
   lock:'<rect x="5" y="11" width="14" height="10" rx="2"/><path d="M8 11V7a4 4 0 0 1 8 0v4"/>',
+  qr:'<path d="M3 3h7v7H3zM14 3h7v7h-7zM3 14h7v7H3zM14 14h3v3h-3zM21 14v3h-4v4M21 21h-2"/>',
   eye:'<path d="M2 12s3.6-6 10-6 10 6 10 6-3.6 6-10 6S2 12 2 12Z"/><circle cx="12" cy="12" r="3"/>',
   'eye-off':'<path d="M3 3l18 18M10.6 6.1A11 11 0 0 1 12 6c7 0 10 6 10 6a16 16 0 0 1-3.2 3.6M6.4 6.5C3.5 8.2 2 12 2 12s3.6 6 10 6c1.3 0 2.6-.2 3.7-.6"/><path d="M10 10a3 3 0 0 0 4 4"/>',
   calendar:'<rect x="3" y="5" width="18" height="16" rx="2"/><path d="M7 3v4M17 3v4M3 10h18"/>',
@@ -224,7 +225,7 @@ function invalidateOwnerDataForMutation(path){
  const isFriendWrite=/^\/api\/friends\//.test(path)||/^\/api\/friend-invites\/[A-Za-z0-9_-]{24}\/friend$/.test(path);
  if(path==='/api/friend-invites/me')return;
  const isNotificationWrite=/^\/api\/notifications\/(?:\d+\/read|read-all)$/.test(path);
- const isAccountWrite=path==='/api/profile/me'||/^\/api\/account\/(?:email|password)$/.test(path);
+ const isAccountWrite=path==='/api/profile/me'||path.startsWith('/api/sessions/')||/^\/api\/account\/(?:email|password)$/.test(path);
  if(isFriendWrite||isNotificationWrite||isAccountWrite){
   const tabs=isFriendWrite?['/friends','/notifications']:isNotificationWrite?['/notifications']:['/profile'];
   if(isFriendWrite){const lists=ownerTabViews.get('/lists')?.node;if(lists?.querySelector('[data-wishlist-view="friends"][aria-selected="true"]'))tabs.push('/lists');}
@@ -1612,6 +1613,7 @@ function openSantaMemory(state,source,canEdit){
  modalRoot.querySelector('.modal')?.classList.add('santa-memory-modal');
 }
 document.addEventListener('click',async event=>{
+ for(const menu of document.querySelectorAll('.santa-memory-menu[open]'))if(!menu.contains(event.target)||event.target.closest('[data-memory-action]'))menu.open=false;
  const button=event.target.closest('[data-memory-action]');if(!button)return;
  const state=activeGameContext;if(!state)return;
  const action=button.dataset.memoryAction,photo=document.querySelector('.santa-memory-photo');
@@ -1622,6 +1624,7 @@ document.addEventListener('click',async event=>{
   try{await api(state.base+'/memory',{method:'DELETE',body:{}});closeModal();await loadSantaMemory(state);notice('Фотография удалена');}catch(error){notice(error.message,true);}finally{button.disabled=false;}
  }
 });
+document.addEventListener('keydown',event=>{if(event.key==='Escape')for(const menu of document.querySelectorAll('.santa-memory-menu[open]')){menu.open=false;menu.querySelector('summary')?.focus();}});
 async function loadSantaMemory(state){
  const panel=document.getElementById('santa-memory-content');if(!panel)return;
  try{
@@ -2678,7 +2681,7 @@ async function dispatch(action,el){try{
    await api('/api/admin/feedback/'+el.dataset.id,{method:'PATCH',body:{status:el.dataset.status}});
    await adminFeedbackPage();return;
   }
- if(action==='scroll-game-gifts'){const track=el.closest('.game-gifts-carousel')?.querySelector('.game-gifts-track');if(track)track.scrollBy({left:(el.dataset.direction==='prev'?-1:1)*Math.max(180,track.clientWidth*.7),behavior:'smooth'});}
+ if(action==='scroll-game-gifts'){const track=el.closest('.game-gifts-carousel')?.querySelector('.game-gifts-track');if(track){const dir=el.dataset.direction==='prev'?-1:1,first=track.firstElementChild,second=first?.nextElementSibling;const step=first&&second?second.offsetLeft-first.offsetLeft:first?.offsetWidth||track.clientWidth;track.scrollBy({left:dir*step,behavior:motionReduced()?'instant':'smooth'});}}
  if(action==='edit-list')listModal(loadedList.list);
  if(action==='add-game-gift')gameGiftModal();
  if(action==='show-game-gift')showGameWishDetails(el);

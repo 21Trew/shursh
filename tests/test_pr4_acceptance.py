@@ -2554,6 +2554,8 @@ def test_friends_exact_search_and_qr_invite(browser_https,application,engine):
                 page.wait_for_function('(url)=>window.copiedInvite===url',arg=url)
                 assert page.locator('.personal-invite-social').evaluate("el=>{const r=[...el.children].map(c=>c.getBoundingClientRect());return r.length===5&&r.every(x=>Math.abs(x.top-r[0].top)<1)&&r.every(x=>x.width>0&&x.height>=44)}")
                 expect(page.locator('#personal-invite-qr')).to_be_visible()
+                for brand in ('telegram','vk','max'):
+                    expect(page.locator('.share-'+brand+' svg path')).to_have_count(1)
                 page.wait_for_function("()=>document.querySelector('#personal-invite-qr')?.complete && document.querySelector('#personal-invite-qr')?.naturalWidth>0")
                 assert page.locator('#personal-invite-qr').evaluate("img=>img.complete&&img.naturalWidth>0&&img.src.startsWith('data:image/png')")
                 expect(page.get_by_role('button',name='QR',exact=True)).to_be_visible()
@@ -2570,7 +2572,7 @@ def test_friends_exact_search_and_qr_invite(browser_https,application,engine):
                     let correct=true;
                     for(let y=0;y<rows.length;y++)for(let x=0;x<rows.length;x++){
                       const i=4*((band+y*scale+Math.floor(scale/2))*c.width+x*scale+Math.floor(scale/2));
-                      if(Math.hypot(x-(rows.length-1)/2,y-(rows.length-1)/2)<=5.5)continue;
+                      if(Math.hypot(x-(rows.length-1)/2,y-(rows.length-1)/2)<=6.5)continue;
                       if([[4,4],[rows.length-11,4],[4,rows.length-11]].some(([a,b])=>x>=a&&x<a+7&&y>=b&&y<b+7))continue;
                       const v=rows[y][x]==='1'?0:255;
                       if(data[i]!==v||data[i+1]!==v||data[i+2]!==v||data[i+3]!==255)correct=false;
@@ -3541,8 +3543,17 @@ def test_profile_feedback_and_inline_santa_polish(browser_https,application,engi
             assert page.locator('[name=topic] option[value=thanks]').count()==1
             page.keyboard.press('Escape')
             page.evaluate("socialEditProfileModal()")
-            expect(page.locator('[name=show_last_name]')).to_be_visible()
-            expect(page.locator('[name=show_patronymic]')).to_be_visible()
+            expect(page.locator('[data-avatar-pick]')).to_have_count(0)
+            expect(page.locator('.profile-edit-modal label[for=fld-name]')).to_have_text('Имя *')
+            for name in ('show_last_name','show_patronymic'):
+                eye=page.locator('[data-profile-visibility="'+name+'"]')
+                expect(eye).to_be_visible()
+                before=eye.get_attribute('aria-pressed')
+                eye.click()
+                expect(eye).to_have_attribute('aria-pressed','false' if before=='true' else 'true')
+                assert eye.get_attribute('title')
+                eye.click()
+                expect(eye).to_have_attribute('aria-pressed',before)
             expect(page.locator('[name=show_full_name]')).to_have_count(0)
             page.keyboard.press('Escape')
             page.evaluate("listModal()")

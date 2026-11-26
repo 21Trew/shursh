@@ -71,6 +71,7 @@ async function socialFriendsPage(marker=lastRenderToken,snapshot=null){
   (data.friends.length?data.friends.map(u=>socialUserCard(u,
     '<button class="btn btn-soft btn-small" data-social-action="unfriend" data-user-id="'+attr(u.id)+'">Убрать</button>')).join(''):
     '<p class="note">Пока никого нет. Найди друга и отправь заявку</p>')+'</section>'+
+  (data.invites_enabled?'<section class="panel"><h2>Приглашённые друзья</h2><p class="note">'+Number(data.referral_count||0)+' подтверждённых регистраций по твоей ссылке</p>'+socialInviteButton()+'</section>':'')+
   (data.outgoing.length?'<section class="panel"><h2>Отправленные заявки</h2>'+
     data.outgoing.map(u=>socialUserCard(u,'<div class="social-request-actions"><span class="chip">Ожидает ответа</span><button class="btn btn-soft btn-small" data-social-action="cancel" data-user-id="'+attr(u.id)+'">Отменить</button></div>')).join('')+'</section>':'')+
   '</main>');
@@ -114,6 +115,15 @@ async function socialProfilePage(uid,marker=lastRenderToken,byHandle=false){
    ((data.shared_games||[]).length?'<div class="shared-santa-grid">'+data.shared_games.map(game=>santaGameCard(game,{shared:true})).join('')+'</div>':
     '<div class="panel"><p class="note">'+(relation==='self'?'Ты пока не участвуешь в играх':'Пока нет игр, в которых вы оба участвуете')+'</p></div>')+'</section>':'')+'</main>');
 }
+function socialSessionsMarkup(data){
+ if(!Array.isArray(data.sessions))return '';
+ const otherCount=data.sessions.filter(s=>!s.current).length;
+ return '<section class="panel profile-sessions"><div class="panel-heading-actions"><h2>Активные сеансы</h2>'+
+ (otherCount?'<button type="button" class="btn btn-soft btn-small" data-social-action="revoke-other-sessions">Завершить остальные</button>':'')+'</div>'+
+ '<p class="note">Здесь можно завершить вход на других устройствах</p><div class="profile-session-list">'+
+ data.sessions.map(s=>'<div class="profile-session-row"><div><strong>'+(s.current?'Текущий сеанс':'Другой сеанс')+'</strong><small>Вход: '+esc(new Date(s.created_at).toLocaleString('ru-RU'))+'</small><small>Действует до: '+esc(new Date(s.expires_at*1000).toLocaleString('ru-RU'))+'</small></div>'+
+ (s.current?'<span class="chip chip-green">Этот сеанс</span>':'<button type="button" class="btn btn-soft btn-small" data-social-action="revoke-session" data-session-id="'+attr(s.id)+'">Завершить</button>')+'</div>').join('')+'</div></section>';
+}
 async function socialOwnProfilePage(marker=lastRenderToken,snapshot=null){
  if(!currentUser){loginModal();return;}
  const data=snapshot||await api('/api/profile/me');if(marker!==lastRenderToken)return;
@@ -125,10 +135,10 @@ async function socialOwnProfilePage(marker=lastRenderToken,snapshot=null){
   '<div class="profile-actions">'+
   '<button type="button" class="btn btn-dark btn-small" data-social-action="edit-profile">'+ico('edit')+' Редактировать профиль</button>'+
   '<button type="button" class="btn btn-soft btn-small" data-nav="/users/'+attr(p.id)+'">Как видят друзья</button></div></section>'+
-  (data.invites_enabled?'<section class="panel"><h2>Приглашённые друзья</h2><p class="note">'+Number(data.referral_count||0)+' подтверждённых регистраций по твоей ссылке</p>'+socialInviteButton()+'</section>':'')+
   '<section class="panel profile-security"><div><h2>Вход и безопасность</h2><p class="note">Почта не отображается в публичном профиле</p><div class="account-email">'+esc(p.email||'')+'</div></div>'+
   '<div class="profile-actions"><button class="btn btn-soft btn-small" data-social-action="change-email">Изменить почту</button>'+
   '<button class="btn btn-soft btn-small" data-social-action="change-password">Изменить пароль</button></div></section>'+
+  socialSessionsMarkup(data)+
   '<section class="panel profile-notifications"><h2>Какие уведомления получать</h2><p class="note">Настрой события, которые появляются в колокольчике</p>'+
   '<form id="notification-settings-form" class="notification-settings-list">'+
   shurshCheckbox('notify_friends','Друзья и заявки',p.notify_friends)+
@@ -144,23 +154,24 @@ async function socialOwnProfilePage(marker=lastRenderToken,snapshot=null){
   catch(error){notice(error.message,true);}finally{button.disabled=false;}
  });
 }
+function profileVisibilityField(label,name,placeholder,value,visible,extra=''){
+ const key='show_'+name,tip=(visible?'Скрыть ':'Показывать ')+(name==='last_name'?'фамилию':'отчество');
+ return '<div class="profile-name-visibility">'+field(label,name,placeholder,'text',value||'',false,extra)+
+ '<input type="hidden" name="'+key+'" value="'+String(!!visible)+'">'+
+ '<button type="button" class="profile-visibility-toggle" data-profile-visibility="'+key+'" aria-pressed="'+String(!!visible)+'" aria-label="'+tip+'" title="'+tip+'">'+ico(visible?'eye':'eye-off')+'</button></div>';
+}
 async function socialEditProfileModal(){
  const d=await api('/api/profile/me'),p=d.profile;
- const choices=socialEmojiChoices.map(emoji=>
-  '<button type="button" class="emoji-choice'+(emoji===(p.avatar_emoji||'🎁')?' selected':'')+
-  '" data-avatar-pick="'+attr(emoji)+'" aria-pressed="'+String(emoji===(p.avatar_emoji||'🎁'))+'">'+esc(emoji)+'</button>').join('');
  modal({title:'Редактировать профиль',subtitle:'Настрой, как тебя видят друзья',
-  content:'<div class="field"><label>Твой аватар — только эмодзи</label><div class="emoji-grid" role="group" aria-label="Выбрать эмодзи">'+choices+'</div>'+
-   '<input type="hidden" name="avatar_emoji" id="social-avatar-value" value="'+attr(p.avatar_emoji||'🎁')+'"></div>'+
-   field('Имя','name','Как к тебе обращаться','text',p.name,true,'maxlength="40"')+
-   (d.invites_enabled?'<div class="profile-name-visibility">'+field('Фамилия (необязательно)','last_name','Твоя фамилия','text',p.last_name||'',false,'maxlength="60" autocomplete="family-name"')+shurshCheckbox('show_last_name','Показывать фамилию',p.show_last_name)+'</div><div class="profile-name-visibility">'+field('Отчество (необязательно)','patronymic','Твоё отчество','text',p.patronymic||'',false,'maxlength="60"')+shurshCheckbox('show_patronymic','Показывать отчество',p.show_patronymic)+'</div>':'')+
+  content:field('Имя *','name','Как к тебе обращаться','text',p.name,true,'maxlength="40"')+
+   (d.invites_enabled?profileVisibilityField('Фамилия','last_name','Твоя фамилия',p.last_name,p.show_last_name,'maxlength="60" autocomplete="family-name"')+profileVisibilityField('Отчество','patronymic','Твоё отчество',p.patronymic,p.show_patronymic,'maxlength="60"'):'')+
    field('Никнейм (@)','handle','Например, shurshfriend','text',p.handle||'',false,'maxlength="20" autocomplete="username"')+
-   field('Город (необязательно)','city','Например, Санкт-Петербург','text',p.city||'',false,'maxlength="60"')+
+   field('Город','city','Например, Санкт-Петербург','text',p.city||'',false,'maxlength="60"')+
    textArea('О себе','bio','Что любишь, чем увлекаешься и что тебя радует',p.bio||'')+
    shurshCheckbox('discoverable','Показывать мой профиль в поиске',p.discoverable),
   submitLabel:'Сохранить профиль',onSubmit:async form=>{
    const data=readForm(form);data.discoverable=form.elements.discoverable.checked;
-   if(d.invites_enabled){data.show_last_name=form.elements.show_last_name.checked;data.show_patronymic=form.elements.show_patronymic.checked;}
+   if(d.invites_enabled){data.show_last_name=form.elements.show_last_name.value==='true';data.show_patronymic=form.elements.show_patronymic.value==='true';}
    const response=await api('/api/profile/me',{method:'PATCH',body:data});
    currentUser.name=response.profile.name;currentUser.avatar_emoji=response.profile.avatar_emoji;currentUser.handle=response.profile.handle;
    clearOwnerTabViews(['/profile']);notice('Профиль обновлён');await socialOwnProfilePage();
@@ -362,7 +373,7 @@ async function socialAdminDetails(uid,category,offset=0){
   '<button type="button" class="btn btn-soft btn-small" data-social-action="admin-details" data-user-id="'+attr(uid)+'" data-category="'+category+'" data-offset="'+(offset+25)+'"'+(data.more?'':' disabled')+'>Вперёд</button></div>';
  modal({title,subtitle:p.name,content:'<div class="admin-detail-list">'+(list||'<p class="note">Пока нет записей</p>')+'</div>',footer:pager});
 }
-const adminEventNames={'auth.login':'Вход в аккаунт','auth.confirmed':'Подтверждён аккаунт','auth.logout':'Выход из аккаунта','wishlist.created':'Создан вишлист','wishlist.updated':'Изменён вишлист','wishlist.deleted':'Удалён вишлист','gift.created':'Добавлен подарок','gift.updated':'Изменён подарок','gift.deleted':'Удалён подарок','santa.created':'Создан Тайный Санта','santa.updated':'Изменена игра','santa.deleted':'Удалена игра','santa.drawn':'Проведена жеребьёвка','santa.finished':'Завершена игра','santa.photo_saved':'Сохранено фото','santa.photo_deleted':'Удалено фото','santa.joined':'Вступление в игру','profile.updated':'Изменён профиль','friend.requested':'Запрос в друзья','friend.updated':'Изменена заявка в друзья','friend.removed':'Удалён друг','feedback.created':'Создано обращение','feedback.updated':'Изменено обращение','invite.revoked':'Отозвано приглашение','admin.user_details':'Просмотр сведений пользователя','admin.visibility_changed':'Изменена видимость профиля','admin.visibility_rejected':'Неудачное подтверждение пароля'};
+const adminEventNames={'auth.sessions_revoked':'Завершены сеансы','auth.login':'Вход в аккаунт','auth.confirmed':'Подтверждён аккаунт','auth.logout':'Выход из аккаунта','wishlist.created':'Создан вишлист','wishlist.updated':'Изменён вишлист','wishlist.deleted':'Удалён вишлист','gift.created':'Добавлен подарок','gift.updated':'Изменён подарок','gift.deleted':'Удалён подарок','santa.created':'Создан Тайный Санта','santa.updated':'Изменена игра','santa.deleted':'Удалена игра','santa.drawn':'Проведена жеребьёвка','santa.finished':'Завершена игра','santa.photo_saved':'Сохранено фото','santa.photo_deleted':'Удалено фото','santa.joined':'Вступление в игру','profile.updated':'Изменён профиль','friend.requested':'Запрос в друзья','friend.updated':'Изменена заявка в друзья','friend.removed':'Удалён друг','feedback.created':'Создано обращение','feedback.updated':'Изменено обращение','invite.revoked':'Отозвано приглашение','admin.user_details':'Просмотр сведений пользователя','admin.visibility_changed':'Изменена видимость профиля','admin.visibility_rejected':'Неудачное подтверждение пароля'};
 let adminAuditRequest=0;
 async function socialLoadAudit(audience='admins',offset=0){
  const root=document.querySelector('[data-admin-audit-content]');if(!root)return;
@@ -379,7 +390,7 @@ async function socialLoadAudit(audience='admins',offset=0){
 async function socialAdminAuditPage(marker=lastRenderToken){
  if(!currentUser?.is_admin){errorView(new Error('Доступ только администратору'));return;}
  if(marker!==lastRenderToken)return;
- shell('<main class="container page social-page admin-page"><div class="admin-section-back"><a href="/admin" data-nav="/admin" class="text-link">'+ico('back',18)+' Все разделы</a></div><div class="page-hero"><div><h1>Журнал событий</h1><p>Действия за последние 90 дней</p></div></div><section class="panel"><div class="admin-audit-tabs" role="tablist"><button type="button" role="tab" aria-selected="true" class="active" data-audit-tab="admins" data-social-action="admin-audit-page" data-audience="admins">Админы</button><button type="button" role="tab" aria-selected="false" data-audit-tab="users" data-social-action="admin-audit-page" data-audience="users">Пользователи</button></div><div data-admin-audit-content aria-live="polite"></div></section></main>');
+ shell('<main class="container page social-page admin-page"><div class="admin-section-back"><a href="/admin" data-nav="/admin" class="text-link">'+ico('back',18)+' Все разделы</a></div><div class="page-hero"><div><h1>Журнал событий</h1><p>Важные события за последние 90 дней</p></div></div><section class="panel"><div class="admin-audit-tabs" role="tablist"><button type="button" role="tab" aria-selected="true" class="active" data-audit-tab="admins" data-social-action="admin-audit-page" data-audience="admins">Админы</button><button type="button" role="tab" aria-selected="false" data-audit-tab="users" data-social-action="admin-audit-page" data-audience="users">Пользователи</button></div><div data-admin-audit-content aria-live="polite"></div></section></main>');
  await socialLoadAudit();
 }
 async function socialAdminAuditEvent(id){
@@ -521,6 +532,8 @@ async function socialAskGiftModal(wishId){
   }});
 }
 document.addEventListener('click',async e=>{
+ const visibility=e.target.closest('[data-profile-visibility]');
+ if(visibility){e.preventDefault();const input=visibility.parentElement.querySelector('input[type="hidden"]');if(!input)return;const visible=input.value!=='true';input.value=String(visible);visibility.setAttribute('aria-pressed',String(visible));const tip=(visible?'Скрыть ':'Показывать ')+(visibility.dataset.profileVisibility==='show_last_name'?'фамилию':'отчество');visibility.setAttribute('aria-label',tip);visibility.title=tip;visibility.innerHTML=ico(visible?'eye':'eye-off');return;}
  const picker=e.target.closest('[data-avatar-pick]');if(picker){e.preventDefault();const root=picker.closest('.emoji-grid');root?.querySelectorAll('[data-avatar-pick]').forEach(x=>{x.classList.toggle('selected',x===picker);x.setAttribute('aria-pressed',String(x===picker));});const input=modalRoot.querySelector('#social-avatar-value');if(input)input.value=picker.dataset.avatarPick;return;}
  const target=e.target.closest('[data-social-action]');if(!target)return;
  e.preventDefault();
@@ -547,6 +560,11 @@ document.addEventListener('click',async e=>{
    await api('/api/notifications/read-all',{method:'POST',body:{}});
    notificationModalUnread=0;const time=new Date().toISOString();notificationModalItems.forEach(x=>{if(!x.read_at)x.read_at=time;});
    renderNotificationModalTab();socialUnreadLast=0;void socialRefreshBadge(true);return;
+  }
+  if(action==='revoke-session'||action==='revoke-other-sessions'){
+   if(!confirm(action==='revoke-session'?'Завершить этот сеанс?':'Завершить все сеансы, кроме текущего?'))return;
+   await api('/api/sessions/'+(action==='revoke-session'?encodeURIComponent(target.dataset.sessionId):'others'),{method:'DELETE',body:{}});
+   notice('Сеансы завершены');if(currentPath()===actionPath)await socialOwnProfilePage();return;
   }
   if(action==='edit-profile'){await socialEditProfileModal();return;}
   if(action==='edit-avatar'){await socialEditAvatarModal();return;}
@@ -640,9 +658,9 @@ function inviteQrData(rows){
   ctx.fillStyle='#000';rounded((x+2)*scale,(y+2)*scale+band,3*scale,3*scale,scale*.3);
  }
  const cx=(center+.5)*scale,cy=band+cx;
- ctx.fillStyle='#fff';ctx.beginPath();ctx.arc(cx,cy,4.7*scale,0,Math.PI*2);ctx.fill();
- ctx.fillStyle='#e8dcf5';ctx.beginPath();ctx.arc(cx,cy,4.15*scale,0,Math.PI*2);ctx.fill();
- ctx.font='63px sans-serif';ctx.textAlign='center';ctx.fillText(currentUser?.avatar_emoji||'🎁',cx,cy+1);
+ ctx.fillStyle='#fff';ctx.beginPath();ctx.arc(cx,cy,5.6*scale,0,Math.PI*2);ctx.fill();
+ ctx.fillStyle='#e8dcf5';ctx.beginPath();ctx.arc(cx,cy,5.05*scale,0,Math.PI*2);ctx.fill();
+ ctx.font='79px sans-serif';ctx.textAlign='center';ctx.fillText(currentUser?.avatar_emoji||'🎁',cx,cy+1);
  return canvas.toDataURL('image/png');
 }
 async function sharePersonalQr(){
@@ -658,21 +676,26 @@ async function sharePersonalQr(){
  }
  await sharePersonalInvite();
 }
+// Local vector marks: Telegram/VK from Simple Icons, MAX outline from Arcticons.
+function inviteBrandIcon(brand){
+ const paths={telegram:'M11.944 0A12 12 0 0 0 0 12a12 12 0 0 0 12 12 12 12 0 0 0 12-12A12 12 0 0 0 12 0a12 12 0 0 0-.056 0zm4.962 7.224c.1-.002.321.023.465.14a.506.506 0 0 1 .171.325c.016.093.036.306.02.472-.18 1.898-.962 6.502-1.36 8.627-.168.9-.499 1.201-.82 1.23-.696.065-1.225-.46-1.9-.902-1.056-.693-1.653-1.124-2.678-1.8-1.185-.78-.417-1.21.258-1.91.177-.184 3.247-2.977 3.307-3.23.007-.032.014-.15-.056-.212s-.174-.041-.249-.024c-.106.024-1.793 1.14-5.061 3.345-.48.33-.913.49-1.302.48-.428-.008-1.252-.241-1.865-.44-.752-.245-1.349-.374-1.297-.789.027-.216.325-.437.893-.663 3.498-1.524 5.83-2.529 6.998-3.014 3.332-1.386 4.025-1.627 4.476-1.635z',vk:'M6.79 7.3H4.05c.13 6.24 3.25 9.99 8.72 9.99h.31v-3.57c2.01.2 3.53 1.67 4.14 3.57h2.84c-.78-2.84-2.83-4.41-4.11-5.01 1.28-.74 3.08-2.54 3.51-4.98h-2.58c-.56 1.98-2.22 3.78-3.8 3.95V7.3H10.5v6.92c-1.6-.4-3.62-2.34-3.71-6.92Z',max:'M15.63 40.465c8.083 7.193 27.86-1.166 27.783-15.85C43.36 14.546 35.107 4.59 24.873 4.5c-9.538-.083-19.648 5.962-20.23 17.767c-.172 3.515 0 8.859 1.231 11.73c2.335 6.7.113 8.477 2.804 9.328q3.617.9 6.953-2.861'};
+ return '<svg aria-hidden="true" focusable="false" viewBox="'+(brand==='max'?'0 0 48 48':'0 0 24 24')+'" '+(brand==='max'?'fill="none" stroke="currentColor" stroke-width="4" stroke-linecap="round" stroke-linejoin="round"':'fill="currentColor"')+'><path d="'+paths[brand]+'"/></svg>';
+}
 function inviteShareButtons(url,personal=false,code=''){
  const e=encodeURIComponent(url);
  return '<div class="personal-invite-social" role="group" aria-label="Поделиться приглашением">'+
  '<button class="btn btn-small" type="button" '+(personal?'id="personal-invite-link" data-invite-url="'+attr(url)+'" data-social-action="copy-personal-invite"':'data-action="copy" data-url="'+attr(url)+'"')+'>'+ico('copy')+' Ссылка</button>'+
- '<button class="btn btn-small" type="button" '+(personal?'data-social-action="share-personal-qr"':'data-social-action="santa-invite-qr" data-code="'+attr(code)+'"')+'><span aria-hidden="true">▦</span> QR</button>'+
- '<a class="btn btn-small" target="_blank" rel="noopener noreferrer" href="https://t.me/share/url?url='+e+'"><span aria-hidden="true">➤</span> Telegram</a>'+
- '<a class="btn btn-small" target="_blank" rel="noopener noreferrer" href="https://vk.com/share.php?url='+e+'"><span aria-hidden="true">↗</span> VK</a>'+
- '<a class="btn btn-small" target="_blank" rel="noopener noreferrer" href="https://max.ru/:share?text='+e+'"><span aria-hidden="true">✦</span> MAX</a></div>';
+ '<button class="btn btn-small" type="button" '+(personal?'data-social-action="share-personal-qr"':'data-social-action="santa-invite-qr" data-code="'+attr(code)+'"')+'>'+ico('qr')+' QR</button>'+
+ '<a class="btn btn-small share-telegram" target="_blank" rel="noopener noreferrer" href="https://t.me/share/url?url='+e+'">'+inviteBrandIcon('telegram')+' Telegram</a>'+
+ '<a class="btn btn-small share-vk" target="_blank" rel="noopener noreferrer" href="https://vk.com/share.php?url='+e+'">'+inviteBrandIcon('vk')+' VK</a>'+
+ '<a class="btn btn-small share-max" target="_blank" rel="noopener noreferrer" href="https://max.ru/:share?text='+e+'">'+inviteBrandIcon('max')+' MAX</a></div>';
 }
 async function socialSantaInviteQr(code){
  const marker=lastRenderToken;
  if(isPreview){notice('QR доступен на сайте',true);return;}
  const data=await api('/api/invites/'+encodeURIComponent(code)+'/qr');
  if(marker!==lastRenderToken)return;
- modal({title:'Приглашение в игру',content:'<div class="personal-invite-card"><img id="personal-invite-qr" alt="QR-код приглашения в игру" src="'+attr(inviteQrData(data.qr))+'"></div>'+inviteShareButtons(data.url,false,code)});
+ modal({title:'Приглашение в игру',content:'<div class="personal-invite-card"><img id="personal-invite-qr" alt="QR-код приглашения в игру" src="'+attr(inviteQrData(data.qr))+'"></div>'});
  modalRoot.querySelector('.modal')?.classList.add('personal-invite-modal');
 }
 async function socialPersonalInviteModal(){
