@@ -3323,3 +3323,54 @@ def test_cookie_notice_nested_routes_dialogs_and_keyboard_viewport(browser_https
         finally:
             browser.close()
     (out/f'{engine}-metrics.json').write_text(json.dumps(report,ensure_ascii=False,indent=2),encoding='utf-8')
+
+
+@pytest.mark.browser
+@pytest.mark.parametrize("engine", ["chromium", "webkit"])
+def test_admin_device_presence_color_and_refresh(browser_https, application, monkeypatch, engine):
+    """Presence is an advisory visible-tab heartbeat; admin refresh keeps focus."""
+    from test_cloud import login, call, IDS
+    from cloud import db
+
+    monkeypatch.setenv('SHURSH_ADMIN_EMAILS', 'owner@example.test')
+    member=login(application,'other@example.test')
+    uid=str(IDS['other@example.test'])
+    with db.transaction(write=True) as con:
+        con.execute("UPDATE admin_user_activity SET last_seen_at=now()-interval '10 minutes',last_platform='windows' WHERE user_id=?",(uid,))
+    with sync_playwright() as play:
+        browser=getattr(play,engine).launch(headless=True)
+        try:
+            context=browser.new_context(viewport={'width':390,'height':844},ignore_https_errors=True,reduced_motion='reduce')
+            page=context.new_page()
+            page.goto(browser_https+'/')
+            browser_login(page)
+            page.evaluate("nav('/admin/users')")
+            expect(page.locator('main h1')).to_have_text('Пользователи')
+            cell=page.locator('[data-admin-visit-user="'+uid+'"]')
+            icon=cell.locator('.admin-device-presence')
+            expect(icon).to_be_visible()
+            expect(icon).not_to_have_class(re.compile(r'\\bis-online\\b'))
+            search=page.locator('#admin-users-query')
+            search.focus()
+            page.evaluate("window.presenceSearch=document.querySelector('#admin-users-query');window.presenceTable=document.querySelector('.admin-users-table')")
+            call(member,'GET','/api/notifications/unread',headers={'User-Agent':'Mozilla/5.0 (Windows NT 10.0)','X-Shursh-Visit':'1'})
+            page.evaluate("socialRefreshAdminPresence()")
+            expect(icon).to_have_class(re.compile(r'\\bis-online\\b'))
+            expect(icon).to_have_css('color','rgb(21, 128, 61)')
+            expect(icon).to_have_attribute('title',re.compile('В сети'))
+            expect(search).to_be_focused()
+            assert page.evaluate("presenceSearch===document.querySelector('#admin-users-query')&&presenceTable===document.querySelector('.admin-users-table')")
+            boundaries=page.evaluate("""()=>{
+                const now=Date.now(),stamp=delta=>new Date(now-delta).toISOString();
+                return [0,299999,300000,300001,-1].map(delta=>socialAdminPresenceOnline({last_seen_at:stamp(delta),last_seen_source:'visit'},now))
+                  .concat(socialAdminPresenceOnline({last_seen_at:stamp(0),last_seen_source:'session'},now));
+            }""")
+            assert boundaries==[True,True,False,False,False,False]
+            with db.transaction(write=True) as con:
+                con.execute("UPDATE admin_user_activity SET last_seen_at=now()-interval '10 minutes' WHERE user_id=?",(uid,))
+            page.evaluate("socialRefreshAdminPresence()")
+            expect(icon).not_to_have_class(re.compile(r'\\bis-online\\b'))
+            expect(search).to_be_focused()
+            context.close()
+        finally:
+            browser.close()
