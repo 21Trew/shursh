@@ -401,7 +401,7 @@ async function socialAdminAuditEvent(id){
 }
 function socialAdminUsersMarkup(page){
  syncAdminPresenceClock(page);
- const rows=(page.users||[]).map(u=>'<tr><td class="admin-user-cell"><a class="admin-user-identity admin-user-profile-link" href="/users/'+attr(u.id)+'" data-nav="/users/'+attr(u.id)+'" aria-label="Открыть профиль '+attr(u.name)+'"><span class="admin-user-emoji" aria-hidden="true">'+
+ const rows=(page.users||[]).map(u=>'<tr data-render-key="admin-user-'+attr(u.id)+'"><td class="admin-user-cell"><a class="admin-user-identity admin-user-profile-link" href="/users/'+attr(u.id)+'" data-nav="/users/'+attr(u.id)+'" aria-label="Открыть профиль '+attr(u.name)+'"><span class="admin-user-emoji" aria-hidden="true">'+
    esc(u.avatar_emoji||'🎁')+'</span><span><strong>'+esc(u.name)+'</strong>'+
    '<small>ID: '+esc(String(u.id).slice(0,8))+'</small></span></a></td>'+
    '<td>'+(u.handle?'@'+esc(u.handle):'<span class="muted">—</span>')+'</td>'+
@@ -428,7 +428,7 @@ async function socialLoadAdminUsers(offset=0){
  try{
   const page=await api('/api/admin/users?offset='+offset+'&q='+encodeURIComponent(query));
   if(requestId!==adminUsersRequestId||!root.isConnected||search.value.trim()!==query)return;
-  root.innerHTML=socialAdminUsersMarkup(page);
+  patchRenderedMarkup(root,socialAdminUsersMarkup(page));
   root.dataset.adminOffset=String(page.offset||0);root.dataset.adminQuery=query;
  }catch(error){
   if(requestId===adminUsersRequestId&&root.isConnected)notice(error.message,true);
