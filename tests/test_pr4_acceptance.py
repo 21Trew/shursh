@@ -2586,10 +2586,38 @@ def test_friends_exact_search_and_qr_invite(browser_https,application,engine):
                 guest.get_by_role('button',name='Принять заявку',exact=True).click()
                 expect(guest.get_by_text('Вы уже друзья',exact=True)).to_be_visible()
                 assert urlsplit(guest.url).path==urlsplit(url).path
+
+                # Disabling search must not force the owner to navigate to
+                # profile settings before deliberately sharing a new link.
+                page.keyboard.press('Escape')
+                expect(page.locator('.modal')).to_have_count(0)
+                call(owner,'PATCH','/api/profile/me',{'discoverable':False,'allow_friend_invites':False})
+                call(application.test_client(),'GET','/api/friend-invites/'+urlsplit(url).path.split('/')[-1],status=404)
+                page.set_viewport_size({'width':390,'height':844})
+                page.get_by_role('button',name='Пригласить друга').click()
+                permission=page.locator('.modal')
+                expect(permission.get_by_text('Профиль останется скрытым из поиска',exact=False)).to_be_visible()
+                expect(permission.locator('.modal-fixed-footer')).to_be_visible()
+                page.keyboard.press('Escape')
+                expect(permission).to_have_count(0)
+                unchanged=call(owner,'GET','/api/profile/me').json['profile']
+                assert unchanged['discoverable'] is False and unchanged['allow_friend_invites'] is False
+                page.get_by_role('button',name='Пригласить друга').click()
+                permission.get_by_role('button',name='Создать ссылку').click()
+                expect(page.locator('#personal-invite-link')).to_be_visible()
+                new_url=page.locator('#personal-invite-link').input_value()
+                assert new_url!=url
+                profile=call(owner,'GET','/api/profile/me').json['profile']
+                assert profile['discoverable'] is False and profile['allow_friend_invites'] is True
+                assert not call(other,'GET','/api/users/search?q=%40qr_owner').json['users']
+                landing=call(application.test_client(),'GET','/api/friend-invites/'+urlsplit(new_url).path.split('/')[-1]).json
+                assert landing['relationship']=='guest'
+                expect(page.locator('#personal-invite-qr')).to_be_visible()
+                page.screenshot(path=str(output/f'{engine}-hidden-profile-qr.png'),animations='disabled')
             finally:browser.close()
     finally:
         call(owner,'DELETE','/api/friend-invites/me',{})
-        call(owner,'PATCH','/api/profile/me',{'name':'Owner','handle':'','last_name':'','patronymic':'','show_full_name':False,'discoverable':True})
+        call(owner,'PATCH','/api/profile/me',{'name':'Owner','handle':'','last_name':'','patronymic':'','show_full_name':False,'discoverable':True,'allow_friend_invites':False})
         call(other,'PATCH','/api/profile/me',{'name':'Other','handle':''})
         with db.transaction(write=True) as con:
             con.execute('DELETE FROM friendships WHERE user_low=? AND user_high=?',(aid,bid))
