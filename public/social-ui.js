@@ -9,7 +9,7 @@ async function socialRefreshBadge(force=false){
  const request=++socialUnreadRequest,epoch=ownerSessionEpoch;
  socialUnreadBusy=true;socialUnreadLast=Date.now();
  try{
-  const data=await api('/api/notifications/unread');
+  const data=await api('/api/notifications/unread',{visit:true});
   if(request!==socialUnreadRequest||epoch!==ownerSessionEpoch)return;
   document.querySelectorAll('[data-notification-count]').forEach(el=>{
    const amount=Number(data.unread||0);
@@ -313,6 +313,11 @@ function socialAdminVisitDate(date,now=new Date()){
  return +day===+today?'сегодня, '+time:+day===+yesterday?'вчера, '+time:
   date.toLocaleString('ru-RU',{dateStyle:'medium',timeStyle:'short'});
 }
+const ADMIN_PRESENCE_WINDOW=5*60*1000;
+function socialAdminPresenceOnline(u,now=Date.now()){
+ const age=now-Date.parse(u.last_seen_at);
+ return u.last_seen_source==='visit'&&Number.isFinite(age)&&age>=0&&age<ADMIN_PRESENCE_WINDOW;
+}
 function socialAdminVisitMarkup(u){
  if(!u.last_seen_at)return '<span class="muted">Нет данных</span>';
  const platforms={
@@ -326,8 +331,9 @@ function socialAdminVisitMarkup(u){
  const date=new Date(u.last_seen_at);
  if(!Number.isFinite(date.getTime()))return '<span class="muted">Нет данных</span>';
  const symbol=platform[1]?'<svg width="20" height="20" viewBox="0 0 24 24" fill="currentColor" role="img" aria-label="'+attr(platform[0])+'" focusable="false"><title>'+esc(platform[0])+'</title>'+platform[1]+'</svg>':'<span aria-label="macOS" title="macOS">Mac</span>';
- const provenance=u.last_seen_source==='session'?'Последний известный вход по сессии; устройство не записано':'Последний зафиксированный визит';
- return '<div class="admin-user-identity">'+symbol+'<span><time title="'+attr(provenance)+'" datetime="'+attr(u.last_seen_at)+'">'+esc(socialAdminVisitDate(date))+'</time></span></div>';
+ const provenance=u.last_seen_source==='session'?'Последний известный вход по сессии; устройство не записано':'Последняя зафиксированная активность';
+ const online=socialAdminPresenceOnline(u),status=online?'В сети: активность за последние 5 минут':'Нет недавней активности';
+ return '<div class="admin-user-identity"><span class="admin-device-presence'+(online?' is-online':'')+'" data-presence-seen="'+attr(u.last_seen_at)+'" data-presence-source="'+attr(u.last_seen_source||'')+'" title="'+attr(status)+'">'+symbol+'<span class="sr-only" data-presence-status>'+esc(status)+'</span></span><span><time title="'+attr(provenance)+'" datetime="'+attr(u.last_seen_at)+'">'+esc(socialAdminVisitDate(date))+'</time></span></div>';
 }
 function socialAdminUsersMarkup(page){
  const rows=(page.users||[]).map(u=>'<tr><td class="admin-user-cell"><a class="admin-user-identity admin-user-profile-link" href="/users/'+attr(u.id)+'" data-nav="/users/'+attr(u.id)+'" aria-label="Открыть профиль '+attr(u.name)+'"><span class="admin-user-emoji" aria-hidden="true">'+
@@ -335,7 +341,7 @@ function socialAdminUsersMarkup(page){
    '<small>ID: '+esc(String(u.id).slice(0,8))+'</small></span></a></td>'+
    '<td>'+(u.handle?'@'+esc(u.handle):'<span class="muted">—</span>')+'</td>'+
    '<td><time datetime="'+attr(u.created_at)+'">'+esc(new Date(u.created_at).toLocaleString('ru-RU',{dateStyle:'medium',timeStyle:'short'}))+'</time></td>'+
-   '<td>'+socialAdminVisitMarkup(u)+'</td><td>'+Number(u.wishlists_count||0)+'</td><td>'+Number(u.organized_games||0)+'</td>'+
+   '<td data-admin-visit-user="'+attr(u.id)+'">'+socialAdminVisitMarkup(u)+'</td><td>'+Number(u.wishlists_count||0)+'</td><td>'+Number(u.organized_games||0)+'</td>'+
    '<td>'+Number(u.joined_games||0)+'</td><td>'+(u.discoverable?'Виден':'Скрыт')+'</td></tr>').join('');
  const from=page.total?Number(page.offset)+1:0;
  const to=Math.min(Number(page.offset)+Number(page.limit),Number(page.total));
@@ -359,12 +365,41 @@ async function socialLoadAdminUsers(offset=0){
   const page=await api('/api/admin/users?offset='+offset+'&q='+encodeURIComponent(query));
   if(requestId!==adminUsersRequestId||!root.isConnected||search.value.trim()!==query)return;
   root.innerHTML=socialAdminUsersMarkup(page);
+  root.dataset.adminOffset=String(page.offset||0);root.dataset.adminQuery=query;
  }catch(error){
   if(requestId===adminUsersRequestId&&root.isConnected)notice(error.message,true);
  }finally{
   if(requestId===adminUsersRequestId&&root.isConnected)root.removeAttribute('aria-busy');
  }
 }
+let adminPresenceBusy=false;
+async function socialRefreshAdminPresence(){
+ if(document.hidden||!currentUser?.is_admin||currentPath()!=='/admin/users'||isPreview)return;
+ const root=document.querySelector('[data-admin-users-content]');
+ if(!root)return;
+ // Expire stale indicators even if the next network read fails.
+ for(const el of root.querySelectorAll('.admin-device-presence.is-online')){
+  if(socialAdminPresenceOnline({last_seen_at:el.dataset.presenceSeen,last_seen_source:el.dataset.presenceSource}))continue;
+  el.classList.remove('is-online');el.title='Нет недавней активности';
+  el.querySelector('[data-presence-status]').textContent=el.title;
+ }
+ const search=document.getElementById('admin-users-query'),query=search?.value.trim()||'';
+ if(adminPresenceBusy||root.hasAttribute('aria-busy')||query!==(root.dataset.adminQuery||''))return;
+ const offset=Number(root.dataset.adminOffset||0),requestId=adminUsersRequestId,epoch=ownerSessionEpoch;
+ adminPresenceBusy=true;
+ try{
+  const page=await api('/api/admin/users?offset='+offset+'&q='+encodeURIComponent(query));
+  if(epoch!==ownerSessionEpoch||requestId!==adminUsersRequestId||!root.isConnected||document.hidden||search.value.trim()!==query||root.hasAttribute('aria-busy'))return;
+  const users=new Map((page.users||[]).map(u=>[String(u.id),u]));
+  for(const cell of root.querySelectorAll('[data-admin-visit-user]')){
+   const user=users.get(cell.dataset.adminVisitUser);
+   if(!user)continue;
+   const next=cell.cloneNode(false);next.innerHTML=socialAdminVisitMarkup(user);patchOwnerNode(cell,next);
+  }
+ }catch{ /* Presence is advisory; leave existing data and expire stale indicators. */ }
+ finally{adminPresenceBusy=false;}
+}
+setInterval(()=>{if(typeof currentUser!=='undefined')void socialRefreshAdminPresence();},30000);
 async function socialAdminPage(marker=lastRenderToken){
  if(!currentUser?.is_admin){errorView(new Error('Доступ только администратору'));return;}
  const {stats}=await api('/api/admin/overview');
