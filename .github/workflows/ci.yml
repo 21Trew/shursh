@@ -6,6 +6,10 @@ on:
     branches: [main]
   pull_request:
 
+concurrency:
+  group: tests-${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
 permissions:
   contents: read
 
@@ -13,6 +17,7 @@ jobs:
   python-tests:
     runs-on: ubuntu-latest
     strategy:
+      fail-fast: false
       matrix:
         python-version: ['3.11', '3.13']
     steps:
@@ -20,12 +25,17 @@ jobs:
       - uses: actions/setup-python@v5
         with:
           python-version: ${{ matrix.python-version }}
+          cache: pip
+          cache-dependency-path: |
+            requirements.txt
+            requirements-dev.txt
+            tools/requirements-ui.txt
       - run: python -m pip install -r requirements.txt -r requirements-dev.txt
       - run: python -m py_compile server.py
-      - run: python -m pytest -q tests/test_api.py
-      - run: python -m pytest -q tests/test_preview_isolation.py
-      - run: python -m pytest -q tests/test_product_metadata.py tests/test_product_sources.py
-      - run: python -m pytest -q tests/test_password_policy.py
+      - run: python -m pytest -vv --durations=0 --durations-min=0 tests/test_api.py
+      - run: python -m pytest -vv --durations=0 --durations-min=0 tests/test_preview_isolation.py
+      - run: python -m pytest -vv --durations=0 --durations-min=0 tests/test_product_metadata.py tests/test_product_sources.py
+      - run: python -m pytest -vv --durations=0 --durations-min=0 tests/test_password_policy.py
 
   frontend-syntax:
     runs-on: ubuntu-latest
@@ -80,10 +90,15 @@ jobs:
       - uses: actions/setup-python@v5
         with:
           python-version: '3.13'
+          cache: pip
+          cache-dependency-path: |
+            requirements.txt
+            requirements-dev.txt
+            tools/requirements-ui.txt
       - run: python -m pip install -r requirements.txt -r requirements-dev.txt
       - run: python -m compileall -q app.py cloud server.py tests/test_cloud.py
       - name: PostgreSQL integration + reproducible authenticated API timings
-        run: python -m pytest -q -s tests/test_cloud.py -m "not browser and not fontperf"
+        run: python -m pytest -vv --durations=0 --durations-min=0 -s tests/test_cloud.py -m "not browser and not fontperf"
 
   browser-e2e:
     runs-on: ubuntu-24.04
@@ -110,13 +125,22 @@ jobs:
       - uses: actions/setup-python@v5
         with:
           python-version: '3.13'
+          cache: pip
+          cache-dependency-path: |
+            requirements.txt
+            requirements-dev.txt
+            tools/requirements-ui.txt
       - run: python -m pip install -r requirements.txt -r requirements-dev.txt playwright==1.56.0
       - run: python -m playwright install --with-deps chromium
       - name: Browser E2E + font loading measurements
-        run: python -m pytest -q -s tests/test_cloud.py -m browser
-  pr4-ui-acceptance:
+        run: python -m pytest -vv --durations=0 --durations-min=0 -s tests/test_cloud.py -m browser
+  pr4-ui-shard:
     runs-on: ubuntu-24.04
     timeout-minutes: 25
+    strategy:
+      fail-fast: false
+      matrix:
+        shard: [soak-chromium, soak-webkit, ui-0, ui-1, ui-2, ui-3]
     services:
       postgres:
         image: postgres:17
@@ -141,6 +165,11 @@ jobs:
       - uses: actions/setup-python@v5
         with:
           python-version: '3.13'
+          cache: pip
+          cache-dependency-path: |
+            requirements.txt
+            requirements-dev.txt
+            tools/requirements-ui.txt
       - run: python -m pip install -r tools/requirements-ui.txt
       - name: UI source rule registry is synchronized
         run: python tools/ui_audit.py --check
@@ -151,11 +180,20 @@ jobs:
       # Host networking preserves the existing localhost-only disposable DB guard.
       - name: Pull pinned Playwright Python image
         run: docker pull mcr.microsoft.com/playwright/python:v1.56.0-noble
+      - uses: actions/cache@v4
+        with:
+          path: ~/.cache/shursh-playwright-pip
+          key: playwright-pip-noble-1.56.0-${{ hashFiles('requirements.txt', 'requirements-dev.txt', 'tools/requirements-ui.txt') }}
       - name: Six tabs DOM/HTTP/viewport acceptance
+        env:
+          CI_UI_SHARD: ${{ matrix.shard }}
         run: |
+          mkdir -p "$HOME/.cache/shursh-playwright-pip"
           docker run --rm --init --network host --ipc=host \
             --user "$(id -u):$(id -g)" --env HOME=/tmp \
-            --env SHURSH_DATABASE_URL --env SHURSH_RATE_SECRET \
+            --env SHURSH_DATABASE_URL --env SHURSH_RATE_SECRET --env CI_UI_SHARD \
+            --env PIP_CACHE_DIR=/pip-cache \
+            --mount "type=bind,source=$HOME/.cache/shursh-playwright-pip,target=/pip-cache" \
             --mount "type=bind,source=${GITHUB_WORKSPACE},target=/work" \
             --workdir /work mcr.microsoft.com/playwright/python:v1.56.0-noble \
             bash -euc '
@@ -163,13 +201,41 @@ jobs:
               python -m virtualenv --no-download /tmp/shursh-ci-venv
               /tmp/shursh-ci-venv/bin/python -m pip install -r requirements.txt -r requirements-dev.txt -r tools/requirements-ui.txt playwright==1.56.0
               /tmp/shursh-ci-venv/bin/python -m playwright --version
-              /tmp/shursh-ci-venv/bin/python -m pytest -q -s tests/test_pr4_acceptance.py -m browser
+              /tmp/shursh-ci-venv/bin/python tools/ci_ui_shards.py run "$CI_UI_SHARD"
             '
       - name: Upload sanitized PR4 browser acceptance screenshots and metrics
         if: always()
         uses: actions/upload-artifact@v4
         with:
+          name: ci-ui-shard-${{ matrix.shard }}
+          path: |
+            artifacts/pr4-ui/
+            artifacts/ci-timing/
+          if-no-files-found: warn
+          retention-days: 7
+
+  pr4-ui-acceptance:
+    runs-on: ubuntu-latest
+    needs: pr4-ui-shard
+    if: always()
+    steps:
+      - name: Require successful shards
+        env:
+          SHARD_RESULT: ${{ needs.pr4-ui-shard.result }}
+        run: test "$SHARD_RESULT" = success
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.13'
+      - uses: actions/download-artifact@v4
+        with:
+          pattern: ci-ui-shard-*
+          path: shard-results
+      - name: Verify exact test inventory and restore original artifact layout
+        run: python tools/ci_ui_shards.py verify shard-results artifacts/pr4-ui
+      - uses: actions/upload-artifact@v4
+        with:
           name: pr4-six-tab-ui-acceptance
           path: artifacts/pr4-ui/
-          if-no-files-found: warn
+          if-no-files-found: error
           retention-days: 7
