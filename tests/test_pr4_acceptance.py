@@ -3117,3 +3117,158 @@ def test_mobile_cookie_notice_never_overlays_owner_tabs(browser_https):
                         context.close()
             finally:
                 browser.close()
+
+
+@pytest.mark.browser
+@pytest.mark.parametrize("engine", ["chromium", "webkit"])
+def test_cookie_notice_nested_routes_dialogs_and_keyboard_viewport(browser_https, application, engine):
+    """Keep consent unacknowledged; test real renderers and pointer hit targets.
+    Viewport resize models available keyboard space, not a native OS keyboard.
+    """
+    from test_cloud import login, call, make_list, IDS
+    from uuid import uuid4
+
+    owner = login(application)
+    lid, wid, key = make_list(owner)
+    eid = call(owner, 'POST', '/api/santas',
+               {'title': 'Cookie audit ' + uuid4().hex[:8]}, 201).json['id']
+    invite = call(owner, 'GET', f'/api/santas/{eid}').json['event']['invite_key']
+    out = OUTPUT / 'cookie-interactions'
+    out.mkdir(parents=True, exist_ok=True)
+    report = []
+
+    def hit(locator):
+        locator.scroll_into_view_if_needed()
+        result = locator.evaluate("""el => {
+          const r=el.getBoundingClientRect(), x=r.left+r.width/2, y=r.top+r.height/2;
+          const target=document.elementFromPoint(x,y);
+          return {hit:!!target&&(target===el||el.contains(target)),
+                  cookie:!!target?.closest('.cookie-notice'),
+                  inViewport:x>=0&&x<innerWidth&&y>=0&&y<innerHeight};
+        }""")
+        assert result['inViewport'] and result['hit'] and not result['cookie'], result
+        locator.click(trial=True)
+
+    def page_gate(page):
+        notice = page.locator('.cookie-notice')
+        expect(notice).to_have_count(1)
+        assert notice.evaluate("""el => {
+          const view=document.querySelector('#page-view');
+          return getComputedStyle(el).position==='relative' &&
+            el.getBoundingClientRect().bottom<=view.getBoundingClientRect().top+1;
+        }""")
+        assert page.evaluate("localStorage.getItem('shursh-cookie-notice-v1')!=='yes'")
+
+    def dialog_gate(page, label, width, height):
+        dialog = page.locator('.modal')
+        expect(dialog).to_be_visible()
+        expect(page.locator('.cookie-notice')).to_have_count(1)
+        page.wait_for_function("()=>document.querySelector('.modal')?.getAnimations().length===0")
+        close = dialog.locator('.modal-close').first
+        hit(close)
+        fields = dialog.locator('input:not([type=hidden]):not([type=checkbox]):not([type=radio]):not([type=file]):not([type=date]):not([readonly]):not([disabled]):visible, textarea:not([readonly]):not([disabled]):visible')
+        editable = bool(fields.count())
+        if editable:
+            field = fields.first
+            hit(field)
+            field.click()
+            expect(field).to_be_focused()
+            value = field.input_value()
+            page.set_viewport_size({'width':width,'height':max(320, height-300)})
+            expect(field).to_be_focused()
+            expect(field).to_have_value(value)
+            hit(field)
+            expect(field).to_be_focused()
+            hit(close)
+            footer = dialog.locator('.modal-fixed-footer button:not([disabled]):visible')
+            if footer.count():
+                hit(footer.last)
+            page.screenshot(path=str(out/f'{engine}-{width}-{label}-reduced.png'), animations='disabled')
+            page.set_viewport_size({'width':width,'height':height})
+            expect(field).to_be_focused()
+            expect(field).to_have_value(value)
+        else:
+            page.set_viewport_size({'width':width,'height':max(320,height-300)})
+            hit(close)
+            page.set_viewport_size({'width':width,'height':height})
+        hit(close)
+        close.click()
+        expect(dialog).to_have_count(0)
+        page_gate(page)
+        report.append({'width':width,'dialog':label,'editable':editable})
+
+    with sync_playwright() as play:
+        browser = getattr(play,engine).launch(headless=True)
+        try:
+            for width,height in ((320,640),(390,844),(760,844)):
+                context = browser.new_context(viewport={'width':width,'height':height},
+                    has_touch=True,is_mobile=True,ignore_https_errors=True,reduced_motion='reduce')
+                try:
+                    page = context.new_page()
+                    page.goto(browser_https+'/',wait_until='domcontentloaded')
+                    expect(page.locator('main h1').first).to_be_visible()
+                    page_gate(page)
+                    for label, opener in (
+                        ('login', "loginModal()"),
+                        ('register', "loginModal('register')"),
+                        ('confirmation', "confirmationModal('fixture@example.test')"),
+                        ('feedback-guest', "contactDeveloperModal()"),
+                    ):
+                        page.evaluate(opener)
+                        dialog_gate(page,label,width,height)
+                    browser_login(page)
+                    expect(page.locator('.dashboard-page')).to_be_visible()
+                    for path,label in ((f'/list/{lid}','list'),(f'/santa/{eid}','santa'),
+                                       (f'/w/{key}','shared-list'),(f'/join/{invite}','invite'),
+                                       (f"/users/{IDS['other@example.test']}",'profile')):
+                        page.evaluate("(path)=>nav(path)",path)
+                        expect(page).to_have_url(re.compile(re.escape(path)+r'$'))
+                        expect(page.locator('#page-view main h1').first).to_be_visible()
+                        expect(page.locator('#page-view')).not_to_have_attribute('aria-busy','true')
+                        page_gate(page)
+                        page.screenshot(path=str(out/f'{engine}-{width}-{label}.png'),animations='disabled')
+                        if label=='list':
+                            page.evaluate("wishModal()")
+                            dialog_gate(page,'wish',width,height)
+                        if label=='santa':
+                            page.evaluate("addPlayerModal()")
+                            dialog_gate(page,'santa-personal-invite',width,height)
+                    page.evaluate("nav('/profile')")
+                    expect(page.locator('main h1').first).to_contain_text('Мой профиль')
+                    for label, opener in (
+                        ('profile-edit','socialEditProfileModal()'),
+                        ('avatar','socialEditAvatarModal()'),
+                        ('email',"socialAccountModal('email')"),
+                        ('password',"socialAccountModal('password')"),
+                        ('wishlist','listModal()'),
+                        ('santa-create','santaModal()'),
+                        ('connect-game','connectGameModal()'),
+                        ('notifications','socialNotificationsModal()'),
+                        ('confirm',"confirmAction('Проверка','Тест',async()=>{})"),
+                        ('feedback','contactDeveloperModal()'),
+                    ):
+                        page.evaluate(opener)
+                        dialog_gate(page,label,width,height)
+                    page.evaluate("nav('/friends')")
+                    expect(page.locator('main h1').first).to_contain_text('Друзья')
+                    search=page.locator('#social-search-form input[name=q]')
+                    hit(search)
+                    search.click()
+                    expect(search).to_be_focused()
+                    page.set_viewport_size({'width':width,'height':max(320,height-300)})
+                    hit(search)
+                    expect(search).to_be_focused()
+                    page.set_viewport_size({'width':width,'height':height})
+                    page.evaluate("socialPersonalInviteModal()")
+                    dialog_gate(page,'friend-qr',width,height)
+                    notice=page.locator('.cookie-notice')
+                    notice.locator('button').click()
+                    expect(notice).to_have_count(0)
+                    page.reload(wait_until='domcontentloaded')
+                    expect(page.locator('main h1').first).to_be_visible()
+                    expect(notice).to_have_count(0)
+                finally:
+                    context.close()
+        finally:
+            browser.close()
+    (out/f'{engine}-metrics.json').write_text(json.dumps(report,ensure_ascii=False,indent=2),encoding='utf-8')
