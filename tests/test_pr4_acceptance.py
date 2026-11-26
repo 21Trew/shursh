@@ -2713,11 +2713,12 @@ def test_landing_crayon_art_responsive_motion_and_decoding(browser_https, engine
                       const copy=card.querySelector('.showcase-copy').getBoundingClientRect();
                       const mock=card.querySelector('.showcase-mock').getBoundingClientRect();
                       const pieces=[...card.querySelectorAll('.showcase-copy .section-label,.showcase-copy h2,.showcase-copy p,.showcase-copy button,.showcase-mock')];
-                      return {contained:pieces.every(el=>{
+                      return {scrollTop:card.scrollTop,scrollLeft:card.scrollLeft,overflow:getComputedStyle(card).overflowY,contained:pieces.every(el=>{
                         const r=el.getBoundingClientRect();
                         return r.width>0&&r.height>0&&r.top>=box.top-1&&r.bottom<=box.bottom+1&&r.left>=box.left-1&&r.right<=box.right+1;
                       }),ordered:mock.top>=copy.bottom-1,gap:box.bottom-mock.bottom};
                     }""")
+                    assert showcase['scrollTop']==0 and showcase['scrollLeft']==0 and showcase['overflow']=='clip', (engine,width,showcase)
                     assert showcase['contained'], (engine,width,showcase)
                     if width<=760:
                         assert showcase['ordered'] and 0<=showcase['gap']<=60, (engine,width,showcase)

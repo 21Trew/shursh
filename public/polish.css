@@ -982,3 +982,7 @@ input[type="checkbox"]:not(.shursh-checkbox input):checked::after{content:"✓";
  .mock-items{grid-template-columns:repeat(3,minmax(0,1fr))}
  .mock-copy{overflow-wrap:anywhere}
 }
+
+/* The decorative blob extends beyond the card. Clip its paint without creating
+   an internal scroll container (scrollIntoView/focus must not hide the copy). */
+.showcase{overflow:clip}
