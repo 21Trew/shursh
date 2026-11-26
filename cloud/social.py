@@ -50,9 +50,10 @@ def _notify(con, recipient, kind, message, url='/', actor=None):
     setting=NOTIFY_KIND_FIELD.get(kind,'notify_system')
     pref=con.execute('SELECT '+setting+' FROM profiles WHERE id=?',(recipient,)).fetchone()
     if not pref or not pref[setting]:
-        return
+        return False
     con.execute('''INSERT INTO social_notifications(recipient_id,actor_id,kind,message,target_path)
                    VALUES(?,?,?,?,?)''',(recipient,actor,kind,message[:240],url[:300]))
+    return True
 
 def _friends(con, current):
     rows = con.execute('''SELECT p.id,p.name,p.bio,p.handle,p.avatar_emoji FROM friendships f
@@ -208,13 +209,23 @@ def handle(handler, method, path, con):
                     if not enabled: raise ApiError(503,'Настройки пока недоступны')
                     if not isinstance(data[key],bool): raise ApiError(400,'Неверная настройка видимости')
                     fields[key]=data[key]
+            if 'show_full_name' in fields:
+                fields['show_last_name']=fields['show_patronymic']=fields['show_full_name']
+            for key in ('show_last_name','show_patronymic'):
+                if key in data:
+                    if not isinstance(data[key],bool): raise ApiError(400,'Неверная настройка видимости')
+                    fields[key]=data[key]
+            if 'show_last_name' in fields or 'show_patronymic' in fields:
+                old=con.execute('SELECT show_last_name,show_patronymic FROM profiles WHERE id=?',(user['id'],)).fetchone()
+                fields['show_full_name']=fields.get('show_last_name',old['show_last_name']) and fields.get('show_patronymic',old['show_patronymic'])
             if 'handle' in data:
                 handle=data['handle']
                 if not isinstance(handle,str):
                     raise ApiError(400,'Неверный никнейм')
                 handle=handle.strip().lower().removeprefix('@')
-                if handle and not re.fullmatch(r'[a-z][a-z0-9_]{2,19}',handle):
-                    raise ApiError(400,'Никнейм: 3–20 латинских символов, цифры и _; первая — буква')
+                old_handle=con.execute('SELECT handle FROM profiles WHERE id=?',(user['id'],)).fetchone()['handle']
+                if handle and handle!=old_handle and not re.fullmatch(r'[a-z0-9]{3,20}',handle):
+                    raise ApiError(400,'Никнейм: от 3 до 20 латинских букв и цифр')
                 if handle and con.execute('SELECT 1 FROM profiles WHERE lower(handle)=? AND id<>?',(handle,user['id'])).fetchone():
                     raise ApiError(409,'Этот никнейм уже занят')
                 fields['handle']=handle or None
@@ -237,9 +248,9 @@ def handle(handler, method, path, con):
                 raise ApiError(400,'Нет изменений')
             con.execute('UPDATE profiles SET '+', '.join(k+'=?' for k in fields)+' WHERE id=?',
                         (*fields.values(),user['id']))
-        extra=',last_name,patronymic,show_full_name,allow_friend_invites' if enabled else ''
+        extra=',last_name,patronymic,show_full_name,show_last_name,show_patronymic,allow_friend_invites' if enabled else ''
         p=con.execute('SELECT id,name,bio,discoverable,handle,avatar_emoji,city,notify_friends,notify_santa,notify_gifts,notify_system'+extra+' FROM profiles WHERE id=?',(user['id'],)).fetchone()
-        lists=con.execute("""SELECT l.id,l.title,l.description,l.occasion,l.theme,l.share_key,
+        lists=con.execute("""SELECT l.id,l.title,l.description,l.occasion,l.theme,l.cover_path,l.share_key,
                             count(w.id) AS wish_count FROM wishlists l
                             LEFT JOIN wishes w ON w.list_id=l.id
                             WHERE l.owner_id=? AND l.visibility='link'
@@ -260,11 +271,11 @@ def handle(handler, method, path, con):
             return 200,{'users':[]},None
         escaped=term.replace('!','!!').replace('%','!%').replace('_','!_')
         enabled=referrals.ready(con)
-        full=("CASE WHEN p.show_full_name THEN concat_ws(' ',nullif(p.last_name,''),p.name,nullif(p.patronymic,'')) ELSE p.name END"
+        full=("concat_ws(' ',CASE WHEN p.show_last_name THEN nullif(p.last_name,'') END,p.name,CASE WHEN p.show_patronymic THEN nullif(p.patronymic,'') END)"
               if enabled else 'p.name')
-        full_alt=("CASE WHEN p.show_full_name THEN concat_ws(' ',p.name,nullif(p.last_name,''),nullif(p.patronymic,'')) ELSE p.name END" if enabled else 'p.name')
-        cols=("CASE WHEN p.show_full_name THEN p.last_name ELSE '' END AS last_name,"
-              "CASE WHEN p.show_full_name THEN p.patronymic ELSE '' END AS patronymic," if enabled else '')
+        full_alt=("concat_ws(' ',p.name,CASE WHEN p.show_last_name THEN nullif(p.last_name,'') END,CASE WHEN p.show_patronymic THEN nullif(p.patronymic,'') END)" if enabled else 'p.name')
+        cols=("CASE WHEN p.show_last_name THEN p.last_name ELSE '' END AS last_name,"
+              "CASE WHEN p.show_patronymic THEN p.patronymic ELSE '' END AS patronymic," if enabled else '')
         base="""SELECT p.id,p.name,p.handle,p.avatar_emoji,"""+cols+"""
              CASE WHEN f.status='accepted' THEN 'friends'
                   WHEN f.status='pending' AND f.requested_by=? THEN 'outgoing'
@@ -282,12 +293,20 @@ def handle(handler, method, path, con):
                 (uid,uid,uid,uid,*(['%'+escaped+'%']*4),term,term,term,term,escaped+'%',escaped+'%'))
         return 200,{'users':[dict(p) for p in rows]},None
 
+    nickname=re.fullmatch(r'/api/u/([A-Za-z0-9_]{3,20})',path)
+    if nickname and method=='GET':
+        found=con.execute('SELECT id,name,handle,avatar_emoji,discoverable FROM profiles WHERE lower(handle)=?',(nickname.group(1).lower(),)).fetchone()
+        if not found: raise ApiError(404,'Профиль не найден')
+        if not handler.user(con):
+            if not found['discoverable']: raise ApiError(404,'Профиль не найден')
+            return 200,{'profile':{k:found[k] for k in ('id','name','handle','avatar_emoji')},'relationship':'guest','lists':[],'shared_games':[]},None
+        return handle(handler,method,'/api/users/'+str(found['id']),con)
     match=re.fullmatch(r'/api/users/([0-9a-fA-F-]{36})',path)
     if match and method=='GET':
         user=handler.auth(con)
         uid=_uuid(match.group(1))
         enabled=referrals.ready(con)
-        profile=con.execute('SELECT id,name,bio,discoverable,handle,avatar_emoji,city'+(',last_name,patronymic,show_full_name' if enabled else '')+' FROM profiles WHERE id=?',(uid,)).fetchone()
+        profile=con.execute('SELECT id,name,bio,discoverable,handle,avatar_emoji,city'+(',last_name,patronymic,show_full_name,show_last_name,show_patronymic' if enabled else '')+' FROM profiles WHERE id=?',(uid,)).fetchone()
         state=_relationship(con,user['id'],uid)
         if not profile:
             raise ApiError(404,'Профиль не найден')
@@ -302,7 +321,7 @@ def handle(handler, method, path, con):
                          'lists':[],'shared_games':[]},None
         lists=[]
         if state in ('self','friends'):
-            rows=con.execute('''SELECT l.id,l.title,l.description,l.occasion,l.theme,l.share_key,
+            rows=con.execute('''SELECT l.id,l.title,l.description,l.occasion,l.theme,l.cover_path,l.share_key,
                        count(w.id) AS wish_count
                        FROM wishlists l LEFT JOIN wishes w ON w.list_id=l.id
                        WHERE l.owner_id=? AND l.visibility='link'
@@ -318,12 +337,12 @@ def handle(handler, method, path, con):
                                 JOIN participants b ON b.event_id=e.id AND b.user_id=?
                                 ORDER BY e.id DESC LIMIT 40""",(user['id'],uid))
             shared_games=[dict(row) for row in rows]
-        return 200,{'profile':{'id':profile['id'],'name':profile['name'],'bio':profile['bio'],'handle':profile['handle'],'avatar_emoji':profile['avatar_emoji'],'city':profile['city'], **({'last_name':profile['last_name'],'patronymic':profile['patronymic']} if enabled and (state=='self' or profile['show_full_name']) else {})},
+        return 200,{'profile':{'id':profile['id'],'name':profile['name'],'bio':profile['bio'],'handle':profile['handle'],'avatar_emoji':profile['avatar_emoji'],'city':profile['city'], **({'last_name':profile['last_name'] if state=='self' or profile['show_last_name'] else '', 'patronymic':profile['patronymic'] if state=='self' or profile['show_patronymic'] else ''} if enabled else {})},
                     'relationship':state,'lists':lists,'shared_games':shared_games},None
 
     if path=='/api/friends/wishlists' and method=='GET':
         user=handler.auth(con)
-        rows=con.execute('''SELECT l.id,l.title,l.description,l.occasion,l.theme,
+        rows=con.execute('''SELECT l.id,l.title,l.description,l.occasion,l.theme,l.cover_path,
                          l.share_key,p.name AS owner_name,p.avatar_emoji,l.owner_id AS owner_id,
                          count(w.id) AS wish_count
                      FROM wishlists l
@@ -341,7 +360,7 @@ def handle(handler, method, path, con):
         user=handler.auth(con)
         enabled=referrals.ready(con)
         rows=con.execute('''SELECT f.user_low,f.user_high,f.requested_by,f.status,
-                    p.id AS other_id,p.name AS other_name,p.handle AS other_handle,p.avatar_emoji AS other_avatar_emoji'''+(",CASE WHEN p.show_full_name THEN p.last_name ELSE '' END AS other_last_name,CASE WHEN p.show_full_name THEN p.patronymic ELSE '' END AS other_patronymic" if enabled else '')+'''
+                    p.id AS other_id,p.name AS other_name,p.handle AS other_handle,p.avatar_emoji AS other_avatar_emoji'''+(",CASE WHEN p.show_last_name THEN p.last_name ELSE '' END AS other_last_name,CASE WHEN p.show_patronymic THEN p.patronymic ELSE '' END AS other_patronymic" if enabled else '')+'''
                     FROM friendships f
                     JOIN profiles p ON p.id=(CASE WHEN f.user_low=? THEN f.user_high ELSE f.user_low END)
                     WHERE f.user_low=? OR f.user_high=?

@@ -1087,7 +1087,7 @@ def test_browser_santa_invites_draw_and_private_reveals(browser_http):
                 expect(guest).to_have_url(re.compile(r'/p/[A-Za-z0-9_-]+$'))
 
                 expect(guest.locator('#game-chat [data-chat-room="general"]')).to_be_visible()
-                guest.locator('#santa-preferences-display > button[data-action="edit-santa-preferences"]').click()
+                guest.locator('#santa-preferences-display button[data-action="edit-santa-preferences"]:first-child').click()
                 expect(guest.locator('#santa-preferences-form')).to_be_visible()
                 guest.locator('#santa-preferences-form #fld-wanted').fill('Красный цвет, точная модель')
                 guest.locator('#santa-preferences-form #fld-unwanted').fill('Не нужен пластик')
@@ -1208,8 +1208,8 @@ def test_browser_card_clicks_and_santa_settings(browser_http):
             owner.locator('input.santa-inline-editor-budget').fill('2450')
             owner.locator('input.santa-inline-editor-budget').press('Enter')
             expect(owner.locator('.details-box')).to_contain_text('2 450')
-            owner.locator('button[data-action="edit-santa-date"]').click()
-            owner.locator('.modal .ui-calendar-trigger').click()
+            owner.get_by_role('button',name='Изменить дату обмена').click()
+            expect(owner.locator('.modal-backdrop')).to_have_count(0)
             for _ in range(60):
                 day=owner.locator('.ui-calendar-popover [data-date="2027-02-12"]')
                 if day.count():
@@ -1220,9 +1220,8 @@ def test_browser_card_clicks_and_santa_settings(browser_http):
                 owner.locator('.ui-calendar-toolbar [data-shift="'+direction+'"]').click()
             else:
                 raise AssertionError('Target month not reached')
-            owner.locator('.modal-fixed-footer button[type="submit"]').click()
             expect(owner.locator('.modal-backdrop')).to_have_count(0)
-            expect(owner.locator('.details-box')).to_contain_text('12 февраля')
+            expect(owner.locator('[data-santa-date-input]')).to_have_value('2027-02-12')
             assert owner.locator('.modal-backdrop').count()==0
             owner.locator('button[data-action="add-player"]').click()
             expect(owner.locator('.modal')).not_to_contain_text('Имя участника')
@@ -1942,20 +1941,20 @@ def test_profile_identity_emoji_handles_friend_cancel_and_privacy(application):
     assert mine['profile']['avatar_emoji']=='🎁'
     assert isinstance(mine['lists'],list)
     updated=call(owner,'PATCH','/api/profile/me',{
-        'name':'Owner Profile','handle':'Owner_2026','avatar_emoji':'🐱',
+        'name':'Owner Profile','handle':'Owner2026','avatar_emoji':'🐱',
         'city':'Санкт-Петербург','bio':'Люблю настольные игры',
         'discoverable':True}).json['profile']
-    assert updated['handle']=='owner_2026'
+    assert updated['handle']=='owner2026'
     assert updated['avatar_emoji']=='🐱'
     assert updated['city']=='Санкт-Петербург'
     assert updated['name']=='Owner Profile'
     assert 'email' in updated
     public=call(friend,'GET',f'/api/users/{owner_id}').json['profile']
-    assert public['avatar_emoji']=='🐱' and public['handle']=='owner_2026'
+    assert public['avatar_emoji']=='🐱' and public['handle']=='owner2026'
     assert 'email' not in public and 'owner@example.test' not in str(public)
-    q=call(friend,'GET','/api/users/search?q=%40owner_2026').json
+    q=call(friend,'GET','/api/users/search?q=%40owner2026').json
     assert any(str(x['id'])==owner_id and x['avatar_emoji']=='🐱' for x in q['users'])
-    call(friend,'PATCH','/api/profile/me',{'handle':'owner_2026'},409)
+    call(friend,'PATCH','/api/profile/me',{'handle':'owner2026'},409)
     call(friend,'PATCH','/api/profile/me',{'avatar_emoji':'<img src=x onerror=alert(1)>'},400)
     call(friend,'PATCH','/api/profile/me',{'handle':' bad handle '},400)
     call(friend,'PATCH','/api/profile/me',{'city':'x'*61},400)
@@ -2089,7 +2088,7 @@ def test_browser_santa_preferences_readonly_until_edit_and_mobile_density(browse
             expect(page.locator('#santa-preferences-form')).to_be_hidden()
             expect(page.locator('#santa-preferences-display')).to_contain_text('Что хотелось бы')
             expect(page.locator('#santa-preferences-display')).to_contain_text('Чего не хотелось бы')
-            page.locator('#santa-preferences-display > button[data-action="edit-santa-preferences"]').click()
+            page.locator('#santa-preferences-display button[data-action="edit-santa-preferences"]:first-child').click()
             expect(page.locator('#santa-preferences-form')).to_be_visible()
             expect(page.locator('#santa-preferences-display')).to_be_hidden()
             page.locator('#santa-preferences-form [name="wanted"]').fill('Настольные игры')
@@ -3402,16 +3401,16 @@ def test_friend_invites_search_full_names_privacy_and_qr(application):
     with psycopg.connect(os.environ['SHURSH_DATABASE_URL']) as con:
         con.execute('DELETE FROM public.friendships WHERE user_low=%s AND user_high=%s',(aid,bid))
     try:
-        call(a,'PATCH','/api/profile/me',{'name':'Александр','handle':'Alex_invite','last_name':'Иванов','patronymic':'Петрович','show_full_name':False,'discoverable':True,'allow_friend_invites':False})
-        call(b,'PATCH','/api/profile/me',{'name':'Александр','handle':'alex_other','discoverable':True})
+        call(a,'PATCH','/api/profile/me',{'name':'Александр','handle':'Alexinvite','last_name':'Иванов','patronymic':'Петрович','show_full_name':False,'discoverable':True,'allow_friend_invites':False})
+        call(b,'PATCH','/api/profile/me',{'name':'Александр','handle':'alexother','discoverable':True})
         assert not call(b,'GET','/api/users/search?q=Иванов').json['users']
-        match=call(b,'GET','/api/users/search?q=%40ALEX_INVITE').json['users']
+        match=call(b,'GET','/api/users/search?q=%40ALEXINVITE').json['users']
         assert len(match)==1 and match[0]['id']==aid and match[0]['last_name']==''
         assert match[0]['relationship']=='none' and 'email' not in match[0]
         assert not call(b,'GET','/api/users/search?q=%40alex').json['users']
         assert not call(b,'GET','/api/users/search?q=%25%25').json['users']
         assert not call(b,'GET','/api/users/search?q=__').json['users']
-        call(b,'PATCH','/api/profile/me',{'handle':'@ALEX_INVITE'},409)
+        call(b,'PATCH','/api/profile/me',{'handle':'@ALEXINVITE'},409)
         call(a,'PATCH','/api/profile/me',{'show_full_name':True})
         match=call(b,'GET','/api/users/search?q=Иванов').json['users']
         assert match[0]['last_name']=='Иванов' and match[0]['patronymic']=='Петрович'
@@ -3430,13 +3429,13 @@ def test_friend_invites_search_full_names_privacy_and_qr(application):
         call(guest,'POST','/api/friend-invites/'+code+'/friend',{},401)
         call(a,'POST','/api/friend-invites/'+code+'/friend',{},400)
         call(b,'POST','/api/friend-invites/'+code+'/friend',{})
-        assert call(b,'GET','/api/users/search?q=%40alex_invite').json['users'][0]['relationship']=='outgoing'
+        assert call(b,'GET','/api/users/search?q=%40alexinvite').json['users'][0]['relationship']=='outgoing'
         assert call(a,'GET','/api/friend-invites/'+code).json['relationship']=='self'
         call(a,'PATCH','/api/friends/'+bid,{'action':'accept'})
         assert call(b,'GET','/api/friend-invites/'+code).json['relationship']=='friends'
         call(a,'PATCH','/api/profile/me',{'discoverable':False,'allow_friend_invites':False})
         assert call(guest,'GET','/api/friend-invites/'+code).json['relationship']=='guest'
-        assert not call(b,'GET','/api/users/search?q=%40alex_invite').json['users']
+        assert not call(b,'GET','/api/users/search?q=%40alexinvite').json['users']
         new=call(a,'POST','/api/friend-invites/me',{}).json
         assert new['path']==invite['path']
         assert call(guest,'GET','/api/friend-invites/'+new['path'].split('/')[-1]).json['relationship']=='guest'
@@ -3603,3 +3602,46 @@ def test_error_incident_dedup_and_no_sensitive_payload(application,monkeypatch):
     assert len(matching)==2 and all(not x['email'] for x in matching)
     assert 'SECRET-DO-NOT-STORE' not in str(matching)
     call(guest,'GET','/api/admin/feedback',status=401)
+
+
+def test_profile_nickname_privacy_and_cover_feedback_preferences(application,monkeypatch):
+    owner=login(application)
+    other=login(application,'other@example.test')
+    uid=call(owner,'GET','/api/profile/me').json['profile']['id']
+    with psycopg.connect(os.environ['SHURSH_DATABASE_URL']) as con:
+        con.execute('DELETE FROM public.friendships WHERE user_low=%s AND user_high=%s',tuple(IDS.values()))
+        con.execute('UPDATE public.profiles SET handle=%s WHERE id=%s',('legacy_nick',uid))
+    original=call(owner,'GET','/api/profile/me').json['profile']['notify_system']
+    try:
+        call(owner,'PATCH','/api/profile/me',{'handle':'legacy_nick','notify_system':True})
+        assert call(owner,'GET','/api/u/legacy_nick').json['profile']['handle']=='legacy_nick'
+        call(owner,'PATCH','/api/profile/me',{'handle':'NewProfile2026','last_name':'Фамилия','patronymic':'Отчество','show_last_name':True,'show_patronymic':False,'discoverable':True})
+        profile=call(other,'GET','/api/u/newprofile2026').json['profile']
+        assert profile['last_name']=='Фамилия' and not profile['patronymic']
+        call(other,'PATCH','/api/profile/me',{'handle':'NEWPROFILE2026'},409)
+        call(owner,'PATCH','/api/profile/me',{'handle':'new_profile'},400)
+        assert call(application.test_client(),'GET','/api/u/newprofile2026').json['relationship']=='guest'
+        call(owner,'PATCH','/api/profile/me',{'handle':'2026user'})
+        call(owner,'PATCH','/api/profile/me',{'handle':'NewProfile2026'})
+        call(owner,'PATCH','/api/profile/me',{'discoverable':False})
+        call(other,'GET','/api/u/newprofile2026',status=404)
+        call(application.test_client(),'GET','/api/u/newprofile2026',status=404)
+        lid=call(owner,'POST','/api/lists',{'title':'Обложка','cover_data':PNG},201).json['id']
+        cover=call(owner,'GET',f'/api/lists/{lid}').json['list']['cover_path']
+        assert cover.startswith('/uploads/') and owner.get(cover,base_url=BASE).status_code==200
+        call(owner,'PATCH',f'/api/lists/{lid}',{'visibility':'private'})
+        assert other.get(cover,base_url=BASE).status_code==404
+        call(other,'PATCH',f'/api/lists/{lid}',{'cover_data':None},404)
+        call(owner,'PATCH',f'/api/lists/{lid}',{'cover_data':None})
+        assert call(owner,'GET',f'/api/lists/{lid}').json['list']['cover_path'] is None
+        assert owner.get(cover,base_url=BASE).status_code==404
+        call(owner,'DELETE',f'/api/lists/{lid}')
+        call(owner,'POST','/api/feedback',{'name':'Owner','topic':'thanks','message':'Большое спасибо','reply_email':False,'notify_site':True,'source_route':'/p/private-token'},201)
+        monkeypatch.setenv('SHURSH_ADMIN_EMAILS','owner@example.test')
+        item=next(x for x in call(owner,'GET','/api/admin/feedback').json['items'] if x['topic']=='thanks')
+        assert item['email']=='' and item['source_route']=='other' and item['notify_site']
+        call(owner,'PATCH',f"/api/admin/feedback/{item['id']}",{'status':'resolved'})
+        call(owner,'PATCH',f"/api/admin/feedback/{item['id']}",{'status':'resolved'})
+        assert next(x for x in call(owner,'GET','/api/admin/feedback').json['items'] if x['id']==item['id'])['site_notified']
+    finally:
+        call(owner,'PATCH','/api/profile/me',{'handle':'','last_name':'','patronymic':'','show_full_name':False,'discoverable':True,'notify_system':original})

@@ -2522,8 +2522,8 @@ def test_friends_exact_search_and_qr_invite(browser_https,application,engine):
     aid,bid=map(str,IDS.values())
     with db.transaction(write=True) as con:
         con.execute('DELETE FROM friendships WHERE user_low=? AND user_high=?',(aid,bid))
-    call(owner,'PATCH','/api/profile/me',{'name':'Александр','handle':'qr_owner','last_name':'Иванов','patronymic':'Петрович','show_full_name':True,'discoverable':True})
-    call(other,'PATCH','/api/profile/me',{'name':'Александр','handle':'qr_other','discoverable':True})
+    call(owner,'PATCH','/api/profile/me',{'name':'Александр','handle':'qrowner','last_name':'Иванов','patronymic':'Петрович','show_full_name':True,'discoverable':True})
+    call(other,'PATCH','/api/profile/me',{'name':'Александр','handle':'qrother','discoverable':True})
     try:
         with sync_playwright() as play:
             browser=getattr(play,engine).launch(headless=True)
@@ -2532,14 +2532,14 @@ def test_friends_exact_search_and_qr_invite(browser_https,application,engine):
                 page=ctx.new_page();page.goto(browser_https+'/');browser_login(page,landing='identity')
                 page.evaluate("nav('/friends')")
                 search=page.locator('#social-search-form input[name=q]')
-                search.fill('@qr_other');page.locator('#social-search-form button').click()
+                search.fill('@qrother');page.locator('#social-search-form button').click()
                 result=page.locator('#social-search-results')
-                expect(result.get_by_text('@qr_other',exact=True)).to_be_visible()
+                expect(result.get_by_text('@qrother',exact=True)).to_be_visible()
                 page.evaluate("window.friendInput=document.querySelector('#social-search-form input')")
                 result.get_by_role('button',name='В друзья',exact=True).click()
                 expect(result.get_by_text('Заявка отправлена',exact=True)).to_be_visible()
                 assert page.evaluate("friendInput===document.querySelector('#social-search-form input')")
-                expect(search).to_have_value('@qr_other')
+                expect(search).to_have_value('@qrother')
                 with page.expect_response(lambda res: res.url.endswith('/api/friend-invites/me') and res.request.method=='POST') as invite_response:
                     page.get_by_role('button',name='Пригласить друга').click()
                 rows=invite_response.value.json()['qr']
@@ -2615,7 +2615,7 @@ def test_friends_exact_search_and_qr_invite(browser_https,application,engine):
                 assert new_url==url
                 profile=call(owner,'GET','/api/profile/me').json['profile']
                 assert profile['discoverable'] is False and profile['allow_friend_invites'] is False
-                assert not call(other,'GET','/api/users/search?q=%40qr_owner').json['users']
+                assert not call(other,'GET','/api/users/search?q=%40qrowner').json['users']
                 landing=call(application.test_client(),'GET','/api/friend-invites/'+urlsplit(new_url).path.split('/')[-1]).json
                 assert landing['relationship']=='guest'
                 expect(page.locator('#personal-invite-qr')).to_be_visible()
@@ -3489,5 +3489,39 @@ def test_photo_fallback_and_adaptive_santa_layout(browser_https,engine):
             page.set_viewport_size({'width':390,'height':844})
             expect(page.locator('.santa-detail-layout + #game-chat')).to_have_count(1)
             expect(page.locator('#game-chat input')).to_have_value('черновик')
+        finally:
+            browser.close()
+
+
+@pytest.mark.browser
+@pytest.mark.parametrize('engine',['chromium','webkit'])
+def test_profile_feedback_and_inline_santa_polish(browser_https,application,engine):
+    with sync_playwright() as play:
+        browser=getattr(play,engine).launch(headless=True)
+        try:
+            page=browser.new_page(ignore_https_errors=True,viewport={'width':390,'height':844})
+            page.goto(browser_https+'/')
+            browser_login(page)
+            page.evaluate("contactDeveloperModal()")
+            expect(page.locator('[name=reply_email]')).to_be_checked()
+            page.locator('label.shursh-checkbox').filter(has=page.locator('[name=reply_email]')).click()
+            expect(page.locator('#fld-email')).to_be_hidden()
+            expect(page.locator('[name=notify_site]')).to_be_visible()
+            assert page.locator('[name=topic] option[value=thanks]').count()==1
+            page.keyboard.press('Escape')
+            page.evaluate("socialEditProfileModal()")
+            expect(page.locator('[name=show_last_name]')).to_be_visible()
+            expect(page.locator('[name=show_patronymic]')).to_be_visible()
+            expect(page.locator('[name=show_full_name]')).to_have_count(0)
+            page.keyboard.press('Escape')
+            page.evaluate("listModal()")
+            expect(page.locator('#wishlist-cover-file')).to_have_count(1)
+            page.keyboard.press('Escape')
+            page.evaluate("""()=>{const root=document.querySelector('main');root.innerHTML='<div class="santa-date-inline"><input type="date" data-santa-date-input value="2027-02-12"></div>';enhanceCalendars(root);}""")
+            page.locator('.santa-date-inline .ui-calendar-trigger').click()
+            expect(page.locator('.ui-calendar-popover')).to_be_visible()
+            expect(page.locator('.modal-backdrop')).to_have_count(0)
+            page.locator('.ui-calendar-day[data-date="2027-02-13"]').click()
+            expect(page.locator('[data-santa-date-input]')).to_have_value('2027-02-13')
         finally:
             browser.close()

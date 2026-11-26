@@ -34,7 +34,7 @@ function socialIdentity(p,{editable=false,own=false,showBio=true}={}){
  return '<div class="social-profile-identity">'+(editable?
   '<button class="profile-avatar-edit" type="button" data-social-action="edit-avatar" aria-label="Изменить аватарку" title="Изменить аватарку">'+avatar+'<span class="profile-avatar-edit-icon">'+ico('edit',16)+'</span></button>':avatar)+
  '<div class="profile-identity-text"><h1>'+esc(socialFullName(p))+'</h1>'+
- (p.handle?'<span class="profile-handle">@'+esc(p.handle)+'</span>':'')+
+ (p.handle?'<a class="profile-handle" href="/u/'+attr(p.handle)+'" data-nav="/u/'+attr(p.handle)+'">@'+esc(p.handle)+'</a>':'')+
  (p.city?'<div class="profile-city">'+ico('home',16)+' '+esc(p.city)+'</div>':'')+
  (showBio?'<p class="profile-bio">'+esc(bio)+'</p>':'')+'</div></div>';
 }
@@ -88,9 +88,10 @@ async function socialFriendsPage(marker=lastRenderToken,snapshot=null){
   }catch(err){if(sequence===socialSearchSequence&&epoch===ownerSessionEpoch&&results.isConnected)results.textContent=err.message;}
  });
 }
-async function socialProfilePage(uid,marker=lastRenderToken){
- if(!currentUser){loginModal();return;}
- const data=await api('/api/users/'+encodeURIComponent(uid));if(marker!==lastRenderToken)return;
+async function socialProfilePage(uid,marker=lastRenderToken,byHandle=false){
+ if(!currentUser&&!byHandle){loginModal();return;}
+ const data=await api((byHandle?'/api/u/':'/api/users/')+encodeURIComponent(uid));if(marker!==lastRenderToken)return;
+ if(data.relationship==='guest'){shell('<main class="container page social-page"><section class="panel profile-main-card">'+socialAvatar(data.profile,'profile-emoji')+'<h1>'+esc(data.profile.name)+'</h1><p>@'+esc(data.profile.handle)+'</p><button class="btn btn-dark" data-open="login">Войти, чтобы открыть профиль</button></section></main>');return;}
  const p=data.profile,relation=data.relationship;
  const coverAssignments=assignWishlistCovers(data.lists);
  let action='';
@@ -152,14 +153,14 @@ async function socialEditProfileModal(){
   content:'<div class="field"><label>Твой аватар — только эмодзи</label><div class="emoji-grid" role="group" aria-label="Выбрать эмодзи">'+choices+'</div>'+
    '<input type="hidden" name="avatar_emoji" id="social-avatar-value" value="'+attr(p.avatar_emoji||'🎁')+'"></div>'+
    field('Имя','name','Как к тебе обращаться','text',p.name,true,'maxlength="40"')+
-   (d.invites_enabled?field('Фамилия (необязательно)','last_name','Твоя фамилия','text',p.last_name||'',false,'maxlength="60" autocomplete="family-name"')+field('Отчество (необязательно)','patronymic','Твоё отчество','text',p.patronymic||'',false,'maxlength="60"')+shurshCheckbox('show_full_name','Показывать фамилию и отчество другим пользователям',p.show_full_name):'')+
-   field('Никнейм (@)','handle','Например, shursh_friend','text',p.handle||'',false,'maxlength="20" autocomplete="username"')+
+   (d.invites_enabled?'<div class="profile-name-visibility">'+field('Фамилия (необязательно)','last_name','Твоя фамилия','text',p.last_name||'',false,'maxlength="60" autocomplete="family-name"')+shurshCheckbox('show_last_name','Показывать фамилию',p.show_last_name)+'</div><div class="profile-name-visibility">'+field('Отчество (необязательно)','patronymic','Твоё отчество','text',p.patronymic||'',false,'maxlength="60"')+shurshCheckbox('show_patronymic','Показывать отчество',p.show_patronymic)+'</div>':'')+
+   field('Никнейм (@)','handle','Например, shurshfriend','text',p.handle||'',false,'maxlength="20" autocomplete="username"')+
    field('Город (необязательно)','city','Например, Санкт-Петербург','text',p.city||'',false,'maxlength="60"')+
    textArea('О себе','bio','Что любишь, чем увлекаешься и что тебя радует',p.bio||'')+
    shurshCheckbox('discoverable','Показывать мой профиль в поиске',p.discoverable),
   submitLabel:'Сохранить профиль',onSubmit:async form=>{
    const data=readForm(form);data.discoverable=form.elements.discoverable.checked;
-   if(d.invites_enabled){data.show_full_name=form.elements.show_full_name.checked;}
+   if(d.invites_enabled){data.show_last_name=form.elements.show_last_name.checked;data.show_patronymic=form.elements.show_patronymic.checked;}
    const response=await api('/api/profile/me',{method:'PATCH',body:data});
    currentUser.name=response.profile.name;currentUser.avatar_emoji=response.profile.avatar_emoji;currentUser.handle=response.profile.handle;
    clearOwnerTabViews(['/profile']);notice('Профиль обновлён');await socialOwnProfilePage();

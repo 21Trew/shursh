@@ -9,7 +9,7 @@ import time
 from uuid import UUID
 from flask import g
 
-from server import Handler, ApiError, req, token, token_hash, decode_image, LIMIT_BYTES
+from server import Handler, ApiError, req, token, token_hash, decode_image, LIMIT_BYTES, enum
 from cloud import auth, db, social, password_policy, referrals
 
 SESSION_SECONDS = 24 * 60 * 60
@@ -268,10 +268,67 @@ class CloudRequest(Handler):
                  'is_admin':is_admin}, **({'invite_path':invite_path} if invite_path else {})}, self.send_cookie(value,ttl)
 
     def handle_api(self, method, path, con):
+        if path=='/api/feedback' and method=='POST':
+            if not getattr(self,'_feedback_rate_checked',False):
+                self.throttled('feedback',5,600)
+            data=self.body()
+            user=self.user(con)
+            reply=data.get('reply_email',True)
+            site=data.get('notify_site',False)
+            if not isinstance(reply,bool) or not isinstance(site,bool):
+                raise ApiError(400,'Неверные настройки ответа')
+            if site and not user: raise ApiError(401,'Войди для получения уведомлений')
+            email=req(data.get('email'),'Почта',200).lower() if reply else ''
+            if reply and not re.fullmatch(r'[^\s@]+@[^\s@]+\.[^\s@]+',email):
+                raise ApiError(400,'Укажи корректную почту')
+            routes={'/','/lists','/santas','/friends','/profile','/notifications','/admin','/admin/users','/admin/feedback','/list/*','/santa/*','/users/*','/u/*','/w/*','/r/*','/i/*','/join/*','/p/*','other'}
+            route=data.get('source_route')
+            if not isinstance(route,str) or (route not in routes and not re.fullmatch(r'/(?:list|santa)/[0-9]{1,10}',route)): route='other'
+            con.execute("""INSERT INTO developer_feedback(name,email,topic,message,status,created_at,reply_email,notify_site,author_id,source_route)
+                VALUES(?,?,?,?,'new',now(),?,?,?,?)""",(req(data.get('name'),'Имя',80),email,enum(data.get('topic'),('idea','bug','question','other','thanks'),'Тема'),req(data.get('message'),'Сообщение',3000,5),reply,site,user['id'] if site else None,route))
+            return 201,{'ok':True},None
+        if path=='/api/admin/feedback' and method=='GET':
+            self.is_site_admin(con)
+            rows=con.execute("""SELECT id,name,email,topic,message,status,created_at,reply_email,notify_site,source_route,site_notified
+                                FROM developer_feedback ORDER BY id DESC LIMIT 100""")
+            return 200,{'items':[dict(row) for row in rows]},None
+        feedback=re.fullmatch(r'/api/admin/feedback/(\d+)',path)
+        if feedback and method=='PATCH':
+            self.is_site_admin(con)
+            status=enum(self.body().get('status'),('new','resolved'),'Статус')
+            row=con.execute('UPDATE developer_feedback SET status=? WHERE id=? RETURNING id,notify_site,author_id,site_notified',(status,int(feedback.group(1)))).fetchone()
+            if not row: raise ApiError(404,'Обращение не найдено')
+            if status=='resolved' and row['notify_site'] and row['author_id'] and not row['site_notified']:
+                if social._notify(con,row['author_id'],'feedback_resolved','Разработчик рассмотрел твоё обращение','/notifications'):
+                    con.execute('UPDATE developer_feedback SET site_notified=true WHERE id=?',(row['id'],))
+            return 200,{'ok':True},None
+        if method in ('POST','PATCH') and (path=='/api/lists' or re.fullmatch(r'/api/lists/\d+',path)):
+            data=self.body()
+            if 'cover_data' in data:
+                cover=data['cover_data']
+                if cover is not None:
+                    decoded=decode_image(cover)
+                    if not decoded or len(decoded[0])>65000: raise ApiError(400,'Обложка слишком большая')
+                user=self.auth(con)
+                if method=='POST' and path=='/api/lists':
+                    result=super().handle_api(method,path,con)
+                    lid=result[1]['id']
+                elif method=='PATCH' and path!='/api/lists':
+                    lid=int(path.rsplit('/',1)[1])
+                    if not con.execute('SELECT 1 FROM wishlists WHERE id=? AND owner_id=?',(lid,user['id'])).fetchone(): raise ApiError(404,'Список не найден')
+                    result=super().handle_api(method,path,con) if any(k in data for k in ('title','description','occasion','theme','visibility')) else (200,{'ok':True},None)
+                else: raise ApiError(404,'Страница не найдена')
+                old=con.execute('SELECT cover_path FROM wishlists WHERE id=? AND owner_id=?',(lid,user['id'])).fetchone()['cover_path']
+                if old:
+                    con.execute('DELETE FROM wish_images WHERE path=? AND list_id=?',(old,lid))
+                new=self.store_image(con,lid,cover) if cover is not None else None
+                con.execute('UPDATE wishlists SET cover_path=? WHERE id=? AND owner_id=?',(new,lid,user['id']))
+                social.after_mutation(self,method,path,con,result)
+                return result
         if method == 'POST' and path == '/api/incidents':
             data=self.body()
             kinds={'module':'Ошибка загрузки интерфейса','network':'Ошибка соединения','not_found':'Страница не найдена','access':'Ошибка доступа','server':'Ошибка сервера','unknown':'Неизвестная ошибка'}
-            routes={'/','/lists','/santas','/friends','/profile','/notifications','/admin','/admin/users','/admin/feedback','/list/*','/santa/*','/users/*','/w/*','/r/*','/i/*','/join/*','/p/*','other'}
+            routes={'/','/lists','/santas','/friends','/profile','/notifications','/admin','/admin/users','/admin/feedback','/list/*','/santa/*','/users/*','/u/*','/w/*','/r/*','/i/*','/join/*','/p/*','other'}
             kind,route=data.get('kind'),data.get('route')
             if not isinstance(kind,str) or kind not in kinds or not isinstance(route,str) or route not in routes:
                 raise ApiError(400,'Неверные данные инцидента')
