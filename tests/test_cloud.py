@@ -3286,7 +3286,7 @@ def test_release_asset_fingerprint_and_stale_reveal_safe_failure(application):
     from app import UI_ASSETS,UI_VERSION
     client=application.test_client()
     assert not (ROOT/'public'/'index.html').exists(), 'Vercel static shell shadows Flask and its CSRF/version headers'
-    for route in ('/','/index.html','/santa/5','/profile'):
+    for route in ('/','/index.html','/santa/5','/profile','/admin/users'):
         page=client.get(route,base_url=BASE)
         assert page.status_code==200
         assert page.headers['Cache-Control']=='no-store'
@@ -3430,12 +3430,10 @@ def test_friend_invites_search_full_names_privacy_and_qr(application):
         call(a,'PATCH','/api/friends/'+bid,{'action':'accept'})
         assert call(b,'GET','/api/friend-invites/'+code).json['relationship']=='friends'
         call(a,'PATCH','/api/profile/me',{'discoverable':False,'allow_friend_invites':False})
-        call(guest,'GET','/api/friend-invites/'+code,status=404)
-        call(a,'POST','/api/friend-invites/me',{},403)
+        assert call(guest,'GET','/api/friend-invites/'+code).json['relationship']=='guest'
         assert not call(b,'GET','/api/users/search?q=%40alex_invite').json['users']
-        call(a,'PATCH','/api/profile/me',{'allow_friend_invites':True})
         new=call(a,'POST','/api/friend-invites/me',{}).json
-        assert new['path']!=invite['path']
+        assert new['path']==invite['path']
         assert call(guest,'GET','/api/friend-invites/'+new['path'].split('/')[-1]).json['relationship']=='guest'
         call(a,'DELETE','/api/friend-invites/me',{})
         call(guest,'GET','/api/friend-invites/'+new['path'].split('/')[-1],status=404)
@@ -3572,3 +3570,22 @@ def test_landing_crayon_assets_versioning_and_cache(application):
                 '/art/crayon/missing.webp'):
         reply = client.get(url, base_url=BASE)
         assert reply.status_code == 404 and reply.headers['Cache-Control'] == 'no-store'
+
+
+def test_error_incident_dedup_and_no_sensitive_payload(application,monkeypatch):
+    monkeypatch.setenv('SHURSH_ADMIN_EMAILS','owner@example.test')
+    manager=login(application)
+    guest=application.test_client()
+    import psycopg
+    with psycopg.connect(os.environ['SHURSH_DATABASE_URL']) as con:
+        con.execute("DELETE FROM developer_feedback WHERE name='Системный инцидент' AND message IN ('Ошибка загрузки интерфейса; раздел: /admin/users','Ошибка соединения; раздел: /admin/users')")
+    payload={'kind':'module','route':'/admin/users','message':'SECRET-DO-NOT-STORE'}
+    assert call(guest,'POST','/api/incidents',payload,201).json['duplicate'] is False
+    assert call(manager,'POST','/api/incidents',payload,200).json['duplicate'] is True
+    assert call(guest,'POST','/api/incidents',{'kind':'network','route':'/admin/users'},201).json['duplicate'] is False
+    call(guest,'POST','/api/incidents',{'kind':'module','route':'/p/secret-token'},400)
+    entries=call(manager,'GET','/api/admin/feedback').json['items']
+    matching=[x for x in entries if x['name']=='Системный инцидент' and x['message'].endswith('/admin/users')]
+    assert len(matching)==2 and all(not x['email'] for x in matching)
+    assert 'SECRET-DO-NOT-STORE' not in str(matching)
+    call(guest,'GET','/api/admin/feedback',status=401)

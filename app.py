@@ -212,6 +212,8 @@ def api(route):
         if request.method=='POST' and re.fullmatch(r'/api/public/[A-Za-z0-9_-]+/reserve/\d+',path):
             handler.throttled('reserve',20)
             handler._reserve_rate_checked=True
+        if path=='/api/incidents' and request.method=='POST':
+            handler.throttled('incident',12,600)
         if path=='/api/feedback' and request.method=='POST':
             handler.throttled('feedback',5,600)
             handler._feedback_rate_checked=True

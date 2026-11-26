@@ -79,7 +79,7 @@ def _member(con, handler, event_id):
 
 def request_friend(con, user, other, *, invitation=False):
     a,b=_pair(user['id'],other)
-    where='(discoverable OR allow_friend_invites)' if invitation else 'discoverable=true'
+    where='TRUE' if invitation else 'discoverable=true'
     target=con.execute('SELECT id FROM profiles WHERE id=? AND '+where,(other,)).fetchone()
     if not target:
         raise ApiError(404,'Профиль не найден')
@@ -236,8 +236,6 @@ def handle(handler, method, path, con):
                         (*fields.values(),user['id']))
         extra=',last_name,patronymic,show_full_name,allow_friend_invites' if enabled else ''
         p=con.execute('SELECT id,name,bio,discoverable,handle,avatar_emoji,city,notify_friends,notify_santa,notify_gifts,notify_system'+extra+' FROM profiles WHERE id=?',(user['id'],)).fetchone()
-        if enabled and method=='PATCH' and not (p['discoverable'] or p['allow_friend_invites']):
-            con.execute('UPDATE user_invites SET revoked_at=now() WHERE owner_id=? AND revoked_at IS NULL',(user['id'],))
         lists=con.execute("""SELECT l.id,l.title,l.description,l.occasion,l.theme,l.share_key,
                             count(w.id) AS wish_count FROM wishlists l
                             LEFT JOIN wishes w ON w.list_id=l.id

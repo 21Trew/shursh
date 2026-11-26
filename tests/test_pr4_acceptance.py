@@ -2592,23 +2592,14 @@ def test_friends_exact_search_and_qr_invite(browser_https,application,engine):
                 page.keyboard.press('Escape')
                 expect(page.locator('.modal')).to_have_count(0)
                 call(owner,'PATCH','/api/profile/me',{'discoverable':False,'allow_friend_invites':False})
-                call(application.test_client(),'GET','/api/friend-invites/'+urlsplit(url).path.split('/')[-1],status=404)
+                assert call(application.test_client(),'GET','/api/friend-invites/'+urlsplit(url).path.split('/')[-1]).json['relationship']=='guest'
                 page.set_viewport_size({'width':390,'height':844})
                 page.get_by_role('button',name='Пригласить друга').click()
-                permission=page.locator('.modal')
-                expect(permission.get_by_text('Профиль останется скрытым из поиска',exact=False)).to_be_visible()
-                expect(permission.locator('.modal-fixed-footer')).to_be_visible()
-                page.keyboard.press('Escape')
-                expect(permission).to_have_count(0)
-                unchanged=call(owner,'GET','/api/profile/me').json['profile']
-                assert unchanged['discoverable'] is False and unchanged['allow_friend_invites'] is False
-                page.get_by_role('button',name='Пригласить друга').click()
-                permission.get_by_role('button',name='Создать ссылку').click()
                 expect(page.locator('#personal-invite-link')).to_be_visible()
                 new_url=page.locator('#personal-invite-link').input_value()
-                assert new_url!=url
+                assert new_url==url
                 profile=call(owner,'GET','/api/profile/me').json['profile']
-                assert profile['discoverable'] is False and profile['allow_friend_invites'] is True
+                assert profile['discoverable'] is False and profile['allow_friend_invites'] is False
                 assert not call(other,'GET','/api/users/search?q=%40qr_owner').json['users']
                 landing=call(application.test_client(),'GET','/api/friend-invites/'+urlsplit(new_url).path.split('/')[-1]).json
                 assert landing['relationship']=='guest'
@@ -3072,7 +3063,8 @@ def test_service_crayon_covers_footer_and_circular_gift_gallery(browser_https,en
                     }""")
                     assert len(decoded)==11 and all(decoded)
                     page.evaluate("""()=>{
-                      activeGameContext={own:[{id:1,title:'Первый',description:'Первое описание'},{id:2,title:'Второй'},{id:3,title:'Третий'}],
+                      activeGameContext={own:[{id:1,title:'Первый',description:'Первое описание'},
+                        {id:2,title:'Второй',description:'Длинное описание '.repeat(150),image_data:'data:image/svg+xml,'+encodeURIComponent('<svg xmlns="http://www.w3.org/2000/svg" width="80" height="400"><rect width="80" height="400" fill="purple"/></svg>')},{id:3,title:'Третий'}],
                         recipient:[{id:4,title:'Только получатель'},{id:5,title:'Другой подарок'}]};
                       showGameWishDetails({dataset:{source:'own',id:'1'}});
                     }""")
@@ -3086,17 +3078,25 @@ def test_service_crayon_covers_footer_and_circular_gift_gallery(browser_https,en
                       const a=el.querySelector('.gift-gallery-prev').getBoundingClientRect(),
                         b=el.querySelector('.gift-dialog-media').getBoundingClientRect(),
                         c=el.querySelector('.gift-gallery-next').getBoundingClientRect();
+                      const left=el.querySelector('.gift-gallery-prev .gift-gallery-preview-art').getBoundingClientRect(),
+                        right=el.querySelector('.gift-gallery-next .gift-gallery-preview-art').getBoundingClientRect();
                       return {ordered:a.right<=b.left+1&&b.right<=c.left+1,peeks:a.width>=44&&c.width>=44,
+                        sameSize:Math.abs(left.width-b.width)<=1&&Math.abs(right.width-b.width)<=1&&Math.abs(left.height-b.height)<=1&&Math.abs(right.height-b.height)<=1,
+                        overlap:left.right>b.left&&right.left<b.right,
                         dark:getComputedStyle(el.querySelector('.gift-gallery-preview-art')).filter,
                         overflow:el.scrollWidth-el.clientWidth};
                     }""")
-                    assert geometry['ordered'] and geometry['peeks'] and 'brightness' in geometry['dark'] and geometry['overflow']<=2,geometry
+                    assert geometry['ordered'] and geometry['peeks'] and geometry['sameSize'] and geometry['overlap'] and 'brightness' in geometry['dark'] and geometry['overflow']<=2,geometry
+                    def deck_size():
+                        return dialog.evaluate("""el=>[el.offsetWidth,el.offsetHeight,el.querySelector('.gift-dialog-media').offsetWidth,el.querySelector('.gift-dialog-media').offsetHeight]""")
+                    initial_size=deck_size()
                     dialog.locator('.gift-gallery-prev').click()
                     expect(dialog).to_have_attribute('aria-label','Третий')
                     dialog.locator('.gift-gallery-next').click()
                     expect(dialog).to_have_attribute('aria-label','Первый')
                     page.keyboard.press('ArrowRight')
                     expect(dialog).to_have_attribute('aria-label','Второй')
+                    assert deck_size()==initial_size
                     page.evaluate("""()=>{
                       const target=document.querySelector('.gift-gallery .gift-dialog-media');
                       const t=(x)=>({identifier:1,clientX:x,clientY:150,target});
@@ -3106,6 +3106,15 @@ def test_service_crayon_covers_footer_and_circular_gift_gallery(browser_https,en
                     }""")
                     expect(dialog).to_have_attribute('aria-label','Третий')
                     expect(dialog.locator('.gift-dialog-edit')).to_have_attribute('data-id','3')
+                    assert deck_size()==initial_size
+                    if width>=760:
+                        media=dialog.locator('.gift-dialog-media').bounding_box()
+                        x=media['x']+media['width']/2;y=media['y']+media['height']/2
+                        page.mouse.move(x+50,y);page.mouse.down();page.mouse.move(x-55,y,steps=8);page.mouse.up()
+                        expect(dialog).to_have_attribute('aria-label','Первый')
+                        assert deck_size()==initial_size
+                        page.keyboard.press('ArrowLeft')
+                        expect(dialog).to_have_attribute('aria-label','Третий')
                     dialog.locator('.gift-dialog-edit').focus()
                     page.keyboard.press('ArrowRight')
                     expect(dialog).to_have_attribute('aria-label','Первый')
@@ -3356,7 +3365,7 @@ def test_admin_device_presence_color_and_refresh(browser_https, application, mon
             call(member,'GET','/api/notifications/unread',headers={'User-Agent':'Mozilla/5.0 (Windows NT 10.0)','X-Shursh-Visit':'1'})
             page.evaluate("socialRefreshAdminPresence()")
             expect(icon).to_have_class(re.compile(r'\bis-online\b'))
-            expect(icon).to_have_css('color','rgb(21, 128, 61)')
+            expect(icon).to_have_css('color','rgb(22, 163, 74)')
             expect(icon).to_have_attribute('title',re.compile('В сети'))
             expect(search).to_be_focused()
             assert page.evaluate("presenceSearch===document.querySelector('#admin-users-query')&&presenceTable===document.querySelector('.admin-users-table')")
@@ -3372,5 +3381,45 @@ def test_admin_device_presence_color_and_refresh(browser_https, application, mon
             expect(icon).not_to_have_class(re.compile(r'\bis-online\b'))
             expect(search).to_be_focused()
             context.close()
+        finally:
+            browser.close()
+
+
+@pytest.mark.browser
+@pytest.mark.parametrize('engine',['chromium','webkit'])
+def test_hotfix_admin_direct_reload_and_error_report(browser_https,application,monkeypatch,engine):
+    import time
+    monkeypatch.setenv('SHURSH_ADMIN_EMAILS','owner@example.test')
+    with sync_playwright() as play:
+        browser=getattr(play,engine).launch(headless=True)
+        try:
+            ctx=browser.new_context(ignore_https_errors=True,viewport={'width':1280,'height':844},reduced_motion='reduce')
+            page=ctx.new_page()
+            page.goto(browser_https+'/')
+            browser_login(page)
+            page.route('**/social-ui.js',lambda route:(time.sleep(.7),route.continue_()))
+            page.goto(browser_https+'/admin/users',wait_until='domcontentloaded')
+            expect(page.locator('main h1')).to_have_text('Пользователи')
+            page.reload(wait_until='domcontentloaded')
+            expect(page.locator('main h1')).to_have_text('Пользователи')
+            page.evaluate("errorView(new ReferenceError('socialAdminUsersPage is not defined'))")
+            expect(page.locator('.error-santa-art')).to_be_visible()
+            expect(page.locator('.error-page')).not_to_contain_text('is not defined')
+            btn=page.get_by_role('button',name='Сообщить об ошибке')
+            with page.expect_response(lambda r:r.url.endswith('/api/incidents')) as response:
+                btn.click()
+            assert response.value.status in (200,201)
+            expect(btn).to_be_disabled()
+            expect(page.locator('[data-incident-result]')).to_contain_text('получила сообщение')
+            page.evaluate("nav('/profile')")
+            expect(page.locator('main h1')).to_have_text('Мой профиль')
+            page.get_by_role('button',name='Редактировать профиль').click()
+            modal=page.locator('.profile-edit-modal')
+            expect(modal).to_be_visible()
+            assert modal.evaluate("el=>el.offsetWidth>=760")
+            assert modal.locator('#modal-form').evaluate("el=>getComputedStyle(el).gridTemplateColumns.split(' ').length===2")
+            page.keyboard.press('Escape')
+            assert page.evaluate("new Set([1,2,3,4].map(santaCardArt)).size===4&&santaCardArt(3)===santaCardArt(3)")
+            ctx.close()
         finally:
             browser.close()

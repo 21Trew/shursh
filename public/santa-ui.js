@@ -85,6 +85,7 @@ function showGameWishDetails(el){
  modal({title:gifts[index].title,content:'<div class="gift-dialog-layout'+(multiple?' gift-gallery-layout':'')+'">'+content()+'</div>',footer:'<div class="gift-dialog-footer"><button type="button" class="btn btn-dark" data-close>Закрыть</button></div>'});
  const dialog=modalRoot.querySelector('.modal');if(!dialog)return;
  dialog.classList.add('gift-details-modal');if(!multiple)return;
+ dialog.classList.add('gift-deck-modal');
  const layout=dialog.querySelector('.gift-dialog-layout');
  function step(dir){
   if(activeGameContext!==state||!dialog.isConnected||dialog.closest('[inert]'))return;
@@ -96,9 +97,12 @@ function showGameWishDetails(el){
   layout.innerHTML=content();
   if(focused)layout.querySelector('[data-gallery-step="'+focused+'"]')?.focus({preventScroll:true});
   else if(focusInside)dialog.focus({preventScroll:true});
-  if(!motionReduced()&&layout.animate)layout.animate([{opacity:.7,transform:'translateX('+(dir*8)+'px)'},{opacity:1,transform:'translateX(0)'}],{duration:180,easing:'ease-out'});
+  const deck=layout.querySelector('.gift-dialog-media');
+  if(!motionReduced()&&deck?.animate)deck.animate([{opacity:.65,transform:'translateX('+(dir*12)+'px)'},{opacity:1,transform:'translateX(0)'}],{duration:180,easing:'ease-out'});
  }
- dialog.addEventListener('click',e=>{const button=e.target.closest('[data-gallery-step]');if(button){e.preventDefault();step(Number(button.dataset.galleryStep));}});
+ let suppressClickUntil=0;
+ function swipe(dx,dy){if(Math.abs(dx)<=50||Math.abs(dx)<=Math.abs(dy)*1.7)return false;suppressClickUntil=Date.now()+350;step(dx<0?1:-1);return true;}
+ dialog.addEventListener('click',e=>{const button=e.target.closest('[data-gallery-step]');if(button){e.preventDefault();if(e.detail>0&&Date.now()<suppressClickUntil)return;step(Number(button.dataset.galleryStep));}});
  dialog.tabIndex=-1;dialog.focus({preventScroll:true});
  dialog.addEventListener('keydown',e=>{if(e.key==='ArrowLeft'||e.key==='ArrowRight'){if(e.target.matches('input,textarea,select,[contenteditable]'))return;e.preventDefault();step(e.key==='ArrowLeft'?-1:1);}});
  let touch=null;
@@ -111,8 +115,28 @@ function showGameWishDetails(el){
   const start=touch;touch=null;if(!start)return;
   const t=[...e.changedTouches].find(t=>t.identifier===start.id);if(!t)return;
   const dx=t.clientX-start.x,dy=t.clientY-start.y;
-  if(Math.abs(dx)>50&&Math.abs(dx)>Math.abs(dy)*1.7)step(dx<0?1:-1);
+  swipe(dx,dy);
  },{passive:true});
+ let drag=null;
+ dialog.addEventListener('pointerdown',e=>{
+  if(e.pointerType==='touch'||e.button!==0||!e.isPrimary||!e.target.closest('.gift-gallery'))return;
+  drag={id:e.pointerId,x:e.clientX,y:e.clientY};
+ });
+ dialog.addEventListener('pointercancel',()=>{drag=null;});
+ dialog.addEventListener('pointerup',e=>{
+  if(!drag||e.pointerId!==drag.id)return;
+  const start=drag;drag=null;swipe(e.clientX-start.x,e.clientY-start.y);
+ });
+ dialog.addEventListener('pointerleave',()=>{drag=null;});
+ let wheelTime=0,wheelDelta=0,wheelStepped=false;
+ dialog.addEventListener('wheel',e=>{
+  if(!e.target.closest('.gift-gallery')||e.ctrlKey||Math.abs(e.deltaX)<=Math.abs(e.deltaY)*1.7)return;
+  e.preventDefault();
+  const now=Date.now();if(now-wheelTime>220){wheelDelta=0;wheelStepped=false;}wheelTime=now;
+  if(wheelStepped)return;
+  wheelDelta+=e.deltaX*(e.deltaMode===1?16:e.deltaMode===2?innerWidth:1);
+  if(Math.abs(wheelDelta)>50){wheelStepped=true;step(wheelDelta>0?1:-1);}
+ },{passive:false});
 }
 async function smallGamePhoto(file){
  return compressToWebp(file,{maxDimension:780,maxBytes:235000,maxSourceBytes:12000000});

@@ -239,7 +239,7 @@ function invalidateOwnerDataForMutation(path){
  // Chat, reservations and support do not affect owner tab snapshots.
  if(/^\/api\/(?:santas\/\d+|member\/\d+|participant\/[^/]+)\/messages\//.test(path)
     ||/^\/api\/(?:public\/[^/]+\/reserve\/\d+|reservations\/[^/]+)$/.test(path)
-    ||path==='/api/feedback'||/^\/api\/admin\/feedback(?:\/|$)/.test(path))return;
+    ||path==='/api/feedback'||path==='/api/incidents'||/^\/api\/admin\/feedback(?:\/|$)/.test(path))return;
  // Own gift/pref/reveal writes change one game detail, not the global game list.
  const detailMutation=path.match(/^\/api\/(santas\/\d+|member\/\d+|participant\/[^/]+)\/(?:my-wishes(?:\/|$)|wishes(?:\/|$)|preferences$|reveal$|invite-friend\/)/);
  if(detailMutation){
@@ -513,7 +513,7 @@ function notice(message,error=false){
  n.className='toast'+(error?' error':'');
  n.setAttribute('role',error?'alert':'status');
  n.setAttribute('aria-atomic','true');
- n.textContent=message;
+ n.textContent=error?localizedError(message):message;
  const root=document.getElementById('toast-root'),rail=toastRail();
  root.replaceChildren();rail?.replaceChildren();
  (mobileToastMedia.matches&&rail?rail:root).append(n);
@@ -1168,13 +1168,14 @@ function shell(body){
 function santaTone(id){
  return ['apricot','lilac','mint','butter'][Math.abs(Number(id)||0)%4];
 }
+function santaCardArt(id){const motifs=['santa','step-gift','hero-gift','hero-mail'];return motifs[Math.abs(Number(id)||0)%motifs.length];}
 function santaGameCard(game,{shared=false}={}){
  const status=game.status==='finished'?'Игра завершена':game.status==='drawn'?'Жеребьёвка проведена':'Собираем участников';
  const detail=shared?(dateRu(game.exchange_date)+' · '+status):(game.description||'Праздник уже на горизонте!');
  const meta=shared?dateRu(game.exchange_date):ruCount(game.participant_count||0,'участник','участника','участников');
  return '<article class="dashboard-santa-card santa-tone-'+santaTone(game.id)+'">'+
   '<a class="card-hitarea" href="/santa/'+game.id+'" data-nav="/santa/'+game.id+'" aria-label="Открыть игру '+attr(game.title)+'"></a>'+
-  '<div class="dashboard-santa-symbol">'+serviceArt('santa')+'</div>'+
+  '<div class="dashboard-santa-symbol">'+serviceArt(santaCardArt(game.id))+'</div>'+
   '<div class="section-label">'+status+'</div><h3>'+esc(game.title)+'</h3><p>'+esc(detail)+'</p>'+
   '<div class="dashboard-card-footer"><span>'+esc(meta)+'</span>'+
   '<button class="text-link" type="button" data-nav="/santa/'+game.id+'">Открыть '+ico('arrow')+'</button></div></article>';
@@ -1250,7 +1251,36 @@ function loading(){
  }
  app.innerHTML=header()+'<div class="loading-screen"><div class="loading-mark">шурш<span>!</span></div><div class="loading-line"></div>'+loadingHelpMarkup+'</div>';
 }
-function errorView(err,title='Что-то пошло не так'){shell(`<main class="container page"><div class="error-page">${envelopeArt()}<h1>${esc(title)}</h1><p>${esc(err?.message||'Не удалось загрузить страницу')}</p><button class="btn btn-dark" data-nav="/">На главную ${ico('arrow')}</button></div></main>`);}
+function localizedError(value){
+ const message=typeof value==='string'?value:value?.message;
+ if(typeof message==='string'&&/[А-Яа-яЁё]/.test(message)&&!/[<>]/.test(message))return message;
+ return 'Не получилось выполнить действие. Попробуй ещё раз';
+}
+function incidentType(err){
+ if(err?.name==='ReferenceError'||err?.name==='SyntaxError')return 'module';
+ if(err?.status===404)return 'not_found';
+ if([401,403].includes(err?.status))return 'access';
+ if(err?.status>=500)return 'server';
+ if(err?.name==='TypeError'||err?.name==='AbortError')return 'network';
+ return 'unknown';
+}
+function incidentRoute(){
+ const path=currentPath();
+ if(['/','/lists','/santas','/friends','/profile','/notifications','/admin','/admin/users','/admin/feedback'].includes(path))return path;
+ if(/^\/(?:list|santa|users|w|r|i|join|p)\//.test(path))return '/'+path.split('/')[1]+'/*';
+ return 'other';
+}
+function errorView(err,title='Что-то пошло не так'){
+ const kind=incidentType(err);
+ const description=kind==='module'?'Не удалось загрузить часть интерфейса. Попробуй обновить страницу':localizedError(err);
+ shell(`<main class="container page"><div class="error-page"><svg class="error-santa-art" viewBox="0 0 340 235" aria-hidden="true" xmlns="http://www.w3.org/2000/svg"><defs><pattern id="error-pencil" width="6" height="6" patternUnits="userSpaceOnUse" patternTransform="rotate(26)"><path d="M1 0v6M4 0v6" stroke="#493b42" stroke-opacity=".14" stroke-width="1.1"/></pattern></defs><g stroke="#493b42" stroke-width="2.7" stroke-linecap="round" stroke-linejoin="round">
+<path d="M21 214q79 8 143 0t154 0" stroke="#c4aa97" stroke-width="1.5" fill="none"/><path d="M104 168l-6 34 27 6 18-30M159 173l9 35 28-3-7-33" fill="#e36f5f"/><path d="M96 199q-15 2-18 13l48 1 4-13M167 202l-2 11 46-1q-3-12-17-13" fill="#5f5158"/>
+<path d="M102 117q-16 18-17 56 52 20 108 2l-2-37-30-34z" fill="#e97866"/><path d="M102 117q-16 18-17 56 52 20 108 2l-2-37-30-34z" fill="url(#error-pencil)" stroke="none"/><path d="M90 161q49 19 102 5l1 14q-55 16-108-3z" fill="#fffdf5"/><path d="M144 136l-4 43M95 153q47 18 97 6" fill="none"/><path d="M140 154l16 2-1 11-17-2z" fill="#f1c866"/>
+<path d="M104 124q-21-11-26-37l-7-21 12-8 19 26 21 17" fill="#e97866"/><path d="M70 65l13-9 9 12-14 11z" fill="#fffdf5"/><path d="M69 64q-9-2-8-12l7-9q4-4 8 0l2 7 10-7q7 1 4 7l-9 11z" fill="#f5c6a4"/>
+<path d="M108 55q-8-25 12-40 28-20 55 9l15 23-11 10z" fill="#e97866"/><path d="M111 51q37-12 75-1l-1 13q-40-10-76 2z" fill="#fffdf5"/><circle cx="182" cy="30" r="11" fill="#fffdf5"/><path d="M116 65q-7 30 18 44 24 13 48-10 11-13 1-35-39-12-67 1z" fill="#f7c7a9"/><path d="M122 83q-13-4-15 11 2 17 17 15-4 16 14 18 10 13 24 4 17 2 22-12 17-5 14-20-2-12-12-11-8 17-22 9-6 10-17 1-15 6-25-15z" fill="#fffdf5"/><path d="M147 80l5 3m15-1 5 4m-18 8q7-4 14 0M142 75l8-3m16 3 8 5" fill="none"/><path d="M149 86q5-7 10 0t-6 6" fill="#e9a48e"/>
+<path d="M186 128q18-4 30 20l11 11-10 12-22-12" fill="#e97866"/><path d="M217 157l12-3 7 13-13 8z" fill="#fffdf5"/><path d="M231 165q11-9 17 0l-3 9-13 4-5-8z" fill="#f7c7a9"/><path d="M226 168q-19 14-23 36 28 20 84 9 10-25-19-47l-7-15-27 3z" fill="#d8a77f"/><path d="M226 168q-19 14-23 36 28 20 84 9 10-25-19-47l-7-15-27 3z" fill="url(#error-pencil)" stroke="none"/><ellipse cx="248" cy="156" rx="25" ry="10" transform="rotate(8 248 156)" fill="#775a55"/><ellipse cx="248" cy="155" rx="17" ry="5" transform="rotate(8 248 155)" fill="#4b3b40" stroke="none"/><path d="M221 164q25 10 50 1m-25 9-8 10m15-9 7 11" fill="none"/>
+<g transform="translate(15 174) rotate(-10)"><path d="M0 8l34 2 22-7v29l-22 8L0 36z" fill="#c8a5e4"/><path d="M0 8l15-13 19 15 22-7 11 10-33 9z" fill="#f6d6a9"/><path d="M34 22v18M15-5l23 4 18 4" fill="none"/></g><g transform="translate(282 188) rotate(12)"><path d="M0 7l19 8 24-9v24l-24 9-19-8z" fill="#f3cd70"/><path d="M0 7l9-11 10 19 24-9 5-12-25 4z" fill="#f7df9f"/><path d="M19 15v24" fill="none"/></g><path d="M37 166l-8-7m31-2 6-9m232 23 7-9M209 68q7-10 15-3t-3 13q-5 4-5 9m-1 8h.1" fill="none" stroke="#ae785f"/></g></svg><h1>${esc(title)}</h1><p>${esc(description)}</p><div class="error-page-actions"><button class="btn btn-dark" data-action="retry-error">Попробовать снова</button><button class="btn btn-soft" data-action="report-incident" data-kind="${attr(kind)}" data-route="${attr(incidentRoute())}">Сообщить об ошибке</button><button class="text-link" data-nav="/">На главную ${ico('arrow')}</button></div><p class="note" data-incident-result role="status"></p></div></main>`);
+}
 function emptyState(title,desc,button,open){return `<div class="blank-state"><div class="blank-illustration">${fallbackArt('gift')}</div><h3>${esc(title)}</h3><p>${esc(desc)}</p><button class="btn btn-dark" data-open="${attr(open)}">${esc(button)} ${ico('plus')}</button></div>`;}
 let wishlistTabGeneration=0;
 let currentOwnedWishlists=[];
@@ -1458,7 +1488,7 @@ async function adminFeedbackPage(marker=lastRenderToken){
   (items.length?'<div class="feedback-inbox">'+items.map(item=>
    '<article class="panel feedback-entry"><div class="panel-heading-actions"><h2>'+esc(topic[item.topic]||item.topic)+
    '</h2><span class="chip">'+(item.status==='resolved'?'Закрыто':'Новое')+'</span></div>'+
-   '<p><strong>'+esc(item.name)+'</strong> · <a href="mailto:'+attr(item.email)+'">'+esc(item.email)+'</a></p>'+
+   '<p><strong>'+esc(item.name)+'</strong>'+(item.email?' · <a href="mailto:'+attr(item.email)+'">'+esc(item.email)+'</a>':'')+'</p>'+
    '<p class="feedback-message">'+esc(item.message)+'</p>'+
    '<div class="panel-heading-actions"><small>'+esc(item.created_at)+'</small>'+
    '<button type="button" class="btn btn-soft btn-small" data-action="admin-feedback-status" data-id="'+item.id+
@@ -2533,6 +2563,14 @@ function connectGameModal(){
 async function reserveModal(id,key){await toggleGiftReservation(id,key);}
 async function confirmAction(title,subtitle,handler,label='Удалить'){modal({title,subtitle,content:'<div class="alert alert-error">Это действие нельзя отменить</div>',submitLabel:label,onSubmit:handler});}
 async function dispatch(action,el){try{
+ if(action==='retry-error'){location.reload();return;}
+ if(action==='report-incident'){
+  if(el.disabled)return;el.disabled=true;
+  const result=el.closest('.error-page')?.querySelector('[data-incident-result]');
+  try{await api('/api/incidents',{method:'POST',body:{kind:el.dataset.kind,route:el.dataset.route}});el.textContent='Сообщение отправлено';if(result)result.textContent='Администрация получила сообщение';}
+  catch(err){el.disabled=false;if(result)result.textContent='Не удалось отправить сообщение. Попробуй ещё раз';}
+  return;
+ }
  if(action==='accept-santa-invite'){
   if(!currentUser)return;
   await api('/api/invites/'+encodeURIComponent(el.dataset.key)+'/join',{method:'POST',body:{name:currentUser.name}});
@@ -2731,11 +2769,8 @@ async function render(){stopGameLifecycle();const marker=++lastRenderToken;try{
  if(!routeApi||!cachedOwnerValue(routeApi))loading();
  if(/^\/i\/[A-Za-z0-9_-]{24}$/.test(path))await socialFriendInvitePage(path.split('/')[2],marker);else if(path==='/friends')await socialFriendsPage(marker);else if(path==='/profile')await socialOwnProfilePage(marker);else if(/^\/users\/[0-9a-fA-F-]{36}$/.test(path))await socialProfilePage(path.split('/')[2],marker);else if(path==='/notifications')await socialNotificationsPage(marker);else if(path==='/admin')await socialAdminPage(marker);else if(path==='/admin/users')await socialAdminUsersPage(marker);else if(path==='/lists')await listsPage();else if(/^\/list\/\d+$/.test(path))await ownerListPage(path.split('/')[2]);else if(/^\/w\/[A-Za-z0-9_-]+$/.test(path))await publicListPage(path.split('/')[2]);else if(/^\/r\/[A-Za-z0-9_-]+$/.test(path))await reservationPage(path.split('/')[2]);else if(path==='/santas')await santasPage();else if(path==='/admin/feedback')await adminFeedbackPage();else if(/^\/santa\/\d+$/.test(path))await santaAdminPage(path.split('/')[2]);else if(/^\/join\/p\/[A-Za-z0-9_-]{43}$/.test(path))await invitePage(path.split('/')[3],marker,true);else if(/^\/join\/[A-Za-z0-9_-]+$/.test(path))await invitePage(path.split('/')[2]);else if(/^\/p\/[A-Za-z0-9_-]+$/.test(path))await participantPage(path.split('/')[2]);else errorView(new Error('Похоже, такой страницы ещё нет'),'Страница потерялась');
  }catch(err){if(marker===lastRenderToken){
-  if(!renderStarted){
-   shell('<main class="container page"><div class="error-page"><h1>Не получилось загрузить Шурш</h1>'+
-    '<p>Соединение с сервером прервалось или отвечает слишком долго. Попробуй снова</p>'+
-    '<a class="btn btn-dark" href="/">Повторить загрузку</a></div></main>');
-  }else errorView(err,err.message?.includes('404')?'Не найдена':'Страница не загрузилась');
+  if(!renderStarted)errorView(err,'Не получилось загрузить Шурш');
+  else errorView(err,err.status===404?'Страница не найдена':'Страница не загрузилась');
  }}}
 document.addEventListener('click',async ev=>{
  const reveal=ev.target.closest('[data-password-visibility]');
@@ -2779,7 +2814,10 @@ document.addEventListener('click',async ev=>{
  }
  const n=ev.target.closest('[data-nav]');if(n){if(n.tagName==='A'&&(ev.ctrlKey||ev.metaKey||ev.shiftKey||ev.altKey||ev.button!==0))return;ev.preventDefault();nav(n.dataset.nav);return;}const op=ev.target.closest('[data-open]');if(op){ev.preventDefault();const key=op.dataset.open;if(key==='login'||key==='register'||key==='resend'){const email=op.closest('.modal')?.querySelector('#fld-email')?.value||op.dataset.email||'';if(key==='resend')resendConfirmationModal(email);else loginModal(key,email);}if(key==='list')listModal();if(key==='wish')wishModal();if(key==='santa')santaModal();return;}const a=ev.target.closest('[data-action]');if(a){ev.preventDefault();await dispatch(a.dataset.action,a);}});
 window.addEventListener('popstate',()=>{stopGameLifecycle();rememberOwnerTab();if(restoreOwnerTab(currentPath()))lastRenderToken++;else render();});window.addEventListener('hashchange',()=>{if(isPreview)render();});
-if(!isPreview)(async()=>{
+async function startApplication(){
+ if(typeof socialAdminUsersPage!=='function'||typeof showGameWishDetails!=='function'){
+  errorView(new ReferenceError('UI modules unavailable'),'Не получилось загрузить Шурш');return;
+ }
  if(confirmationToken&&!authReturnError){
   try{
    const token=confirmationToken;confirmationToken=null;
@@ -2822,4 +2860,9 @@ if(!isPreview)(async()=>{
    content:'<p>Если почта уже подтверждена, попробуй войти с паролем. Если нет, запроси новое письмо</p>',
    footer:'<button type="button" data-open="login">Войти</button> · <button type="button" data-open="resend">Новое письмо</button>'});
  }else if(authReturnNotice)notice(authReturnNotice);
-})().catch(()=>notice('Не удалось открыть страницу',true));
+}
+if(!isPreview){
+ const boot=()=>void startApplication().catch(err=>errorView(err,'Не получилось загрузить Шурш'));
+ // First route must wait for the deferred feature modules to execute.
+ if(document.readyState==='complete')boot();else document.addEventListener('DOMContentLoaded',boot,{once:true});
+}

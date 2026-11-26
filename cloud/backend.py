@@ -268,6 +268,24 @@ class CloudRequest(Handler):
                  'is_admin':is_admin}, **({'invite_path':invite_path} if invite_path else {})}, self.send_cookie(value,ttl)
 
     def handle_api(self, method, path, con):
+        if method == 'POST' and path == '/api/incidents':
+            data=self.body()
+            kinds={'module':'Ошибка загрузки интерфейса','network':'Ошибка соединения','not_found':'Страница не найдена','access':'Ошибка доступа','server':'Ошибка сервера','unknown':'Неизвестная ошибка'}
+            routes={'/','/lists','/santas','/friends','/profile','/notifications','/admin','/admin/users','/admin/feedback','/list/*','/santa/*','/users/*','/w/*','/r/*','/i/*','/join/*','/p/*','other'}
+            kind,route=data.get('kind'),data.get('route')
+            if not isinstance(kind,str) or kind not in kinds or not isinstance(route,str) or route not in routes:
+                raise ApiError(400,'Неверные данные инцидента')
+            # Only allowlisted categories; never persist raw URLs, tokens or errors.
+            # The outer write transaction serializes reports across workers.
+            message=kinds[kind]+'; раздел: '+route
+            existing=con.execute("""SELECT id FROM developer_feedback
+                WHERE name='Системный инцидент' AND topic='bug' AND message=?
+                  AND created_at>=now()-interval '5 minutes' LIMIT 1""",(message,)).fetchone()
+            if existing:
+                return 200,{'ok':True,'duplicate':True},None
+            con.execute("""INSERT INTO developer_feedback(name,email,topic,message,status,created_at)
+                VALUES('Системный инцидент','','bug',?,'new',now())""",(message,))
+            return 201,{'ok':True,'duplicate':False},None
         if method == 'GET' and path == '/api/me':
             return 200, {'user': self.user(con), 'demo': False}, None
         if method == 'GET' and path == '/api/dashboard':

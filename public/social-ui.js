@@ -152,18 +152,19 @@ async function socialEditProfileModal(){
   content:'<div class="field"><label>Твой аватар — только эмодзи</label><div class="emoji-grid" role="group" aria-label="Выбрать эмодзи">'+choices+'</div>'+
    '<input type="hidden" name="avatar_emoji" id="social-avatar-value" value="'+attr(p.avatar_emoji||'🎁')+'"></div>'+
    field('Имя','name','Как к тебе обращаться','text',p.name,true,'maxlength="40"')+
-   (d.invites_enabled?field('Фамилия (необязательно)','last_name','Твоя фамилия','text',p.last_name||'',false,'maxlength="60" autocomplete="family-name"')+field('Отчество (необязательно)','patronymic','Твоё отчество','text',p.patronymic||'',false,'maxlength="60"')+shurshCheckbox('show_full_name','Показывать фамилию и отчество другим пользователям',p.show_full_name)+shurshCheckbox('allow_friend_invites','Разрешать приглашения даже при скрытом профиле',p.allow_friend_invites):'')+
+   (d.invites_enabled?field('Фамилия (необязательно)','last_name','Твоя фамилия','text',p.last_name||'',false,'maxlength="60" autocomplete="family-name"')+field('Отчество (необязательно)','patronymic','Твоё отчество','text',p.patronymic||'',false,'maxlength="60"')+shurshCheckbox('show_full_name','Показывать фамилию и отчество другим пользователям',p.show_full_name):'')+
    field('Никнейм (@)','handle','Например, shursh_friend','text',p.handle||'',false,'maxlength="20" autocomplete="username"')+
    field('Город (необязательно)','city','Например, Санкт-Петербург','text',p.city||'',false,'maxlength="60"')+
    textArea('О себе','bio','Что любишь, чем увлекаешься и что тебя радует',p.bio||'')+
    shurshCheckbox('discoverable','Показывать мой профиль в поиске',p.discoverable),
   submitLabel:'Сохранить профиль',onSubmit:async form=>{
    const data=readForm(form);data.discoverable=form.elements.discoverable.checked;
-   if(d.invites_enabled){data.show_full_name=form.elements.show_full_name.checked;data.allow_friend_invites=form.elements.allow_friend_invites.checked;}
+   if(d.invites_enabled){data.show_full_name=form.elements.show_full_name.checked;}
    const response=await api('/api/profile/me',{method:'PATCH',body:data});
    currentUser.name=response.profile.name;currentUser.avatar_emoji=response.profile.avatar_emoji;currentUser.handle=response.profile.handle;
    clearOwnerTabViews(['/profile']);notice('Профиль обновлён');await socialOwnProfilePage();
   }});
+ modalRoot.querySelector('.modal')?.classList.add('profile-edit-modal');
  const bio=modalRoot.querySelector('#fld-bio');if(bio)bio.maxLength=500;
 }
 async function socialEditAvatarModal(){
@@ -470,7 +471,6 @@ document.addEventListener('click',async e=>{
  target.disabled=true;
  try{
   if(action==='personal-invite'){await socialPersonalInviteModal();return;}
-  if(action==='enable-hidden-personal-invite'){await api('/api/profile/me',{method:'PATCH',body:{allow_friend_invites:true}});clearOwnerTabViews(['/profile']);await socialPersonalInviteModal();return;}
   if(action==='copy-personal-invite'){await copyPersonalInvite(target);return;}
   if(action==='share-personal-invite'){await sharePersonalInvite(target);return;}
   if(action==='share-personal-qr'){await sharePersonalQr();return;}
@@ -576,14 +576,7 @@ async function sharePersonalQr(){
 async function socialPersonalInviteModal(){
  if(!currentUser)return loginModal();
  const epoch=ownerSessionEpoch,marker=lastRenderToken;
- let data;
- try{data=await api('/api/friend-invites/me',{method:'POST',body:{}});}
- catch(err){
-  if(epoch!==ownerSessionEpoch||marker!==lastRenderToken)return;
-  if(err.status!==403||err.message!=='Разреши приглашения в настройках профиля')throw err;
-  modal({title:'Пригласить друга',content:'<p>Твой профиль скрыт из поиска. Можно создать личную ссылку: тебя увидят только те, кому она доступна</p><p class="note">Профиль останется скрытым из поиска. Приглашения можно отключить в настройках профиля или отозвать ссылку</p>',footer:'<div class="form-actions"><button type="button" class="btn btn-dark" data-social-action="enable-hidden-personal-invite">Создать ссылку</button></div>'});
-  return;
- }
+ const data=await api('/api/friend-invites/me',{method:'POST',body:{}});
  if(epoch!==ownerSessionEpoch||marker!==lastRenderToken)return;
  const url=new URL(data.path,location.origin).href;
  if(url!==data.url)throw new Error('Адрес приглашения не совпадает с сайтом');

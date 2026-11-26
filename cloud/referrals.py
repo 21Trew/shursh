@@ -25,7 +25,7 @@ def active(con, code):
     row=con.execute("""SELECT i.code,i.owner_id,p.name,p.handle,p.avatar_emoji
              FROM user_invites i JOIN profiles p ON p.id=i.owner_id
              WHERE i.code=? AND i.revoked_at IS NULL
-               AND (p.discoverable OR p.allow_friend_invites)""",(code,)).fetchone()
+              """,(code,)).fetchone()
     if not row:
         raise ApiError(404,'Приглашение недействительно')
     return row
@@ -65,7 +65,7 @@ def record_signup(con, intent, provider, email):
     con.execute("""INSERT INTO referral_pending(provider_id,invite_code,signup_at,expires_at)
              SELECT ?,i.code,?,? FROM user_invites i JOIN profiles p ON p.id=i.owner_id
              WHERE i.code=? AND i.revoked_at IS NULL AND i.owner_id<>?
-               AND ?<=clock_timestamp() AND (p.discoverable OR p.allow_friend_invites)
+               AND ?<=clock_timestamp()
                AND NOT EXISTS (SELECT 1 FROM profiles old WHERE old.id=? AND old.created_at<?)
              ON CONFLICT(provider_id) DO NOTHING""",
              (uid,started,started+TTL,code,uid,created,uid,started))
@@ -79,16 +79,13 @@ def claim(con, uid):
         FROM referral_pending r JOIN user_invites i ON i.code=r.invite_code
         JOIN profiles p ON p.id=i.owner_id JOIN profiles new ON new.id=r.provider_id
         WHERE r.provider_id=? AND r.expires_at>now() AND i.revoked_at IS NULL
-        AND i.owner_id<>r.provider_id AND (p.discoverable OR p.allow_friend_invites)
+        AND i.owner_id<>r.provider_id
         AND new.created_at>=r.signup_at
         ON CONFLICT(referred_id) DO NOTHING RETURNING invite_code""",(uid,)).fetchone()
     con.execute('DELETE FROM referral_pending WHERE provider_id=?',(uid,))
     return '/i/'+row['invite_code'] if row else None
 
 def own_invite(con, uid, origin):
-    p=con.execute('SELECT discoverable,allow_friend_invites FROM profiles WHERE id=?',(uid,)).fetchone()
-    if not p or not (p['discoverable'] or p['allow_friend_invites']):
-        raise ApiError(403,'Разреши приглашения в настройках профиля')
     row=con.execute('SELECT code FROM user_invites WHERE owner_id=? AND revoked_at IS NULL',(uid,)).fetchone()
     if not row:
         code=secrets.token_urlsafe(18)
