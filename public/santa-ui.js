@@ -5,7 +5,7 @@ function gameWishCard(w,source='own'){
  const image=w.image_data?'<img src="'+attr(w.image_data)+'" alt="'+attr(w.title)+'" loading="lazy" decoding="async">': '<div class="game-gift-placeholder">'+artFor(w)+'</div>';
  const actions=mine?'<div class="game-gift-overlay-actions"><button type="button" class="btn btn-soft" data-action="edit-game-gift" data-id="'+w.id+'" aria-label="Изменить подарок" title="Изменить">'+ico('edit')+'</button>'+
   '<button type="button" class="btn btn-soft" data-action="delete-game-gift" data-id="'+w.id+'" aria-label="Удалить подарок" title="Удалить">'+ico('trash')+'</button></div>':'';
- return '<article class="wish-card game-gift-card">'+
+ return '<article class="wish-card game-gift-card" data-render-key="game-gift-'+attr(source)+'-'+attr(w.id)+'">'+
   '<button type="button" class="card-hitarea game-gift-primary" data-action="show-game-gift" data-id="'+w.id+'" data-source="'+source+'" aria-label="Подробнее о подарке '+attr(w.title)+'">'+
   '<div class="wish-image">'+image+'</div>'+
   '<div class="wish-content"><h3>'+esc(w.title)+'</h3></div></button>'+
@@ -29,10 +29,10 @@ function setupGameGiftOverflow(root=document){
   const update=()=>{
    if(!track.isConnected){observer?.disconnect();return;}
    const max=Math.max(0,track.scrollWidth-track.clientWidth);
-   arrows.hidden=max<=3;
+   if(arrows.hidden!==(max<=3))arrows.hidden=max<=3;
    const back=arrows.querySelector('[data-direction="prev"]'),next=arrows.querySelector('[data-direction="next"]');
-   if(back)back.disabled=max<=3||track.scrollLeft<=2;
-   if(next)next.disabled=max<=3||track.scrollLeft>=max-2;
+   if(back&&back.disabled!==(max<=3||track.scrollLeft<=2))back.disabled=max<=3||track.scrollLeft<=2;
+   if(next&&next.disabled!==(max<=3||track.scrollLeft>=max-2))next.disabled=max<=3||track.scrollLeft>=max-2;
   };
   const observer=typeof ResizeObserver==='function'?new ResizeObserver(update):null;
   observer?.observe(track);
@@ -53,9 +53,24 @@ async function refreshGameOwnWishes(state){
  const scrollY=window.scrollY,trackX=root.querySelector('.game-gifts-track')?.scrollLeft||0;
  state.own=wishes;
  if(!state.memberView&&loadedSanta?.event.id===state.event.id)loadedSanta.my_wishes=wishes;
- root.innerHTML=wishesMarkup(wishes);
+ const oldTrack=root.querySelector('.game-gifts-track');
+ const changed=patchRenderedMarkup(root,wishesMarkup(wishes),next=>{
+  // Overflow indicators are runtime state, not server-rendered attributes.
+  const arrows=root.querySelector('.game-gifts-arrows'),fresh=next.querySelector('.game-gifts-arrows');
+  if(arrows&&fresh){
+   fresh.hidden=arrows.hidden;
+   for(const button of fresh.querySelectorAll('[data-direction]')){
+    const prior=arrows.querySelector('[data-direction="'+button.dataset.direction+'"]');
+    if(prior)button.disabled=prior.disabled;
+   }
+  }
+ });
+ if(changed&&oldTrack){
+  // The track survives, but its observed children may have changed.
+  gameGiftDisposers.get(oldTrack)?.();gameGiftDisposers.delete(oldTrack);
+ }
  setupGameGiftOverflow(root);
- const track=root.querySelector('.game-gifts-track');if(track)track.scrollLeft=trackX;
+ const track=root.querySelector('.game-gifts-track');if(track&&track.scrollLeft!==trackX)track.scrollLeft=trackX;
  if(Math.abs(window.scrollY-scrollY)>1)window.scrollTo({top:scrollY,behavior:'instant'});
 }
 function gameGiftDetailImage(gift){
@@ -381,7 +396,7 @@ function setupSantaRoster(state){
    delay=15000;previous=signature;
    const next=root.cloneNode(false);next.innerHTML=info.participants.map(p=>santaRosterPerson(p,state)).join('');patchOwnerNode(root,next);
    document.querySelectorAll('[data-santa-roster-count], [data-santa-event-count]').forEach(node=>{
-    node.textContent=String(info.participants.length);
+    if(node.textContent!==String(info.participants.length))node.textContent=String(info.participants.length);
    });
    // An organizer who opened the page alone must be able to draw as soon
    // as the third participant arrives, without refreshing the page.

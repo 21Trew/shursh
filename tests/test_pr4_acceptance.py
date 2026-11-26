@@ -3790,3 +3790,79 @@ def test_branded_document_404_and_diagnostic(browser_https,application,monkeypat
             browser.close()
     items=call(manager,'GET','/api/admin/feedback').json['items']
     assert any('HTTP: 404' in item['message'] and '/santa/*' in item['message'] and 'Версия UI:' in item['message'] and not item['reply_email'] and not item['notify_site'] for item in items)
+
+
+@pytest.mark.browser
+@pytest.mark.parametrize('engine',['chromium','webkit'])
+def test_local_card_mutations_preserve_identity_and_focus(browser_https,application,engine):
+    """Real API writes, real DOM patching, no mutation on an unchanged refresh."""
+    from test_cloud import login,call
+    owner=login(application)
+    lid=call(owner,'POST','/api/lists',{'title':'DOM wishlist'},201).json['id']
+    ids=[call(owner,'POST',f'/api/lists/{lid}/wishes',{'title':f'DOM wish {i}'},201).json['id'] for i in range(3)]
+    eid=call(owner,'POST','/api/santas',{'title':'DOM Santa'},201).json['id']
+    for i in range(5):
+        call(owner,'POST',f'/api/santas/{eid}/my-wishes',{'title':f'DOM gift {i}'},201)
+    out=OUTPUT/'local-card-mutations';out.mkdir(parents=True,exist_ok=True)
+    with sync_playwright() as play:
+        browser=getattr(play,engine).launch(headless=True)
+        try:
+            page=browser.new_context(ignore_https_errors=True,viewport={'width':390,'height':844},reduced_motion='reduce').new_page()
+            page.goto(browser_https+'/')
+            browser_login(page)
+            page.wait_for_function("()=>ownerWarmupReady&&!socialUnreadBusy")
+            page.evaluate("id=>nav('/list/'+id)",lid)
+            expect(page.locator('[data-owner-wishes] .wish-card')).to_have_count(3)
+            result=page.evaluate("""async({lid,ids})=>{
+              const root=document.querySelector('[data-owner-wishes]');
+              const cards=[...root.querySelectorAll('.wish-card')],first=cards[0];
+              const focused=first.querySelector('[data-action="show-wish"]');focused.focus({preventScroll:true});
+              let records=[];
+              const observer=new MutationObserver(batch=>records.push(...batch));
+              observer.observe(root,{subtree:true,childList:true,attributes:true,characterData:true});
+              const take=()=>{const batch=records.concat(observer.takeRecords());records=[];return batch;};
+              const churn=batch=>batch.reduce((n,r)=>n+[...r.addedNodes,...r.removedNodes].filter(v=>v.nodeType===1&&v.matches('.wish-card')).length,0);
+              try{
+                await api('/api/wishes/'+ids[0],{method:'PATCH',body:{title:'DOM wish updated'}});
+                await refreshOwnerWishes(lid);
+                const editChurn=churn(take()),identity=cards.every(c=>root.contains(c)),focus=document.activeElement===focused;
+                await refreshOwnerWishes(lid);const noop=take().length;
+                const added=await api('/api/lists/'+lid+'/wishes',{method:'POST',body:{title:'DOM wish added'}});
+                await refreshOwnerWishes(lid);const addChurn=churn(take());
+                const addIdentity=cards.every(c=>root.contains(c));
+                await api('/api/wishes/'+added.id,{method:'DELETE'});await refreshOwnerWishes(lid);const deleteChurn=churn(take());
+                return {editChurn,identity,focus,noop,addChurn,addIdentity,deleteChurn,
+                  deleteIdentity:cards.every(c=>root.contains(c)),count:root.querySelectorAll('.wish-card').length};
+              }finally{observer.disconnect();}
+            }""",{'lid':lid,'ids':ids})
+            assert result=={'editChurn':0,'identity':True,'focus':True,'noop':0,'addChurn':1,'addIdentity':True,'deleteChurn':1,'deleteIdentity':True,'count':3},result
+            expect(page.get_by_text('DOM wish updated',exact=True)).to_be_visible()
+            page.evaluate("id=>nav('/santa/'+id)",eid)
+            expect(page.locator('.my-wishes-list .game-gift-card')).to_have_count(5)
+            page.wait_for_function("()=>!!document.querySelector('.my-wishes-list .game-gifts-track')&&gameGiftDisposers.size>0")
+            game=page.evaluate("""async()=>{
+              const state=activeGameContext,root=document.querySelector('.my-wishes-list'),track=root.querySelector('.game-gifts-track');
+              const cards=[...track.children],focused=cards[0].querySelector('button');
+              focused.focus({preventScroll:true});track.scrollLeft=40;
+              const x=track.scrollLeft;
+              let records=[];
+              const observer=new MutationObserver(batch=>records.push(...batch));
+              observer.observe(track,{childList:true,subtree:true,attributes:true,characterData:true});
+              const take=()=>{const batch=records.concat(observer.takeRecords());records=[];return batch;};
+              try{
+                const id=state.own.at(-1).id;
+                await api(state.base+'/my-wishes/'+id,{method:'PATCH',body:{title:'DOM gift updated'}});
+                await refreshGameOwnWishes(state);
+                const churn=take().reduce((n,r)=>n+[...r.addedNodes,...r.removedNodes].filter(v=>v.nodeType===1&&v.matches('.game-gift-card')).length,0);
+                const identity=cards.every(c=>track.contains(c)),focus=document.activeElement===focused;
+                const scroll=Math.abs(track.scrollLeft-x)<=1;
+                await refreshGameOwnWishes(state);
+                return {churn,identity,focus,scroll,trackIdentity:root.querySelector('.game-gifts-track')===track,
+                  noop:take().length};
+              }finally{observer.disconnect();}
+            }""")
+            assert game=={'churn':0,'identity':True,'focus':True,'scroll':True,'trackIdentity':True,'noop':0},game
+            expect(page.get_by_text('DOM gift updated',exact=True)).to_be_visible()
+            (out/f'{engine}.json').write_text(json.dumps({'wishlist':result,'santa':game},ensure_ascii=False))
+        finally:
+            browser.close()
