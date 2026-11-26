@@ -2639,3 +2639,85 @@ def test_mobile_shared_sheets_header_actions_and_swipes(browser_https,engine):
                 expect(page.locator('[data-santa-state="finished"]')).to_have_attribute('aria-selected','true')
                 ctx.close()
         finally:browser.close()
+
+
+@pytest.mark.browser
+@pytest.mark.parametrize('engine', ['chromium','webkit'])
+def test_landing_crayon_art_responsive_motion_and_decoding(browser_https, engine):
+    """Real guest shell, approved assets, two engines and six responsive widths."""
+    from app import UI_VERSION, LANDING_ART_ASSETS
+    expected = {Path(asset).stem for asset in LANDING_ART_ASSETS}
+    with sync_playwright() as play:
+        browser = getattr(play,engine).launch(headless=True)
+        try:
+            for width in (320,375,390,768,1024,1440):
+                context = browser.new_context(viewport={'width':width,'height':900},
+                    is_mobile=width<=390, has_touch=width<=390, ignore_https_errors=True,
+                    reduced_motion='no-preference')
+                try:
+                    page = context.new_page()
+                    errors = []
+                    failures = []
+                    page.on('pageerror', lambda err: errors.append(str(err)))
+                    page.on('requestfailed', lambda req: failures.append(req.url) if '/art/crayon/' in req.url else None)
+                    page.on('response', lambda res: failures.append(res.url) if '/art/crayon/' in res.url and res.status not in (200,304) else None)
+                    page.goto(browser_https+'/', wait_until='domcontentloaded')
+                    expect(page.locator('.hero-copy h1')).to_contain_text('Подарки, о которых',timeout=10000)
+                    expect(page.locator('img[data-art]')).to_have_count(12)
+                    assert set(page.locator('img[data-art]').evaluate_all('(imgs)=>imgs.map(i=>i.dataset.art)')) == expected
+                    # Scroll each lazy image into the viewport before waiting for decode.
+                    for image in page.locator('img[data-art]').all():
+                        image.scroll_into_view_if_needed()
+                        image.evaluate('(img)=>img.decode()')
+                    page.evaluate("scrollTo({top:0,behavior:'instant'})")
+                    metrics = page.evaluate("""() => {
+                      const imgs=[...document.querySelectorAll('img[data-art]')];
+                      const a=imgs.map(i=>{
+                        const c=document.createElement('canvas');c.width=i.naturalWidth;c.height=i.naturalHeight;
+                        const ctx=c.getContext('2d');ctx.drawImage(i,0,0);
+                        const pixels=ctx.getImageData(0,0,c.width,c.height).data;
+                        let transparent=false,opaque=false;
+                        for(let p=3;p<pixels.length;p+=4){transparent||=pixels[p]===0;opaque||=pixels[p]>240;if(transparent&&opaque)break;}
+                        return {name:i.dataset.art,src:new URL(i.src).pathname,valid:i.complete&&i.naturalWidth===Number(i.getAttribute('width'))&&i.naturalHeight===Number(i.getAttribute('height')),transparent,opaque};
+                      });
+                      return {images:a,overflow:document.documentElement.scrollWidth-innerWidth,
+                        layers:document.querySelectorAll('.hero-stage > img').length,
+                        labels:document.querySelectorAll('.hero-visual > .tiny-bubble').length,
+                        svgArt:document.querySelectorAll('.hero-stage svg,.step-art svg,.mock-art svg,.santa-art svg,.privacy-illustration svg').length};
+                    }""")
+                    assert metrics['overflow']<=2, (engine,width,metrics)
+                    assert metrics['layers']==4 and metrics['labels']==2 and metrics['svgArt']==0
+                    for item in metrics['images']:
+                        assert item['valid'] and item['transparent'] and item['opaque'], item
+                        assert item['src']==f"/ui/{UI_VERSION}/art/crayon/{item['name']}.webp"
+                    motion = page.evaluate("""async () => {
+                      const layers=[...document.querySelectorAll('.hero-stage img')];
+                      const moving=layers.filter(i=>i.matches('.float-one,.float-two,.wobble'));
+                      const animations=moving.map(i=>i.getAnimations()[0]);
+                      if(animations.some(a=>!a))return {moving:0,clear:false};
+                      for(const a of animations)a.pause();
+                      await Promise.all(animations.map(a=>a.ready));
+                      const bubbles=[...document.querySelectorAll('.hero-visual .tiny-bubble')];
+                      const overlaps=(a,b)=>Math.min(a.right,b.right)-Math.max(a.left,b.left)>0.5&&Math.min(a.bottom,b.bottom)-Math.max(a.top,b.top)>0.5;
+                      const transforms=[];let clear=true;
+                      for(const phase of [0,.25,.5,.75,1]){
+                        for(const a of animations){const t=a.effect.getTiming();a.currentTime=Number(t.delay)+Number(t.duration)*phase;}
+                        transforms.push(moving.map(i=>getComputedStyle(i).transform));
+                        for(const i of layers)for(const b of bubbles)if(overlaps(i.getBoundingClientRect(),b.getBoundingClientRect()))clear=false;
+                      }
+                      const changed=moving.map((_,i)=>new Set(transforms.map(t=>t[i])).size>1);
+                      for(const a of animations)a.play();
+                      return {moving:moving.length,changed,clear};
+                    }""")
+                    assert motion['moving']==3 and all(motion['changed']) and motion['clear'], (engine,width,motion)
+                    page.emulate_media(reduced_motion='reduce')
+                    page.wait_for_function("()=>[...document.querySelectorAll('.hero-stage img')].every(i=>getComputedStyle(i).animationName==='none')")
+                    assert not errors and not failures, (engine,width,errors,failures)
+                    folder=OUTPUT/'landing-crayon'
+                    folder.mkdir(parents=True,exist_ok=True)
+                    page.screenshot(path=str(folder/f'{engine}-{width}-full.png'),full_page=True)
+                    page.locator('.hero-visual').screenshot(path=str(folder/f'{engine}-{width}-hero.png'))
+                finally:
+                    context.close()
+        finally:
+            browser.close()

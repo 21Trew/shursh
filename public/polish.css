@@ -944,3 +944,30 @@ input[type="checkbox"]:not(.shursh-checkbox input):checked::after{content:"✓";
 @media(prefers-reduced-motion:reduce){
  .site-header .nav,.site-header.is-condensed .nav{transition:none!important}
 }
+
+
+/* Crayon illustrations: independent transforms; labels occupy dedicated layout rows. */
+.hero-visual{display:grid;grid-template-rows:auto minmax(0,1fr) auto;gap:10px;height:550px;align-items:center;padding:2px 0 10px;isolation:isolate;overflow:visible}
+.hero-visual:before{content:none}
+.hero-stage{position:relative;min-height:0;height:100%;width:100%;isolation:isolate}
+.hero-stage:before{content:'';position:absolute;inset:4% 7% 3% 9%;background:#f9e4d3;border-radius:45% 55% 48% 52% / 49% 44% 56% 51%;transform:rotate(8deg);z-index:0}
+.hero-stage .hero-layer{position:absolute;inset:auto;width:auto;height:auto;object-fit:contain;pointer-events:none;max-width:none}
+.hero-stage [data-art="hero-accents"]{inset:0;width:100%;height:100%;object-fit:fill;z-index:1}
+.hero-stage [data-art="hero-mail"]{left:4%;top:8%;width:27%;height:35%;z-index:2;transform-origin:50% 50%}
+.hero-stage [data-art="hero-gift"]{right:5%;top:5%;width:24%;height:37%;z-index:2;transform-origin:50% 50%}
+.hero-stage [data-art="hero-mascot"]{left:28.5%;top:5%;width:43%;height:90%;z-index:3;transform-origin:50% 80%}
+.hero-stage .float-one,.hero-stage .float-two{animation-name:crayon-float}
+@keyframes crayon-float{0%,100%{transform:translateY(0) rotate(0)}50%{transform:translateY(-5px) rotate(1.4deg)}}
+.hero-visual .tiny-bubble{position:relative;inset:auto;white-space:nowrap;width:max-content;max-width:100%;z-index:4;line-height:1.3}
+.hero-visual .bubble-heart{justify-self:end;transform:rotate(4deg);margin-right:9px}
+.hero-visual .bubble-gift{justify-self:start;transform:rotate(-4deg);margin-left:9px}
+.step-art img{width:145px;height:116px;object-fit:contain}
+.mock-art img{width:85%;height:88%;object-fit:contain}
+.santa-art img{width:100%;height:100%;object-fit:contain;padding:16px}
+.privacy-illustration img{width:100%;height:100%;object-fit:contain}
+@media(max-width:1100px){.hero-visual{height:440px}}
+@media(min-width:761px) and (max-width:980px){.hero-visual{height:450px}}
+@media(max-width:760px){.hero-visual{height:clamp(320px,95vw,450px);padding:3px 0 7px;gap:8px}.hero-visual .tiny-bubble{font-size:11px;padding:9px 12px}.hero-visual .bubble-heart svg{width:20px;height:20px}.hero-visual .bubble-gift:before{font-size:17px}.step-art img{width:100px;height:96px}.santa-art img{padding:12px}}
+@media(max-width:420px){.hero-visual{height:340px}}
+@media(max-width:350px){.hero-visual{height:310px}.hero h1{font-size:30px}.showcase-mock{padding:10px}.mock-top{flex-wrap:wrap}.mock-items{gap:5px}.mock-item .mock-copy{overflow-wrap:anywhere}}
+@media(prefers-reduced-motion:reduce){.hero-stage img{animation:none!important}}

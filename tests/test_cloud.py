@@ -3484,3 +3484,52 @@ def test_referral_verified_confirmation_exactly_once_and_revocation(application,
                 con.execute('DELETE FROM public.referral_pending WHERE provider_id=%s',(u['id'],))
                 con.execute('DELETE FROM auth.users WHERE id=%s',(u['id'],))
             con.execute('DELETE FROM public.user_invites WHERE owner_id IN (%s,%s)',(aid,bid))
+
+
+def test_landing_crayon_assets_versioning_and_cache(application):
+    """Only the approved public art allowlist is served; no hosted dependencies."""
+    from app import LANDING_ART_ASSETS, UI_VERSION
+    from hashlib import sha1
+    expected = {
+        'camera': 'a6b26e5e1c95b91d9cc1c9d31857b35633e40fe0',
+        'cup': 'a9de09de5dd102e2c204aac331f65e3c7a1a1414',
+        'hero-accents': '45bb13f2af39e40596e9af144a312eddafeb3294',
+        'hero-gift': '594893f4490e5034da93f0e31a9215f4c9e8667d',
+        'hero-mail': '23833e34d6df4d1935724c3de74d3f7bec01e43e',
+        'hero-mascot': '11b64655a6bc2e4cc40d165cd18a5ac170853830',
+        'privacy': '7b0fb6332041f1c5b7fe4ec296e9d6052815b11a',
+        'santa': 'c9383a06e60cf78b5da0196eccd8758e49cc0f94',
+        'step-gift': '3fbcbc8a2621e7464256a17ab246d18471908fab',
+        'step-list': '2e0ff54f6df9dcb3af827cfaf3168e938d3f0742',
+        'step-share': '046f34f841efd5b762e0b5275cdfa4ef13c8a423',
+        'ticket': '6571738a2ccec66225843c72d8ba329569b64dcf',
+    }
+    assert len(LANDING_ART_ASSETS) == 12
+    assert {Path(p).stem for p in LANDING_ART_ASSETS} == set(expected)
+    client = application.test_client()
+    total = 0
+    for asset in LANDING_ART_ASSETS:
+        data = (ROOT/'public'/asset).read_bytes()
+        total += len(data)
+        assert data[:4] == b'RIFF' and data[8:12] == b'WEBP'
+        assert sha1(f'blob {len(data)}'.encode() + bytes([0]) + data).hexdigest() == expected[Path(asset).stem]
+        url = f'/ui/{UI_VERSION}/{asset}'
+        reply = client.get(url, base_url=BASE)
+        assert reply.status_code == 200 and reply.data == data
+        assert reply.mimetype == 'image/webp'
+        assert reply.headers['Cache-Control'] == 'public, max-age=300, must-revalidate'
+        assert reply.headers['X-Content-Type-Options'] == 'nosniff'
+        assert reply.headers['X-Shursh-UI-Version'] == UI_VERSION
+        assert client.head(url, base_url=BASE).status_code == 200
+        cached = client.get(url, base_url=BASE, headers={'If-None-Match': reply.headers['ETag']})
+        assert cached.status_code == 304 and not cached.data
+        assert cached.headers['Cache-Control'] == reply.headers['Cache-Control']
+        direct = client.get('/'+asset, base_url=BASE)
+        assert direct.status_code == 200 and direct.data == data
+    assert total <= 420000
+    for url in (f'/ui/{UI_VERSION}/art/crayon/missing.webp',
+                f'/ui/{"0"*20}/{LANDING_ART_ASSETS[0]}',
+                f'/ui/{UI_VERSION}/art/crayon/../app.js',
+                '/art/crayon/missing.webp'):
+        reply = client.get(url, base_url=BASE)
+        assert reply.status_code == 404 and reply.headers['Cache-Control'] == 'no-store'
