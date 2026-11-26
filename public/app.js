@@ -504,6 +504,12 @@ function animateModalEntrance(backdrop,dialog){
  const batch=modalEntrance;
  Promise.allSettled(batch.map(a=>a.finished)).then(()=>{if(modalEntrance===batch)modalEntrance=[];});
 }
+// Breakpoint and keyboard resizing are geometry changes, not content animation.
+window.addEventListener('resize',()=>{
+ if(!modalRoot.firstElementChild)return;
+ cancelModalEntrance();stopAuthModalMotion();
+ if(modalExit)finishModalExit();
+},{passive:true});
 function stopAuthModalMotion(){
  if(authModalFrame)cancelAnimationFrame(authModalFrame);
  authModalFrame=0;
