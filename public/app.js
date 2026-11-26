@@ -1102,7 +1102,7 @@ function ensureCookieNotice(){
  try{if(localStorage.getItem('shursh-cookie-notice-v1')==='yes')return;}catch{}
  const node=document.createElement('div');node.className='cookie-notice';node.setAttribute('role','status');
  node.innerHTML='<span class="cookie-message"><span>Используем необходимые cookie</span><span>для входа и работы сайта</span></span><button type="button" data-action="cookie-ack" aria-label="Понятно">Понятно</button>';
- document.body.appendChild(node);
+ app.querySelector('#page-view').before(node);
 }
 function shell(body){
  if(ownerPatchRoot){
@@ -1123,7 +1123,6 @@ function shell(body){
   }
   return;
  }
- ensureCookieNotice();
  const identity=(currentUser?.id??'guest')+':'+(currentUser?.name??'')+':'+(currentUser?.avatar_emoji??'')+':'+!!currentUser?.is_admin+':'+isDemo+':'+isPreview;
  let view=app.querySelector('#page-view');
  if(!view){
@@ -1143,6 +1142,7 @@ function shell(body){
   app.querySelector('.site-header')?.classList.toggle('is-condensed',headerIsCondensed);
   shellUserSignature=identity;
  }
+ ensureCookieNotice();
  syncNavigationSelection();
  attachNavigationScrollCue();
   closeUiSelect();view.innerHTML=body;enhanceSelects(view);view.removeAttribute('aria-busy');app.classList.remove('route-loading');
