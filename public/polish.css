@@ -1094,3 +1094,8 @@ input[type="checkbox"]:not(.shursh-checkbox input):checked::after{content:"✓";
 @media(prefers-reduced-motion:reduce){
  .site-header:has(.nav) .nav,.site-header:has(.nav).is-condensed .nav{transition:none!important}
 }
+
+/* Mobile consent stays in normal flow: no overlay on page controls or keyboard. */
+@media(max-width:760px){
+ #app>.cookie-notice{position:relative;inset:auto;transform:none;z-index:auto;margin:10px auto;max-width:calc(100% - 20px)}
+}
