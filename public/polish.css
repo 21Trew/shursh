@@ -936,3 +936,11 @@ input[type="checkbox"]:not(.shursh-checkbox input):checked::after{content:"✓";
 @media(prefers-reduced-motion:reduce){
  .site-header:has(.nav),.site-header:has(.nav) .nav,.site-header:has(.nav).is-condensed .nav{transition:none!important}
 }
+
+@media(min-width:761px){
+ .site-header .nav,.site-header.is-condensed .nav{position:relative;display:flex;transition:opacity .22s ease,visibility 0s}
+ .site-header.is-condensed .nav{opacity:0;visibility:hidden;pointer-events:none;transition:opacity .22s ease,visibility 0s .22s}
+}
+@media(prefers-reduced-motion:reduce){
+ .site-header .nav,.site-header.is-condensed .nav{transition:none!important}
+}

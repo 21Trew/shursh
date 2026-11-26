@@ -82,8 +82,8 @@ function restoreOwnerTab(path){
 
 // Touch only. Native vertical scrolling and horizontally scrollable controls
 // always win; never intercept OS back gestures at screen edges.
-let pageSwipe=null;
-const swipeExcluded='input,textarea,select,button,a,[contenteditable], [role="slider"],.ui-select,.ui-calendar-popover,.game-gifts-track,.game-chat-messages,.admin-users-table-scroll,.nav,.cookie-notice';
+let pageSwipe=null,swipeClickUntil=0;
+const swipeExcluded='input,textarea,select,button,a:not(.card-hitarea),[contenteditable], [role="slider"],.ui-select,.ui-calendar-popover,.game-gifts-track,.game-chat-messages,.admin-users-table-scroll,.nav,.cookie-notice';
 function swipeScrollable(node,limit){
  for(let el=node;el&&el!==limit;el=el.parentElement){
   if(el.scrollWidth>el.clientWidth+3&&/auto|scroll/.test(getComputedStyle(el).overflowX))return true;
@@ -91,7 +91,7 @@ function swipeScrollable(node,limit){
  return false;
 }
 document.addEventListener('touchstart',event=>{
- pageSwipe=null;
+ pageSwipe=null;swipeClickUntil=0;
  if(event.touches.length!==1||!matchMedia('(max-width:760px)').matches||!currentUser)return;
  const t=event.touches[0],target=event.target instanceof Element?event.target:null;
  if(!target||target.closest(swipeExcluded)||t.clientX<24||t.clientX>innerWidth-24)return;
@@ -126,15 +126,18 @@ document.addEventListener('touchend',event=>{
  if(s.local){
   const tabs=[...s.local.querySelectorAll('button[aria-selected],button[aria-pressed]')].filter(b=>!b.disabled&&!b.hidden);
   const i=tabs.findIndex(b=>b.getAttribute('aria-selected')==='true'||b.getAttribute('aria-pressed')==='true');
-  if(i>=0&&tabs[i+dir])tabs[i+dir].click();
+  if(i>=0&&tabs[i+dir]){swipeClickUntil=performance.now()+300;tabs[i+dir].click();}
   return;
  }
  if(!ownerTab(s.path)||s.path==='/notifications')return;
  const links=[...app.querySelectorAll('.site-header .nav a[data-nav]')];
  const i=links.findIndex(a=>a.dataset.nav===s.path);
  if(i<0||!links[i+dir])return;
- nav(links[i+dir].dataset.nav);
+ swipeClickUntil=performance.now()+300;nav(links[i+dir].dataset.nav);
 },{passive:true});
+// Suppress only a compatibility click belonging to the completed swipe. A new
+// touch resets the deadline; programmatic tab clicks and keyboard activation pass.
+document.addEventListener('click',event=>{if(swipeClickUntil>performance.now()&&event.detail>0){event.preventDefault();event.stopImmediatePropagation();swipeClickUntil=0;}},true);
 
 function nav(path,{force=false}={}){
  if(currentPath()===path&&!force)return;
@@ -514,7 +517,7 @@ function animateAuthModalHeight(dialog,from){
  if(!dialog.isConnected)return;
  const current=authModalMotion?.dialog===dialog?authModalMotion:null;
  if(current)dialog.classList.remove('auth-height-motion');
- const target=dialog.getBoundingClientRect().height;
+ const target=dialog.offsetHeight;
  if(current)dialog.classList.add('auth-height-motion');
  if(current&&Math.abs(target-current.target)<1)return;
  stopAuthModalMotion();
@@ -534,7 +537,7 @@ function modal({title,subtitle='',content='',onSubmit=null,onError=null,submitLa
   const bell=app.querySelector('.header-bell');if(bell)setAttrIfChanged(bell,'aria-expanded','false');
  }
  const reuseAuth=!!(authScreen&&priorDialog?.dataset.authScreen);
- const oldHeight=priorDialog?.getBoundingClientRect().height||0;
+ const oldHeight=priorDialog?.offsetHeight||0;
  const restoreDialogFocus=reuseAuth&&priorDialog.contains(document.activeElement);
  stopAuthModalMotion();
  for(const input of modalRoot.querySelectorAll('input'))suggestionObservers.get(input)?.disconnect();
@@ -585,7 +588,7 @@ function modal({title,subtitle='',content='',onSubmit=null,onError=null,submitLa
     authModalFrame=0;if(!dialog.isConnected||!scroller.isConnected||modalExit)return;
     const nextViewport=innerWidth+':'+innerHeight;
     if(nextViewport!==viewport){viewport=nextViewport;stopAuthModalMotion();lastNatural=dialog.getBoundingClientRect().height;return;}
-    const from=authModalMotion?.dialog===dialog?dialog.getBoundingClientRect().height:lastNatural;
+    const from=authModalMotion?.dialog===dialog?dialog.offsetHeight:lastNatural;
     animateAuthModalHeight(dialog,from);
     lastNatural=authModalMotion?.dialog===dialog?authModalMotion.target:dialog.getBoundingClientRect().height;
    });
@@ -620,7 +623,7 @@ function closeModal({immediate=false}={}){
  if(wasNotifications){notificationModalItems=[];notificationModalMore=false;notificationModalUnread=0;}
  const transform=dialog?getComputedStyle(dialog).transform:'none';
  const opacity=getComputedStyle(backdrop).opacity;
- const height=dialog?.getBoundingClientRect().height;
+ const height=dialog?.offsetHeight;
  cancelModalEntrance();stopAuthModalMotion();
  for(const input of modalRoot.querySelectorAll('input'))suggestionObservers.get(input)?.disconnect();
  modalContentObserver?.disconnect();modalContentObserver=null;closeCalendar();closeUiSelect();

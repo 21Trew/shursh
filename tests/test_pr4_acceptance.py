@@ -306,8 +306,8 @@ def test_pr4_profile_mobile_sheet_and_footer(browser_http):
             page.locator('[data-social-action="edit-profile"]').click()
             expect(page.locator(".modal")).to_be_visible()
             box = page.locator(".modal").bounding_box()
-            assert box is not None and box["y"] >= 11 and box["y"]+box["height"] <= 800, box
-            assert box["x"] >= 10 and box["x"]+box["width"] <= 365, box
+            assert box is not None and box["y"] >= 11 and abs(box["y"]+box["height"]-812)<=1, box
+            assert abs(box["x"])<=1 and abs(box["width"]-375)<=1, box
             assert page.locator(".modal-backdrop").evaluate("(el) => +getComputedStyle(el).zIndex") > page.locator("header.site-header").evaluate("(el) => +getComputedStyle(el).zIndex")
         finally:
             browser.close()
@@ -2587,6 +2587,8 @@ def test_mobile_shared_sheets_header_actions_and_swipes(browser_https,engine):
                 assert result['after']>result['before']+50 and result['closing'] and result['removed'],result
                 assert any(result['before']+2<h<result['after']-2 for h in result['samples']),result
                 # Header keeps its layout and fixed document offset while collapsing.
+                page.evaluate("scrollTo({top:0,behavior:'instant'})")
+                page.wait_for_function("()=>!document.querySelector('.site-header').classList.contains('is-condensed') && Math.abs(document.querySelector('.site-header').getBoundingClientRect().height-116)<1")
                 metrics=page.evaluate("""async()=>{
                   document.body.style.minHeight='3000px';const h=document.querySelector('.site-header'),bar=h.querySelector('.topbar');
                   const initial=h.getBoundingClientRect().height,offset=getComputedStyle(document.querySelector('#app')).paddingTop;
@@ -2599,7 +2601,7 @@ def test_mobile_shared_sheets_header_actions_and_swipes(browser_https,engine):
                 assert metrics['display']==metrics['afterDisplay'] and metrics['offset']==metrics['afterOffset'] and abs(metrics['y']-300)<2,metrics
                 assert any(metrics['final']+2<h<metrics['initial']-2 for h in metrics['frames']),metrics
                 page.evaluate("scrollTo({top:0,behavior:'instant'})")
-                page.wait_for_function("()=>!document.querySelector('.site-header').classList.contains('is-condensed')")
+                page.wait_for_function("()=>!document.querySelector('.site-header').classList.contains('is-condensed') && Math.abs(document.querySelector('.site-header').getBoundingClientRect().height-116)<1")
                 # Synthetic touch events use the real handler, not a direct nav call.
                 def swipe(selector,dx,dy=0,x=width/2):
                     page.evaluate("""([selector,dx,dy,x])=>{
@@ -2610,8 +2612,34 @@ def test_mobile_shared_sheets_header_actions_and_swipes(browser_https,engine):
                        const e=new Event(name,{bubbles:true});Object.defineProperties(e,{touches:{value:active},changedTouches:{value:changed}});target.dispatchEvent(e);
                       }
                     }""",[selector,dx,dy,x])
-                swipe('.dashboard-welcome p',-100)
+                if engine=='chromium':
+                    # CDP delivers genuine browser touch input on the mobile context.
+                    point=page.locator('.dashboard-welcome p').bounding_box()
+                    x=width*.78;y=round(point['y']+point['height']/2)
+                    client=ctx.new_cdp_session(page)
+                    client.send('Input.dispatchTouchEvent',{'type':'touchStart','touchPoints':[{'x':x,'y':y}]})
+                    for i in range(1,7):
+                        client.send('Input.dispatchTouchEvent',{'type':'touchMove','touchPoints':[{'x':x-i*width*.08,'y':y}]})
+                    client.send('Input.dispatchTouchEvent',{'type':'touchEnd','touchPoints':[]})
+                    client.detach()
+                else:swipe('.dashboard-welcome p',-100)
+                expect(page).to_have_url(re.compile(r'/lists
+                expect(page.locator('[data-wishlist-view="mine"]')).to_have_attribute('aria-selected','true')
+                swipe('#wishlist-view-content',-100)
+                expect(page.locator('[data-wishlist-view="friends"]')).to_have_attribute('aria-selected','true')
+                swipe('#wishlist-view-content',100)
+                expect(page.locator('[data-wishlist-view="mine"]')).to_have_attribute('aria-selected','true')
+                swipe('main h1',-90,110)
                 expect(page).to_have_url(re.compile(r'/lists$'))
+                swipe('main h1',-100,0,10)
+                expect(page).to_have_url(re.compile(r'/lists$'))
+                swipe('main h1',-100)
+                expect(page).to_have_url(re.compile(r'/santas$'))
+                swipe('#santa-state-panel',-100)
+                expect(page.locator('[data-santa-state="finished"]')).to_have_attribute('aria-selected','true')
+                ctx.close()
+        finally:browser.close()
+))
                 expect(page.locator('[data-wishlist-view="mine"]')).to_have_attribute('aria-selected','true')
                 swipe('#wishlist-view-content',-100)
                 expect(page.locator('[data-wishlist-view="friends"]')).to_have_attribute('aria-selected','true')
