@@ -932,28 +932,39 @@ function landingArt(name, classes=''){
  return `<img alt="" data-art="${name}" class="${classes}" width="${width}" height="${height}" src="${landingArtPrefix}${name}.webp" decoding="async"${hero?(name==='hero-mascot'?' fetchpriority="high"':''):' loading="lazy"'}>`;
 }
 // Stable default art with collision-free allocation in each rendered collection.
-const wishlistCoverArt=['step-gift','camera','cup','ticket','step-list','step-share','hero-gift','hero-mail','hero-mascot','privacy'];
-const wishlistOccasionArt={
- 'День рождения':['step-gift','hero-gift','cup','ticket'],
- 'Годовщина':['hero-mail','privacy','cup','step-share'],
- 'Новоселье':['cup','step-list','hero-mascot','step-gift'],
- 'Свадьба':['hero-mail','step-share','privacy','hero-gift'],
- 'Новый год':['santa','hero-gift','step-gift','hero-mascot'],
- 'Просто так':['camera','ticket','cup','step-list'],
- 'Другое':['step-share','camera','hero-mascot','hero-mail']
-};
+// Each primary illustration and every companion must belong to the occasion.
+const wishlistOccasionArt=Object.freeze({
+ 'День рождения':['step-gift','hero-gift'],
+ 'Годовщина':['privacy','step-share','hero-mail'],
+ 'Новоселье':['cup','step-gift','hero-gift'],
+ 'Свадьба':['step-share','privacy','hero-mail','hero-gift'],
+ 'Новый год':['santa','hero-gift','step-gift'],
+ 'Просто так':['camera','ticket','cup','step-list','step-gift','hero-gift','step-share','hero-mail','hero-mascot','privacy'],
+ 'Другое':['step-share','camera','hero-mascot','hero-mail','cup','ticket','step-list','step-gift','hero-gift','privacy']
+});
+// Require a recognizable primary motif even when the set includes gift accents.
+const wishlistOccasionPrimary=Object.freeze({
+ 'Новоселье':['cup'],
+ 'Свадьба':['step-share','privacy','hero-mail'],
+ 'Новый год':['santa']
+});
+function wishlistOccasion(list){
+ const occasion=typeof list.occasion==='string'?list.occasion.trim():'';
+ return Object.hasOwn(wishlistOccasionArt,occasion)?occasion:'Другое';
+}
 const wishlistCoverSlots=new Map();
-function wishlistCoverKey(list){return String(list.id??list.share_key??'')+'|'+(list.occasion||'Другое');}
+function wishlistCoverKey(list){return String(list.id??list.share_key??'')+'|'+wishlistOccasion(list);}
 function wishlistCoverSeed(list){
  const key=String(list.id??list.share_key??'');
  if(/^\d+$/.test(key))return Number(BigInt(key)%100n);
  let h=0;for(const ch of key)h=(Math.imul(h,31)+ch.charCodeAt(0))>>>0;return h%100;
 }
 function wishlistCoverParts(list,slot){
- const pool=wishlistOccasionArt[list.occasion]||wishlistOccasionArt['Другое'];
- const parts=[pool[slot%pool.length]],n=wishlistCoverArt.length;
- let remaining=Math.floor(slot/pool.length)-1;
- while(remaining>=0){parts.push(wishlistCoverArt[remaining%n]);remaining=Math.floor(remaining/n)-1;}
+ const occasion=wishlistOccasion(list),pool=wishlistOccasionArt[occasion];
+ const primary=wishlistOccasionPrimary[occasion]||pool;
+ const parts=[primary[slot%primary.length]],n=pool.length;
+ let remaining=Math.floor(slot/primary.length)-1;
+ while(remaining>=0){parts.push(pool[remaining%n]);remaining=Math.floor(remaining/n)-1;}
  return parts;
 }
 function assignWishlistCovers(lists){
@@ -972,7 +983,7 @@ function assignWishlistCovers(lists){
 function wishlistCover(list,assignments){
  const key=wishlistCoverKey(list),slot=assignments?.get(key)??wishlistCoverSlots.get(key)??wishlistCoverSeed(list)%4;
  const [primary,...companions]=wishlistCoverParts(list,slot);
- return `<span class="wishlist-cover-art${companions.length?' wishlist-cover-paired':''}" data-cover-variant="${attr((list.occasion||'Другое')+':'+slot)}">${serviceArt(primary)}${companions.length?`<span class="cover-companions">${companions.map(name=>serviceArt(name)).join('')}</span>`:''}</span>`;
+ return `<span class="wishlist-cover-art${companions.length?' wishlist-cover-paired':''}" data-cover-variant="${attr(wishlistOccasion(list)+':'+slot)}">${serviceArt(primary)}${companions.length?`<span class="cover-companions">${companions.map(name=>serviceArt(name)).join('')}</span>`:''}</span>`;
 }
 function heroArt(){return `<div class="hero-stage" aria-hidden="true">${landingArt('hero-accents','hero-layer')}${landingArt('hero-mail','hero-layer float-one')}${landingArt('hero-gift','hero-layer float-two')}${landingArt('hero-mascot','hero-layer wobble')}</div>`;}
 function santaArt(){return landingArt('santa');}
