@@ -2904,7 +2904,7 @@ def test_service_crayon_covers_footer_and_circular_gift_gallery(browser_https,en
                     page.goto(browser_https+'/')
                     expect(page.locator('main h1').first).to_be_visible()
                     data=page.evaluate("""()=>{
-                      const lists=[1,11,21,31,41,51,61,71,81,91,101,111].map(id=>({id,title:'Список '+id,theme:'mint',occasion:'Просто так',wish_count:0}));
+                      const lists=Array.from({length:150},(_,i)=>1+i*10).map(id=>({id,title:'Список '+id,theme:'mint',occasion:'Просто так',wish_count:0}));
                       const map=assignWishlistCovers(lists);
                       const again=assignWishlistCovers([...lists].reverse());
                       const node=document.createElement('div');
@@ -2916,8 +2916,22 @@ def test_service_crayon_covers_footer_and_circular_gift_gallery(browser_https,en
                       return {unique:new Set(slots).size,art:new Set(srcs).size,stable:lists.every(l=>map.get(String(l.id))===again.get(String(l.id))),
                         right:Math.abs(fr.right-cr.right),align:getComputedStyle(c).textAlign};
                     }""")
-                    assert data['unique']==12 and data['art']==12 and data['stable'],data
+                    assert data['unique']==150 and data['art']==150 and data['stable'],data
                     assert data['right']<=2 and data['align']=='right',data
+                    # Load the real versioned WebP resources via the shared service
+                    # renderer and verify decoding, rather than only inspecting URLs.
+                    decoded=page.evaluate("""async()=>{
+                      const names=wishlistCoverArt.concat('santa');
+                      return await Promise.all(names.map(async name=>{
+                        const holder=document.createElement('div');
+                        holder.innerHTML=serviceArt(name);
+                        const img=holder.firstElementChild;
+                        img.loading='eager';
+                        await img.decode();
+                        return img.naturalWidth>0&&img.naturalHeight>0;
+                      }));
+                    }""")
+                    assert len(decoded)==11 and all(decoded)
                     page.evaluate("""()=>{
                       activeGameContext={own:[{id:1,title:'Первый',description:'Первое описание'},{id:2,title:'Второй'},{id:3,title:'Третий'}],
                         recipient:[{id:4,title:'Только получатель'},{id:5,title:'Другой подарок'}]};
@@ -2953,6 +2967,14 @@ def test_service_crayon_covers_footer_and_circular_gift_gallery(browser_https,en
                     }""")
                     expect(dialog).to_have_attribute('aria-label','Третий')
                     expect(dialog.locator('.gift-dialog-edit')).to_have_attribute('data-id','3')
+                    dialog.locator('.gift-dialog-edit').focus()
+                    page.keyboard.press('ArrowRight')
+                    expect(dialog).to_have_attribute('aria-label','Первый')
+                    expect(dialog).to_be_focused()
+                    page.keyboard.press('ArrowLeft')
+                    expect(dialog).to_have_attribute('aria-label','Третий')
+                    for image in dialog.locator('img').all():
+                        image.evaluate("(img)=>{img.loading='eager';return img.decode()}")
                     folder=OUTPUT/'service-crayon-gallery';folder.mkdir(parents=True,exist_ok=True)
                     dialog.screenshot(path=str(folder/f'{engine}-{width}-gallery.png'))
                     page.keyboard.press('Escape');expect(dialog).to_have_count(0)

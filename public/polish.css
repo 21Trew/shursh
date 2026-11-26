@@ -1025,7 +1025,8 @@ input[type="checkbox"]:not(.shursh-checkbox input):checked::after{content:"✓";
 .list-cover .cover-stamp{z-index:1}
 .wishlist-cover-art>.service-art{width:100%;height:100%;min-height:0;object-fit:contain}
 .wishlist-cover-paired>.service-art:first-child{width:74%;justify-self:start}
-.wishlist-cover-art>.cover-companion{position:absolute;right:4%;bottom:6%;width:40%;height:53%;transform:rotate(8deg)}
+.wishlist-cover-art>.cover-companions{position:absolute;right:4%;bottom:6%;width:40%;height:82%;display:flex;flex-direction:column;justify-content:flex-end;gap:2px;pointer-events:none}
+.cover-companions>.service-art{flex:1 1 0;min-height:0;width:100%;max-height:65%;object-fit:contain;transform:rotate(8deg)}
 .detail-art .wishlist-cover-art{width:200px;height:200px}
 .friend-stack-list .wishlist-cover-art{padding:8px 12px}
 .wish-image>.service-art{width:min(70%,125px);height:min(84%,125px);object-fit:contain}

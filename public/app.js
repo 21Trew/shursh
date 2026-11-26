@@ -955,9 +955,13 @@ function assignWishlistCovers(lists){
 function wishlistCover(list,assignments){
  const key=wishlistCoverKey(list);
  const slot=assignments?.get(key)??wishlistCoverSlots.get(key)??wishlistCoverSeed(list)%wishlistCoverArt.length;
- const n=wishlistCoverArt.length,primary=wishlistCoverArt[slot%n];
- const secondary=slot<n?'':wishlistCoverArt[(Math.floor(slot/n)+slot%n)%n];
- return `<span class="wishlist-cover-art${secondary?' wishlist-cover-paired':''}" data-cover-variant="${slot}">${serviceArt(primary)}${secondary?serviceArt(secondary,'cover-companion'):''}</span>`;
+ // Enumerate all one-image, two-image, three-image, ... compositions.
+ // Unlike modulo-only pairs, every nonnegative slot has a unique sequence.
+ const n=wishlistCoverArt.length,parts=[];
+ let remaining=slot;
+ do{parts.push(wishlistCoverArt[remaining%n]);remaining=Math.floor(remaining/n)-1;}while(remaining>=0);
+ const [primary,...companions]=parts;
+ return `<span class="wishlist-cover-art${companions.length?' wishlist-cover-paired':''}" data-cover-variant="${slot}">${serviceArt(primary)}${companions.length?`<span class="cover-companions">${companions.map(name=>serviceArt(name)).join('')}</span>`:''}</span>`;
 }
 function heroArt(){return `<div class="hero-stage" aria-hidden="true">${landingArt('hero-accents','hero-layer')}${landingArt('hero-mail','hero-layer float-one')}${landingArt('hero-gift','hero-layer float-two')}${landingArt('hero-mascot','hero-layer wobble')}</div>`;}
 function santaArt(){return landingArt('santa');}

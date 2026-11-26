@@ -88,12 +88,14 @@ function showGameWishDetails(el){
  const layout=dialog.querySelector('.gift-dialog-layout');
  function step(dir){
   if(activeGameContext!==state||!dialog.isConnected||dialog.closest('[inert]'))return;
+  const focusInside=layout.contains(document.activeElement);
   const focused=document.activeElement?.closest('[data-gallery-step]')?.dataset.galleryStep;
   index=wrap(index+dir);
   const gift=gifts[index];dialog.setAttribute('aria-label',gift.title);
   dialog.querySelector('.modal-fixed-header h2').textContent=gift.title;
   layout.innerHTML=content();
   if(focused)layout.querySelector('[data-gallery-step="'+focused+'"]')?.focus({preventScroll:true});
+  else if(focusInside)dialog.focus({preventScroll:true});
   if(!motionReduced()&&layout.animate)layout.animate([{opacity:.7,transform:'translateX('+(dir*8)+'px)'},{opacity:1,transform:'translateX(0)'}],{duration:180,easing:'ease-out'});
  }
  dialog.addEventListener('click',e=>{const button=e.target.closest('[data-gallery-step]');if(button){e.preventDefault();step(Number(button.dataset.galleryStep));}});
