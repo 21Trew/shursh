@@ -1061,3 +1061,37 @@ input[type="checkbox"]:not(.shursh-checkbox input):checked::after{content:"✓";
  .dashboard-santa-symbol>.service-art{width:48px;height:42px}
  .gift-gallery{grid-template-columns:minmax(44px,13%) minmax(0,1fr) minmax(44px,13%);gap:5px}
 }
+
+/* Shared fixed dialog header: align the actual close control with the heading. */
+.modal-backdrop .modal>.modal-fixed-header{display:flex;align-items:center;justify-content:space-between;gap:12px;padding:18px 24px 16px 32px}
+.modal-backdrop .modal>.modal-fixed-header h2{flex:1;min-width:0;margin:0}
+.modal-backdrop .modal>.modal-fixed-header>.modal-close{position:static;flex:0 0 44px;width:44px;height:44px;margin:0;display:grid;place-items:center;font-size:25px;line-height:1}
+.personal-invite-card{display:grid;justify-items:center;gap:12px;padding:16px;background:#f9edcc;border-radius:20px}
+.invite-brand{display:flex;align-items:center;justify-content:space-between;gap:16px;width:100%}
+.personal-invite-card #personal-invite-qr{width:min(100%,208px);height:auto;border-radius:10px;display:block}
+.personal-invite-download,.personal-invite-social{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:8px;width:100%}
+.personal-invite-download .btn,.personal-invite-social .btn{min-width:0;white-space:normal;justify-content:center}
+.invite-link-row{display:grid;grid-template-columns:minmax(0,1fr) 44px;margin:0;gap:8px}
+.invite-link-row .btn{min-width:44px;min-height:44px;padding:0;display:grid;place-items:center}
+.personal-invite-footer{display:flex;align-items:center;justify-content:space-between;gap:10px}
+.modal .personal-invite-footer .btn{background:var(--ink);color:white;padding:12px 16px;text-decoration:none;border-radius:var(--radius-control)}
+.personal-invite-footer .text-link{font-size:12px;white-space:normal;text-align:left}
+.game-chat-messages{height:clamp(240px,40dvh,365px);min-height:0;max-height:none;scrollbar-width:none;scrollbar-gutter:auto;overflow-y:auto}
+.game-chat-messages::-webkit-scrollbar{display:none}
+.secret-card.revealed .recipient-summary{align-items:center;margin-bottom:8px}
+.secret-card.revealed .recipient-avatar{flex:0 0 42px;width:42px;height:42px;font-size:24px}
+.secret-card.revealed .recipient-wishes .participant-preferences-summary{gap:6px;margin:4px 0}
+.secret-card.revealed .recipient-wishes>strong{margin:8px 0 6px}
+.ui-calendar-popover{max-height:calc(100dvh - 16px);overflow:auto}
+@media(max-width:760px){
+ .modal-backdrop .modal>.modal-fixed-header{padding:12px 16px 12px 20px}
+ .site-header:has(.nav) .nav,.site-header:has(.nav).is-condensed .nav{scrollbar-width:none;padding-inline:20px;transition:opacity .28s ease,transform .28s ease,visibility 0s}
+ .site-header:has(.nav) .nav::-webkit-scrollbar{display:none}
+ .site-header:has(.nav).is-condensed .nav{transition:opacity .28s ease,transform .28s ease,visibility 0s .28s}
+ .site-header .topbar:has(.nav-scroll-more-right)::after,.site-header .topbar:has(.nav-scroll-more-left)::before{bottom:auto!important;top:78px;height:24px;width:19px;border-radius:6px;font-size:18px}
+ .personal-invite-footer .btn{font-size:12px;min-height:44px}
+ .personal-invite-card{padding:12px}
+}
+@media(prefers-reduced-motion:reduce){
+ .site-header:has(.nav) .nav,.site-header:has(.nav).is-condensed .nav{transition:none!important}
+}

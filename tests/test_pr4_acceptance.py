@@ -2531,6 +2531,11 @@ def test_friends_exact_search_and_qr_invite(browser_https,application,engine):
                 page.wait_for_function("()=>document.querySelector('#personal-invite-qr')?.complete && document.querySelector('#personal-invite-qr')?.naturalWidth>0")
                 assert page.locator('#personal-invite-qr').evaluate("img=>img.complete&&img.naturalWidth>0&&img.src.startsWith('data:image/png')")
                 assert page.locator('a[download="shursh-invite.png"]').count()==1
+                expect(page.locator('.personal-invite-modal .modal-fixed-header .modal-close')).to_be_visible()
+                expect(page.locator('.personal-invite-modal .modal-fixed-footer')).to_be_visible()
+                expect(page.locator('.personal-invite-modal .invite-brand .avatar')).to_be_visible()
+                assert page.locator('#personal-invite-qr').evaluate("img=>img.naturalHeight-img.naturalWidth===104")
+                assert page.locator('a[download="shursh-invite.png"]').get_attribute('href')==page.locator('#personal-invite-qr').get_attribute('src')
                 assert 't.me/share/url' in page.get_by_role('link',name='Telegram',exact=True).get_attribute('href')
                 assert 'vk.com/share.php' in page.get_by_role('link',name='VK',exact=True).get_attribute('href')
                 # Capture actual new UI; generated fixture link is not a real hosted invitation.
@@ -2913,10 +2918,19 @@ def test_service_crayon_covers_footer_and_circular_gift_gallery(browser_https,en
                       const srcs=[...node.querySelectorAll('.wishlist-cover-art')].map(x=>[...x.querySelectorAll('img')].map(i=>i.getAttribute('src')).join('|'));
                       const f=document.querySelector('.footer'),c=f.querySelector('.footer-credit');
                       const fr=f.getBoundingClientRect(),cr=c.getBoundingClientRect();
-                      return {unique:new Set(slots).size,art:new Set(srcs).size,stable:lists.every(l=>map.get(String(l.id))===again.get(String(l.id))),
+                      return {unique:new Set(slots).size,art:new Set(srcs).size,stable:lists.every(l=>map.get(wishlistCoverKey(l))===again.get(wishlistCoverKey(l))),
                         right:Math.abs(fr.right-cr.right),align:getComputedStyle(c).textAlign};
                     }""")
                     assert data['unique']==150 and data['art']==150 and data['stable'],data
+                    themed=page.evaluate("""()=>{
+                      const pools=Object.entries(wishlistOccasionArt);
+                      const lists=pools.flatMap(([occasion],i)=>Array.from({length:4},(_,j)=>({id:2000+i*4+j,occasion})));
+                      const map=assignWishlistCovers(lists);
+                      return {pools:pools.length,valid:pools.every(([occasion,art])=>art.length===4&&new Set(art).size===4),
+                        unique:new Set(lists.map(l=>wishlistCoverParts(l,map.get(wishlistCoverKey(l))).join('|'))).size,
+                        thematic:lists.every(l=>wishlistOccasionArt[l.occasion].includes(wishlistCoverParts(l,map.get(wishlistCoverKey(l)))[0]))};
+                    }""")
+                    assert themed=={'pools':7,'valid':True,'unique':28,'thematic':True},themed
                     assert data['right']<=2 and data['align']=='right',data
                     # Load the real versioned WebP resources via the shared service
                     # renderer and verify decoding, rather than only inspecting URLs.

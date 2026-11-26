@@ -515,9 +515,16 @@ async function refreshSocialFriendsAfterMutation(){
 }
 function inviteQrData(rows){
  if(!Array.isArray(rows)||!rows.length||rows.length>177||!rows.every(r=>typeof r==='string'&&r.length===rows.length&&/^[01]+$/.test(r)))throw new Error('Не удалось построить QR-код');
- const scale=10,canvas=document.createElement('canvas');canvas.width=canvas.height=rows.length*scale;
+ const scale=10,canvas=document.createElement('canvas'),side=rows.length*scale,band=104;
+ canvas.width=side;canvas.height=side+band;
  const ctx=canvas.getContext('2d');ctx.fillStyle='#fff';ctx.fillRect(0,0,canvas.width,canvas.height);
- ctx.fillStyle='#000';rows.forEach((r,y)=>{for(let x=0;x<r.length;x++)if(r[x]==='1')ctx.fillRect(x*scale,y*scale,scale,scale);});
+ // Branding is outside the QR matrix and its four-module quiet zone.
+ ctx.fillStyle='#f9e7a3';ctx.fillRect(0,0,side,band);
+ ctx.textBaseline='middle';ctx.font='800 38px Unbounded, sans-serif';ctx.fillStyle='#27272b';ctx.fillText('шурш',24,band/2);
+ ctx.fillStyle='#e58b67';ctx.fillText('!',24+ctx.measureText('шурш').width,band/2);
+ ctx.fillStyle='#fffefa';ctx.beginPath();ctx.arc(side-52,band/2,35,0,Math.PI*2);ctx.fill();
+ ctx.font='36px sans-serif';ctx.textAlign='center';ctx.fillText(currentUser?.avatar_emoji||'🎁',side-52,band/2+2);
+ ctx.fillStyle='#000';rows.forEach((r,y)=>{for(let x=0;x<r.length;x++)if(r[x]==='1')ctx.fillRect(x*scale,y*scale+band,scale,scale);});
  return canvas.toDataURL('image/png');
 }
 async function sharePersonalQr(){
@@ -538,15 +545,16 @@ async function socialPersonalInviteModal(){
  const url=new URL(data.path,location.origin).href;
  if(url!==data.url)throw new Error('Адрес приглашения не совпадает с сайтом');
  const qr=inviteQrData(data.qr);
- modal({title:'Пригласи друга в Шурш!',subtitle:'Одна ссылка для дружбы и новых регистраций',
-  content:'<div class="share-field"><input class="input" aria-label="Персональная ссылка" id="personal-invite-link" readonly value="'+attr(url)+'"><button class="btn btn-soft btn-small" type="button" data-social-action="copy-personal-invite">Копировать</button></div>'+
-  '<div style="text-align:center;margin:16px 0"><img id="personal-invite-qr" alt="QR-код приглашения" width="208" height="208" style="max-width:100%;height:auto" src="'+attr(qr)+'"></div>'+
-  '<div class="btn-row"><a class="btn btn-soft btn-small" download="shursh-invite.png" href="'+attr(qr)+'">Скачать QR</a>'+
-  '<button class="btn btn-dark btn-small" type="button" data-social-action="share-personal-invite">Поделиться ссылкой</button><button class="btn btn-soft btn-small" type="button" data-social-action="share-personal-qr">Поделиться QR</button></div>'+
-  '<div class="btn-row"><a class="btn btn-soft btn-small" target="_blank" rel="noopener noreferrer" href="https://t.me/share/url?url='+encodeURIComponent(url)+'">Telegram</a>'+
+ modal({title:'Пригласить друга',content:
+  '<div class="personal-invite-card"><div class="invite-brand"><span class="logo">шурш<span>!</span></span>'+socialAvatar(currentUser)+'</div>'+
+  '<img id="personal-invite-qr" alt="QR-код приглашения от '+attr(currentUser.name||'')+'" width="208" src="'+attr(qr)+'">'+
+  '<div class="personal-invite-download"><a class="btn btn-soft btn-small" download="shursh-invite.png" href="'+attr(qr)+'">Скачать QR</a><button class="btn btn-soft btn-small" type="button" data-social-action="share-personal-qr">Поделиться QR</button></div></div>'+
+  '<div class="field"><label for="personal-invite-link">Твоя ссылка</label><div class="share-field invite-link-row"><input class="input" aria-label="Персональная ссылка" id="personal-invite-link" readonly value="'+attr(url)+'"><button class="btn btn-soft btn-small" type="button" data-social-action="copy-personal-invite" aria-label="Копировать ссылку">'+ico('copy')+'</button></div></div>'+
+  '<div class="personal-invite-social"><a class="btn btn-soft btn-small" target="_blank" rel="noopener noreferrer" href="https://t.me/share/url?url='+encodeURIComponent(url)+'">Telegram</a>'+
   '<a class="btn btn-soft btn-small" target="_blank" rel="noopener noreferrer" href="https://vk.com/share.php?url='+encodeURIComponent(url)+'">VK</a></div>'+
-  '<p class="note">Дружба только по согласию. Новая подтверждённая регистрация засчитывается один раз</p>'+
-  '<button class="text-link" type="button" data-social-action="revoke-personal-invite">Отозвать ссылку</button>'});
+  '<p class="note">Дружба только по согласию. Новая подтверждённая регистрация засчитывается один раз</p>',
+  footer:'<div class="personal-invite-footer"><button class="text-link" type="button" data-social-action="revoke-personal-invite">Отозвать ссылку</button><button class="btn btn-dark" type="button" data-social-action="share-personal-invite">Поделиться ссылкой '+ico('arrow')+'</button></div>'});
+ modalRoot.querySelector('.modal')?.classList.add('personal-invite-modal');
 }
 async function copyPersonalInvite(){
  const input=modalRoot.querySelector('#personal-invite-link');if(!input)return;

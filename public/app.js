@@ -69,7 +69,7 @@ function restoreOwnerTab(path){
  ownerTabViews.delete(path);view.replaceChildren(saved.node);
  view.removeAttribute('aria-busy');app.classList.remove('route-loading');
  syncNavigationSelection(path);
- renderedOwnerTab=path;
+ renderedOwnerTab=path;consumeSwipeArrival();
  const refreshPath=ownerApiForTab(path);
  const stale=refreshPath&&ownerEntry(refreshPath);
  if(stale&&stale.expires<=Date.now())void revalidateOwnerRead(refreshPath,stale);
@@ -82,7 +82,16 @@ function restoreOwnerTab(path){
 
 // Touch only. Native vertical scrolling and horizontally scrollable controls
 // always win; never intercept OS back gestures at screen edges.
-let pageSwipe=null,swipeClickUntil=0;
+let pageSwipe=null,swipeClickUntil=0,swipeArrival=null;
+function animateSwipeArrival(node,dir){
+ if(!node||motionReduced()||!node.animate)return;
+ node.animate([{opacity:.88,transform:'translateX('+(dir*22)+'px)'},{opacity:1,transform:'translateX(0)'}],{duration:260,easing:'cubic-bezier(.2,.7,.2,1)'});
+}
+function consumeSwipeArrival(){
+ if(!swipeArrival)return;
+ const pending=swipeArrival;swipeArrival=null;
+ if(pending.path===currentPath())animateSwipeArrival(app.querySelector('#page-view > main'),pending.dir);
+}
 const swipeExcluded='input,textarea,select,button,a:not(.card-hitarea),[contenteditable], [role="slider"],.ui-select,.ui-calendar-popover,.game-gifts-track,.gift-gallery,.game-chat-messages,.admin-users-table-scroll,.nav,.cookie-notice';
 function swipeScrollable(node,limit){
  for(let el=node;el&&el!==limit;el=el.parentElement){
@@ -126,14 +135,14 @@ document.addEventListener('touchend',event=>{
  if(s.local){
   const tabs=[...s.local.querySelectorAll('button[aria-selected],button[aria-pressed]')].filter(b=>!b.disabled&&!b.hidden);
   const i=tabs.findIndex(b=>b.getAttribute('aria-selected')==='true'||b.getAttribute('aria-pressed')==='true');
-  if(i>=0&&tabs[i+dir]){swipeClickUntil=performance.now()+300;tabs[i+dir].click();}
+  if(i>=0&&tabs[i+dir]){swipeClickUntil=performance.now()+300;tabs[i+dir].click();const panel=document.getElementById(tabs[i+dir].getAttribute('aria-controls')||'')||s.local.parentElement;animateSwipeArrival(panel,dir);}
   return;
  }
  if(!ownerTab(s.path)||s.path==='/notifications')return;
  const links=[...app.querySelectorAll('.site-header .nav a[data-nav]')];
  const i=links.findIndex(a=>a.dataset.nav===s.path);
  if(i<0||!links[i+dir])return;
- swipeClickUntil=performance.now()+300;nav(links[i+dir].dataset.nav);
+ swipeClickUntil=performance.now()+300;swipeArrival={path:links[i+dir].dataset.nav,dir};nav(links[i+dir].dataset.nav);
 },{passive:true});
 // Suppress only a compatibility click belonging to the completed swipe. A new
 // touch resets the deadline; programmatic tab clicks and keyboard activation pass.
@@ -204,7 +213,7 @@ function dropOwnerRead(path){
 function clearOwnerDataCache(){
  ownerCacheVersion++;ownerSessionEpoch++;ownerDataCache.clear();clearOwnerTabViews();ownerRevalidating.clear();ownerPending.clear();renderedOwnerTab=null;wishlistTabGeneration++;
  ownerWarmupIdentity=null;ownerWarmupReady=false;ownerWarmupPromise=null;
- currentOwnedWishlists=[];loadedList=null;loadedSanta=null;activeGameContext=null;
+ currentOwnedWishlists=[];loadedList=null;loadedSanta=null;activeGameContext=null;wishlistCoverSlots.clear();
  if(typeof notificationModalItems!=='undefined'){notificationModalItems=[];notificationModalMore=false;notificationModalUnread=0;}
  if(typeof resetSocialBadge==='function')resetSocialBadge();
  stopGameLifecycle();
@@ -594,7 +603,7 @@ function modal({title,subtitle='',content='',onSubmit=null,onError=null,submitLa
  const titleNode=scroller.querySelector(':scope > h2');
  if(titleNode){
   const headerRail=document.createElement('div');headerRail.className='modal-fixed-header';
-  headerRail.append(titleNode);dialog.insertBefore(headerRail,scroller);
+  headerRail.append(titleNode,dialog.querySelector('.modal-close'));dialog.insertBefore(headerRail,scroller);
  }
  const rail=document.createElement('div');rail.className='modal-toast-rail';
  dialog.insertBefore(rail,scroller);syncToastPlacement();
@@ -646,7 +655,7 @@ function contactDeveloperModal(){
    field('Почта для ответа','email','name@example.com','email',currentUser?.email||'',true,'maxlength="200"')+
    selectField('Тема','topic',[['idea','Предложение'],['bug','Ошибка'],['question','Вопрос'],['other','Другое']],'idea')+
    textArea('Сообщение','message','Расскажите подробнее…')+
-   '<p class="field-hint">Сообщение поступит в кабинет администрации. Ответим на указанную почту</p>',
+   '<p class="field-hint">Сообщение получит разработчик. Ответим на указанную почту</p>',
   submitLabel:'Отправить',onSubmit:async form=>{
    await api('/api/feedback',{method:'POST',body:readForm(form)});
    notice('Обращение отправлено');
@@ -680,12 +689,7 @@ function closeModal({immediate=false}={}){
 }
 
 document.addEventListener('keydown',e=>{if(e.key==='Escape'){if(activeCalendar){e.preventDefault();closeCalendar(true);}else if(uiSelectOpen){e.preventDefault();closeUiSelect(true);}else closeModal();}});
-document.addEventListener('click',e=>{
- const picker=e.target.closest('input[type="date"]');
- if(picker&&!picker.disabled&&typeof picker.showPicker==='function'){
-  try{picker.showPicker();}catch{/* Keep native fallback. */}
- }
-});
+
 function field(label,name,placeholder='',type='text',value='',required=false,extra=''){
  return `<div class="field"><label for="fld-${attr(name)}">${esc(label)}</label><input id="fld-${attr(name)}" name="${attr(name)}" type="${attr(type)}" placeholder="${attr(placeholder)}" value="${attr(value??'')}" ${required?'required':''} ${extra}></div>`;
 }
@@ -832,7 +836,7 @@ function closeCalendar(refocus=false){
 }
 function enhanceCalendars(root){
  root.querySelectorAll('input[type="date"]:not([data-ui-calendar])').forEach(input=>{
-  input.dataset.uiCalendar='true';input.classList.add('ui-calendar-native');
+  input.dataset.uiCalendar='true';input.classList.add('ui-calendar-native');input.tabIndex=-1;input.setAttribute('aria-hidden','true');
   const button=document.createElement('button');button.type='button';button.className='ui-calendar-trigger';
   button.setAttribute('aria-label',input.closest('.field')?.querySelector('label')?.textContent||'Дата');
   button.setAttribute('aria-haspopup','dialog');button.setAttribute('aria-expanded','false');
@@ -874,8 +878,8 @@ function enhanceCalendars(root){
      '<div class="ui-calendar-days">'+['Пн','Вт','Ср','Чт','Пт','Сб','Вс'].map(d=>'<span>'+d+'</span>').join('')+'</div>'+
      '<div class="ui-calendar-grid">'+cells+'</div><div class="ui-calendar-actions"><button type="button" data-clear>Очистить</button><button type="button" data-today>Сегодня</button></div>';
     const r=button.getBoundingClientRect(),h=popup.getBoundingClientRect().height;
-    popup.style.left=Math.max(8,Math.min(r.left,innerWidth-320))+'px';
-    popup.style.top=(r.bottom+h+8<innerHeight?r.bottom+6:Math.max(8,r.top-h-6))+'px';
+    popup.style.left=Math.max(8,Math.min(r.left,innerWidth-popup.getBoundingClientRect().width-8))+'px';
+    popup.style.top=Math.max(8,Math.min(r.bottom+h+8<innerHeight?r.bottom+6:r.top-h-6,innerHeight-h-8))+'px';
    };
    popup.addEventListener('click',event=>{
     const b=event.target.closest('button');if(!b||b.disabled)return;
@@ -929,39 +933,46 @@ function landingArt(name, classes=''){
 }
 // Stable default art with collision-free allocation in each rendered collection.
 const wishlistCoverArt=['step-gift','camera','cup','ticket','step-list','step-share','hero-gift','hero-mail','hero-mascot','privacy'];
+const wishlistOccasionArt={
+ 'День рождения':['step-gift','hero-gift','cup','ticket'],
+ 'Годовщина':['hero-mail','privacy','cup','step-share'],
+ 'Новоселье':['cup','step-list','hero-mascot','step-gift'],
+ 'Свадьба':['hero-mail','step-share','privacy','hero-gift'],
+ 'Новый год':['santa','hero-gift','step-gift','hero-mascot'],
+ 'Просто так':['camera','ticket','cup','step-list'],
+ 'Другое':['step-share','camera','hero-mascot','hero-mail']
+};
 const wishlistCoverSlots=new Map();
-function wishlistCoverKey(list){return String(list.id??list.share_key??'');}
+function wishlistCoverKey(list){return String(list.id??list.share_key??'')+'|'+(list.occasion||'Другое');}
 function wishlistCoverSeed(list){
- const key=wishlistCoverKey(list);
+ const key=String(list.id??list.share_key??'');
  if(/^\d+$/.test(key))return Number(BigInt(key)%100n);
- let h=0;for(const ch of key)h=(Math.imul(h,31)+ch.charCodeAt(0))>>>0;
- return h%100;
+ let h=0;for(const ch of key)h=(Math.imul(h,31)+ch.charCodeAt(0))>>>0;return h%100;
+}
+function wishlistCoverParts(list,slot){
+ const pool=wishlistOccasionArt[list.occasion]||wishlistOccasionArt['Другое'];
+ const parts=[pool[slot%pool.length]],n=wishlistCoverArt.length;
+ let remaining=Math.floor(slot/pool.length)-1;
+ while(remaining>=0){parts.push(wishlistCoverArt[remaining%n]);remaining=Math.floor(remaining/n)-1;}
+ return parts;
 }
 function assignWishlistCovers(lists){
- const taken=new Set(),ordered=[...lists].sort((x,y)=>wishlistCoverKey(x).localeCompare(wishlistCoverKey(y),'en',{numeric:true}));
+ const used=new Set(),ordered=[...lists].sort((x,y)=>wishlistCoverKey(x).localeCompare(wishlistCoverKey(y),'en',{numeric:true}));
  const result=new Map();
  for(const list of ordered){
   const key=wishlistCoverKey(list);if(result.has(key))continue;
-  const seed=wishlistCoverSlots.get(key)??wishlistCoverSeed(list)%wishlistCoverArt.length;
-  let slot=seed;
-  // Prefer a distinct single illustration, then distinct paired compositions.
-  if(taken.has(slot)){
-   slot=0;while(taken.has(slot))slot++;
+  let slot=wishlistCoverSlots.get(key)??wishlistCoverSeed(list)%4;
+  if(used.has(wishlistCoverParts(list,slot).join('|'))){
+   slot=0;while(used.has(wishlistCoverParts(list,slot).join('|')))slot++;
   }
-  taken.add(slot);result.set(key,slot);wishlistCoverSlots.set(key,slot);
+  used.add(wishlistCoverParts(list,slot).join('|'));result.set(key,slot);wishlistCoverSlots.set(key,slot);
  }
  return result;
 }
 function wishlistCover(list,assignments){
- const key=wishlistCoverKey(list);
- const slot=assignments?.get(key)??wishlistCoverSlots.get(key)??wishlistCoverSeed(list)%wishlistCoverArt.length;
- // Enumerate all one-image, two-image, three-image, ... compositions.
- // Unlike modulo-only pairs, every nonnegative slot has a unique sequence.
- const n=wishlistCoverArt.length,parts=[];
- let remaining=slot;
- do{parts.push(wishlistCoverArt[remaining%n]);remaining=Math.floor(remaining/n)-1;}while(remaining>=0);
- const [primary,...companions]=parts;
- return `<span class="wishlist-cover-art${companions.length?' wishlist-cover-paired':''}" data-cover-variant="${slot}">${serviceArt(primary)}${companions.length?`<span class="cover-companions">${companions.map(name=>serviceArt(name)).join('')}</span>`:''}</span>`;
+ const key=wishlistCoverKey(list),slot=assignments?.get(key)??wishlistCoverSlots.get(key)??wishlistCoverSeed(list)%4;
+ const [primary,...companions]=wishlistCoverParts(list,slot);
+ return `<span class="wishlist-cover-art${companions.length?' wishlist-cover-paired':''}" data-cover-variant="${attr((list.occasion||'Другое')+':'+slot)}">${serviceArt(primary)}${companions.length?`<span class="cover-companions">${companions.map(name=>serviceArt(name)).join('')}</span>`:''}</span>`;
 }
 function heroArt(){return `<div class="hero-stage" aria-hidden="true">${landingArt('hero-accents','hero-layer')}${landingArt('hero-mail','hero-layer float-one')}${landingArt('hero-gift','hero-layer float-two')}${landingArt('hero-mascot','hero-layer wobble')}</div>`;}
 function santaArt(){return landingArt('santa');}
@@ -1135,7 +1146,7 @@ function shell(body){
  syncNavigationSelection();
  attachNavigationScrollCue();
   closeUiSelect();view.innerHTML=body;enhanceSelects(view);view.removeAttribute('aria-busy');app.classList.remove('route-loading');
- renderedOwnerTab=ownerTab(currentPath())?currentPath():null;
+ renderedOwnerTab=ownerTab(currentPath())?currentPath():null;consumeSwipeArrival();
  document.title='Шурш! - вишлисты и Тайный Санта';
  if(currentUser&&!isPreview){
   if(typeof socialRefreshBadge==='function')void socialRefreshBadge();
@@ -1576,6 +1587,7 @@ async function santaGamePage(id,marker=lastRenderToken,participantToken=null){
  `<form class="form" id="legacy-santa-wish-form"><div class="share-field"><input class="input" name="title" required maxlength="130" placeholder="Название подарка"><button class="btn btn-dark btn-small" type="submit">Добавить ${ico('plus')}</button></div></form><p class="note">Подробные карточки появятся после обновления игры</p>`}</div>
  ${!memberView&&e.status==='open'?`<div class="panel"><h2>Исключения</h2><p class="note">Укажи пары, которые не должны выпадать друг другу. Ограничения работают направленно: «А → Б» означает, что А не может дарить Б</p><div class="rules-list" id="santa-rules-list" style="margin:17px 0">${santaRuleMarkup(d.exclusions,people)}</div><button type="button" class="btn btn-soft btn-small santa-rule-toggle" data-action="toggle-santa-rule-form">${ico('plus')} Добавить ограничение</button><form class="form santa-rule-editor" id="rule-form" hidden><div class="form-grid">${selects('giver_id','Кто дарит')}${selects('receiver_id','Кому нельзя дарить')}</div><div class="btn-row"><button class="btn btn-soft btn-small" type="button" data-action="toggle-santa-rule-form">Отмена</button><button class="btn btn-dark btn-small" type="submit">Сохранить ограничение</button></div></form></div>`:''}
  </div><div><div class="panel"><div class="panel-heading-actions"><h2>О событии</h2></div><div class="details-box santa-event-details"><p>${ico('calendar')} <strong>Дата:</strong> ${memberView?dateRu(e.exchange_date):`<button type="button" class="santa-inline-field santa-inline-value" data-action="edit-santa-date" data-santa-field="exchange_date" aria-label="Изменить дату обмена">${dateRu(e.exchange_date)}</button>`}</p><p>${ico('gift')} <strong>Бюджет:</strong> ${memberView?money(e.budget_cents,e.currency):`<button type="button" class="santa-inline-field santa-inline-value" data-action="edit-santa-budget" data-santa-field="budget" aria-label="Изменить бюджет">${money(e.budget_cents,e.currency)}</button>`}</p><p>${ico('users')} <strong>Участники:</strong> <span data-santa-event-count>${people.length}</span></p>${e.rules?`<div class="divider-line"></div><strong>Правила:</strong><p>${esc(e.rules)}</p>`:''}</div></div>
+ ${santaMemorySection(e,memberView)}
  ${!memberView&&e.status==='open'?`<div class="panel"><h2>Время раскрыть карты?</h2><p class="note">После жеребьёвки приглашения, состав и исключения будут заморожены. Каждый увидит только своего получателя</p><div class="alert santa-draw-hint"><span class="santa-draw-hint-icon">${ico('info')}</span><span>Понадобится минимум 3 участника. Желательно, чтобы все успели присоединиться</span></div><button class="btn btn-dark" style="width:100%" data-action="draw" ${people.length<3?'disabled':''}>Провести жеребьёвку ${ico('spark')}</button></div>`:`<div class="panel"><h2>Кому ты даришь</h2>${drawPerformed?secretCard(memberView?d.assignment:d.my_assignment):`<div class="secret-card">${envelopeArt()}<h2>${e.status==='finished'?'Игра завершена без жеребьёвки':'Пока храним интригу'}</h2><p>${e.status==='finished'?'Получатели не назначались':'Организатор ещё собирает всех участников. После жеребьёвки здесь появится конверт с твоим получателем'}</p></div>`}</div>`}
  ${memberView&&participantToken&&!d.participant.user_id?`<div class="panel"><h2>Твоя личная ссылка</h2><p class="note">Эта гостевая ссылка даёт доступ к твоей игре без аккаунта. Не пересылай её другим</p>${!d.participant.user_id&&!isPreview?`<div class="game-save-account"><p>Привяжи это гостевое место к своему аккаунту, чтобы больше не пользоваться ссылкой</p><button class="btn btn-dark btn-small" type="button" data-action="claim-game" data-token="${attr(participantToken)}">${ico("check")} Сохранить игру в аккаунте</button></div>`:""}<div class="share-field"><input class="input" readonly value="${attr(getLink(`/p/${participantToken}`))}" aria-label="Личная ссылка"><button class="btn btn-dark btn-small" data-action="copy" data-url="${attr(getLink(`/p/${participantToken}`))}">${ico('copy')} Копировать</button></div></div>`:''}
  </div></div>
@@ -1589,7 +1601,7 @@ async function santaGamePage(id,marker=lastRenderToken,participantToken=null){
  <div class="game-chat-messages" role="log" aria-live="polite"><p class="note">Загружаем сообщения…</p></div>
  <form id="game-chat-form" class="game-chat-form"><label for="game-chat-input" class="sr-only">Текст сообщения</label><input id="game-chat-input" class="input" name="message" placeholder="Сообщение…" maxlength="500" autocomplete="off" required><button class="btn btn-dark btn-small game-chat-send" type="submit" aria-label="Отправить сообщение" title="Отправить">${ico('arrow',22)}</button></form>
  
- </section>`:`<section class="panel"><h2>Чаты игры</h2><p class="note">Чаты появятся после обновления игры. Остальные возможности доступны</p></section>`}${santaMemorySection(e,memberView)}</main>`);
+ </section>`:`<section class="panel"><h2>Чаты игры</h2><p class="note">Чаты появятся после обновления игры. Остальные возможности доступны</p></section>`}</main>`);
  setupGameGiftOverflow();
  document.getElementById('santa-preferences-form')?.addEventListener('submit',async ev=>{
    ev.preventDefault();const form=ev.currentTarget,button=form.querySelector('button');
@@ -1639,7 +1651,7 @@ async function santaGamePage(id,marker=lastRenderToken,participantToken=null){
 }
 async function myWishesForAdmin(id){const res=await api(`/api/santas/${id}/my-wishes`);return wishesMarkup(res.wishes);}
 function secretCard(assignment){if(!assignment||!assignment.revealed)return `<div class="secret-card">${envelopeArt()}<h2>Твой получатель ждёт внутри</h2><p>Никто, кроме тебя, не увидит это имя</p><button class="btn btn-dark" type="button" data-action="reveal">Узнать, кому я дарю ${ico('spark')}</button></div>`;
- return `<div class="secret-card revealed"><div class="recipient-summary">${ico('check')}<div><div class="recipient-eyebrow">Твой получатель</div><div class="recipient">${esc(assignment.receiver_name)}</div>${assignment.receiver_user_id?`<button class="text-link recipient-profile-link" data-nav="/users/${attr(assignment.receiver_user_id)}">Профиль получателя ${ico('arrow')}</button>`:""}</div></div><div class="recipient-wishes">
+ return `<div class="secret-card revealed"><div class="recipient-summary">${socialAvatar({avatar_emoji:assignment.receiver_avatar_emoji},'recipient-avatar')}<div><div class="recipient">${esc(assignment.receiver_name)}</div>${assignment.receiver_user_id?`<button class="text-link recipient-profile-link" data-nav="/users/${attr(assignment.receiver_user_id)}">Профиль получателя ${ico('arrow')}</button>`:""}</div></div><div class="recipient-wishes">
   ${preferenceSummary(assignment.preferences,false)}
   <strong>Подарки получателя</strong>${assignment.wish_cards?.length?wishesMarkup(assignment.wish_cards,'recipient'):'<p class="recipient-empty">Пока без пожеланий - можно придумать сюрприз самому</p>'}</div></div>`;}
 function santaRuleMarkup(exclusions,people){
@@ -1651,6 +1663,13 @@ function editSantaIdentity(fieldName){
  if(!event||!control||control.tagName!=='BUTTON')return;
  const budget=fieldName==='budget',date=fieldName==='exchange_date',description=fieldName==='description';
  const old=budget?(event.budget_cents==null?'':String(event.budget_cents/100)):String(event[fieldName]||'');
+ if(date){
+  modal({title:'Дата обмена',content:field('Дата обмена','exchange_date','','date',old,true),submitLabel:'Сохранить',onSubmit:async form=>{
+   const value=form.elements.exchange_date.value;if(!value)throw new Error('Выбери дату');
+   await api('/api/santas/'+event.id,{method:'PATCH',body:{exchange_date:value}});
+   event.exchange_date=value;control.textContent=dateRu(value);notice('Изменения сохранены');
+  }});return;
+ }
  const editor=document.createElement(description?'textarea':'input');
  editor.className='santa-inline-editor santa-inline-editor-'+fieldName;
  if(!description)editor.type=date?'date':budget?'number':'text';
@@ -2327,7 +2346,7 @@ function loginModal(mode='login',email=''){
   subtitle:pendingGameClaim?'После входа сохраним эту игру в твоём аккаунте':register?'Создай аккаунт, чтобы хранить свои списки и организовывать игры':'Твои желания уже соскучились',
   content:(register?field('Как тебя зовут?','name','Например, Саша','text','',true,'maxlength="40" autocomplete="name"'):'')+
    field('Почта','email','you@example.com','text',email,true,'inputmode="email" autocomplete="username" autocapitalize="none" spellcheck="false" maxlength="200"')+passwordField(register)+
-   (register?confirmPasswordField():shurshCheckbox('remember','Оставаться в аккаунте 30 дней',false))+
+   (register?confirmPasswordField():shurshCheckbox('remember','Оставаться в аккаунте 30 дней',true))+
    (nativeSubmit?'<input type="hidden" name="login_csrf" value="'+attr(loginCsrf)+'"><input type="hidden" name="return_path" value="'+attr(currentPath())+'">':'')+authFormWarning(),
   onError:showAuthFormWarning,
   submitLabel:register?'Создать аккаунт':'Войти',

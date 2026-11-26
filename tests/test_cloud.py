@@ -1209,8 +1209,19 @@ def test_browser_card_clicks_and_santa_settings(browser_http):
             owner.locator('input.santa-inline-editor-budget').press('Enter')
             expect(owner.locator('.details-box')).to_contain_text('2 450')
             owner.locator('button[data-action="edit-santa-date"]').click()
-            owner.locator('input.santa-inline-editor-exchange_date').fill('2027-02-12')
-            owner.locator('input.santa-inline-editor-exchange_date').press('Enter')
+            owner.locator('.modal .ui-calendar-trigger').click()
+            for _ in range(60):
+                day=owner.locator('.ui-calendar-popover [data-date="2027-02-12"]')
+                if day.count():
+                    day.click()
+                    break
+                current=owner.locator('.ui-calendar-grid [data-date]').first.get_attribute('data-date')
+                direction='1' if current<'2027-02-12' else '-1'
+                owner.locator('.ui-calendar-toolbar [data-shift="'+direction+'"]').click()
+            else:
+                raise AssertionError('Target month not reached')
+            owner.locator('.modal-fixed-footer button[type="submit"]').click()
+            expect(owner.locator('.modal-backdrop')).to_have_count(0)
             expect(owner.locator('.details-box')).to_contain_text('12 февраля')
             assert owner.locator('.modal-backdrop').count()==0
             owner.locator('button[data-action="add-player"]').click()

@@ -309,6 +309,15 @@ class CloudRequest(Handler):
         social.after_mutation(self,method,path,con,result)
         return result
 
+    def assignment_view(self, con, eid, pid):
+        result = super().assignment_view(con, eid, pid)
+        if result and result.get('revealed') and result.get('receiver_user_id'):
+            profile = con.execute('SELECT avatar_emoji FROM profiles WHERE id=?',
+                                  (result['receiver_user_id'],)).fetchone()
+            if profile:
+                result['receiver_avatar_emoji'] = profile['avatar_emoji']
+        return result
+
     def store_image(self, con, list_id, data):
         decoded = decode_image(data)
         if not decoded:
