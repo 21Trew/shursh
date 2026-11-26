@@ -1042,7 +1042,7 @@ def test_browser_register_wishlist_reservation_and_isolation(browser_http):
             expect(page.locator('.alert')).to_contain_text('Список приватный')
             assert guest.evaluate('''async k => (await fetch('/api/public/' + k)).status''', key) == 404
             guest.goto(share)
-            expect(guest.locator('.error-page h1')).to_have_text('Страница не найдена')
+            expect(guest.locator('.error-page h1')).to_have_text('Вишлист не найден')
         finally:
             browser.close()
 
@@ -2308,7 +2308,11 @@ def test_private_finished_santa_memory_upload_and_no_public_leak(application):
     assert call(member,'GET',base).json['can_edit'] is False
     assert photo not in str(call(owner,'GET',f'/api/santas/{eid}').json)
     assert photo not in str(call(owner,'GET','/api/dashboard').json)
-    call(member,'DELETE',base,status=404)
+    call(member,'DELETE',base,status=403)
+    call(anonymous,'DELETE',base,status=401)
+    assert call(owner,'DELETE',base).json=={'ok':True}
+    assert call(member,'GET',f'/api/member/{eid}/memory').json['memory'] is None
+    assert call(owner,'DELETE',base).json=={'ok':True}
 
 
 def test_db_persisted_admin_permission_is_identity_scoped(application,monkeypatch):
@@ -3608,6 +3612,13 @@ def test_error_incident_dedup_and_no_sensitive_payload(application,monkeypatch):
     matching=[x for x in entries if x['name']=='Системный инцидент' and x['message'].endswith('/admin/users')]
     assert len(matching)==2 and all(not x['email'] for x in matching)
     assert 'SECRET-DO-NOT-STORE' not in str(matching)
+    diagnostic={'kind':'not_found','route':'/santa/*','context':True,'status':404,'api_route':'/api/santas/*','object_id':'123','ui_version':'a'*20,'request_id':'fra1::test-123','module_name':'SECRET-DO-NOT-STORE','url':'/p/SECRET-DO-NOT-STORE'}
+    call(manager,'POST','/api/incidents',diagnostic,201)
+    item=next(x for x in call(manager,'GET','/api/admin/feedback').json['items'] if 'ID запроса: fra1::test-123' in x['message'])
+    assert 'HTTP: 404' in item['message'] and 'ID объекта: 123' in item['message'] and 'API: /api/santas/*' in item['message']
+    assert item['reply_email'] is False and item['notify_site'] is False
+    assert 'SECRET-DO-NOT-STORE' not in item['message']
+    assert call(guest,'GET','/u/legacy_nick').status_code==200
     call(guest,'GET','/api/admin/feedback',status=401)
 
 

@@ -2578,6 +2578,11 @@ def test_friends_exact_search_and_qr_invite(browser_https,application,engine):
                     return {band,correct,branded:data[0]===249&&data[1]===231&&data[2]===163};
                 }""",rows)
                 assert pixels=={'band':104,'correct':True,'branded':True},pixels
+                import base64, io, zxingcpp
+                from PIL import Image
+                png=base64.b64decode(page.locator('#personal-invite-qr').get_attribute('src').split(',',1)[1])
+                decoded=zxingcpp.read_barcode(Image.open(io.BytesIO(png)))
+                assert decoded and decoded.text==url, 'Branded invitation QR must decode to its exact URL'
                 expect(page.locator('a[download="shursh-invite.png"]')).to_have_count(0)
                 assert 'max.ru/:share?text=' in page.get_by_role('link',name='MAX',exact=True).get_attribute('href')
                 assert 't.me/share/url' in page.get_by_role('link',name='Telegram',exact=True).get_attribute('href')
@@ -3454,7 +3459,9 @@ def test_hotfix_admin_direct_reload_and_error_report(browser_https,application,m
             page.reload(wait_until='domcontentloaded')
             expect(page.locator('main h1')).to_have_text('Пользователи')
             page.evaluate("errorView(new ReferenceError('socialAdminUsersPage is not defined'))")
-            expect(page.locator('.error-santa-art')).to_be_visible()
+            expect(page.locator('.error-approved-art img')).to_be_visible()
+            expect(page.locator('.error-page h1')).to_have_text('Не удалось загрузить интерфейс')
+            expect(page.locator('.error-page > p:not([data-incident-result])')).to_have_count(0)
             expect(page.locator('.error-page')).not_to_contain_text('is not defined')
             btn=page.get_by_role('button',name='Сообщить об ошибке')
             with page.expect_response(lambda r:r.url.endswith('/api/incidents')) as response:

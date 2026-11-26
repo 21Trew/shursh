@@ -281,7 +281,7 @@ class CloudRequest(Handler):
             email=req(data.get('email'),'Почта',200).lower() if reply else ''
             if reply and not re.fullmatch(r'[^\s@]+@[^\s@]+\.[^\s@]+',email):
                 raise ApiError(400,'Укажи корректную почту')
-            routes={'/','/lists','/santas','/friends','/profile','/notifications','/admin','/admin/users','/admin/feedback','/list/*','/santa/*','/users/*','/u/*','/w/*','/r/*','/i/*','/join/*','/p/*','other'}
+            routes={'/','/lists','/santas','/friends','/profile','/notifications','/admin','/admin/users','/admin/feedback','/admin/audit','/list/*','/santa/*','/users/*','/u/*','/w/*','/r/*','/i/*','/join/*','/p/*','other'}
             route=data.get('source_route')
             if not isinstance(route,str) or (route not in routes and not re.fullmatch(r'/(?:list|santa)/[0-9]{1,10}',route)): route='other'
             con.execute("""INSERT INTO developer_feedback(name,email,topic,message,status,created_at,reply_email,notify_site,author_id,source_route)
@@ -328,20 +328,42 @@ class CloudRequest(Handler):
         if method == 'POST' and path == '/api/incidents':
             data=self.body()
             kinds={'module':'Ошибка загрузки интерфейса','network':'Ошибка соединения','not_found':'Страница не найдена','access':'Ошибка доступа','server':'Ошибка сервера','unknown':'Неизвестная ошибка'}
-            routes={'/','/lists','/santas','/friends','/profile','/notifications','/admin','/admin/users','/admin/feedback','/list/*','/santa/*','/users/*','/u/*','/w/*','/r/*','/i/*','/join/*','/p/*','other'}
+            routes={'/','/lists','/santas','/friends','/profile','/notifications','/admin','/admin/users','/admin/feedback','/admin/audit','/list/*','/santa/*','/users/*','/u/*','/w/*','/r/*','/i/*','/join/*','/p/*','other'}
             kind,route=data.get('kind'),data.get('route')
             if not isinstance(kind,str) or kind not in kinds or not isinstance(route,str) or route not in routes:
                 raise ApiError(400,'Неверные данные инцидента')
             # Only allowlisted categories; never persist raw URLs, tokens or errors.
             # The outer write transaction serializes reports across workers.
             message=kinds[kind]+'; раздел: '+route
+            user=None
+            if data.get('context') is True:
+                from cloud.activity import platform_family
+                user=self.user(con)
+                details=[]
+                status=data.get('status')
+                if type(status) is int and 400<=status<=599: details.append('HTTP: '+str(status))
+                endpoint=data.get('api_route')
+                safe_endpoints={'/api/'+r for r in ('me','dashboard','lists','santas','friends','profile/me','notifications','notifications/unread','admin/users','admin/overview','admin/feedback','admin/audit')}
+                safe_endpoints.update('/api/'+r+'/*' for r in ('lists','santas','users','u','public','invites','member','participant','friend-invites','reservations','personal-invites'))
+                if isinstance(endpoint,str) and endpoint in safe_endpoints: details.append('API: '+endpoint)
+                oid=data.get('object_id')
+                if route in ('/list/*','/santa/*') and isinstance(oid,str) and re.fullmatch(r'\d{1,10}',oid): details.append('ID объекта: '+oid)
+                version=data.get('ui_version')
+                if isinstance(version,str) and re.fullmatch(r'[a-f0-9]{20}',version): details.append('Версия UI: '+version)
+                request_id=data.get('request_id')
+                if isinstance(request_id,str) and re.fullmatch(r'[A-Za-z0-9:-]{1,160}',request_id): details.append('ID запроса: '+request_id)
+                module=data.get('module_name')
+                if isinstance(module,str) and module in ('socialAdminUsersPage','socialAdminAuditPage','socialAdminPage','socialOwnProfilePage','socialProfilePage','socialFriendsPage','santaGamePage','santasPage','ownerListPage','dashboardPage','santaRosterPerson','inviteShareButtons'): details.append('Модуль: '+module)
+                details.append('Устройство: '+platform_family(self.headers))
+                if user: details.append('ID пользователя: '+str(user['id']))
+                message+='\n'+'\n'.join(details)
             existing=con.execute("""SELECT id FROM developer_feedback
                 WHERE name='Системный инцидент' AND topic='bug' AND message=?
                   AND created_at>=now()-interval '5 minutes' LIMIT 1""",(message,)).fetchone()
             if existing:
                 return 200,{'ok':True,'duplicate':True},None
-            con.execute("""INSERT INTO developer_feedback(name,email,topic,message,status,created_at)
-                VALUES('Системный инцидент','','bug',?,'new',now())""",(message,))
+            con.execute("""INSERT INTO developer_feedback(name,email,topic,message,status,created_at,reply_email,notify_site,author_id,source_route)
+                VALUES('Системный инцидент','','bug',?,'new',now(),false,false,?,?)""",(message,user['id'] if user else None,route))
             return 201,{'ok':True,'duplicate':False},None
         if method == 'GET' and path == '/api/me':
             return 200, {'user': self.user(con), 'demo': False}, None

@@ -453,7 +453,7 @@ async function api(path,opts={}){
   if(cached&&ownerPending.get(path)?.request!==request)return api(path,opts);
   if(cached&&((response.ok&&!verifyOwnerViewer(response,identity))||response.status===401)){resetOwnerSession();throw sessionChangedError();}
   const data=await response.json().catch(()=>({error:'Не удалось прочитать ответ сервера'}));
-  if(!response.ok){const err=new Error(data.error||'Произошла ошибка');err.status=response.status;throw err;}
+  if(!response.ok){const err=new Error(data.error||'Произошла ошибка');err.status=response.status;err.apiPath=path;err.requestId=response.headers.get('x-vercel-id')||'';err.uiVersion=response.headers.get('x-shursh-ui-version')||'';throw err;}
   if(epoch!==ownerSessionEpoch||currentUser?.id!==identity)throw sessionChangedError();
   if(cached&&ownerPending.get(path)?.request!==request)return api(path,opts);
   if(method!=='GET')invalidateOwnerDataForMutation(path);
@@ -1284,16 +1284,24 @@ function incidentRoute(){
  if(/^\/(?:list|santa|users|u|w|r|i|join|p)\//.test(path))return '/'+path.split('/')[1]+'/*';
  return 'other';
 }
+function incidentApiRoute(path){
+ if(typeof path!=='string')return '';
+ const clean=path.split('?')[0];
+ if(/^\/api\/(?:me|dashboard|lists|santas|friends|profile\/me|notifications|notifications\/unread|admin\/users|admin\/overview|admin\/feedback|admin\/audit)$/.test(clean))return clean;
+ const m=clean.match(/^\/api\/(lists|santas|users|u|public|invites|member|participant|friend-invites|reservations|personal-invites)\//);
+ return m?'/api/'+m[1]+'/*':'other';
+}
+let visibleIncident=null;
 function errorView(err,title='Что-то пошло не так'){
- const kind=incidentType(err);
- const description=kind==='module'?'Не удалось загрузить часть интерфейса. Попробуй обновить страницу':localizedError(err);
- shell(`<main class="container page"><div class="error-page"><svg class="error-santa-art" viewBox="0 0 340 235" aria-hidden="true" xmlns="http://www.w3.org/2000/svg"><defs><pattern id="error-pencil" width="6" height="6" patternUnits="userSpaceOnUse" patternTransform="rotate(26)"><path d="M1 0v6M4 0v6" stroke="#493b42" stroke-opacity=".14" stroke-width="1.1"/></pattern></defs><g stroke="#493b42" stroke-width="2.7" stroke-linecap="round" stroke-linejoin="round">
-<path d="M21 214q79 8 143 0t154 0" stroke="#c4aa97" stroke-width="1.5" fill="none"/><path d="M104 168l-6 34 27 6 18-30M159 173l9 35 28-3-7-33" fill="#e36f5f"/><path d="M96 199q-15 2-18 13l48 1 4-13M167 202l-2 11 46-1q-3-12-17-13" fill="#5f5158"/>
-<path d="M102 117q-16 18-17 56 52 20 108 2l-2-37-30-34z" fill="#e97866"/><path d="M102 117q-16 18-17 56 52 20 108 2l-2-37-30-34z" fill="url(#error-pencil)" stroke="none"/><path d="M90 161q49 19 102 5l1 14q-55 16-108-3z" fill="#fffdf5"/><path d="M144 136l-4 43M95 153q47 18 97 6" fill="none"/><path d="M140 154l16 2-1 11-17-2z" fill="#f1c866"/>
-<path d="M104 124q-21-11-26-37l-7-21 12-8 19 26 21 17" fill="#e97866"/><path d="M70 65l13-9 9 12-14 11z" fill="#fffdf5"/><path d="M69 64q-9-2-8-12l7-9q4-4 8 0l2 7 10-7q7 1 4 7l-9 11z" fill="#f5c6a4"/>
-<path d="M108 55q-8-25 12-40 28-20 55 9l15 23-11 10z" fill="#e97866"/><path d="M111 51q37-12 75-1l-1 13q-40-10-76 2z" fill="#fffdf5"/><circle cx="182" cy="30" r="11" fill="#fffdf5"/><path d="M116 65q-7 30 18 44 24 13 48-10 11-13 1-35-39-12-67 1z" fill="#f7c7a9"/><path d="M122 83q-13-4-15 11 2 17 17 15-4 16 14 18 10 13 24 4 17 2 22-12 17-5 14-20-2-12-12-11-8 17-22 9-6 10-17 1-15 6-25-15z" fill="#fffdf5"/><path d="M147 80l5 3m15-1 5 4m-18 8q7-4 14 0M142 75l8-3m16 3 8 5" fill="none"/><path d="M149 86q5-7 10 0t-6 6" fill="#e9a48e"/>
-<path d="M186 128q18-4 30 20l11 11-10 12-22-12" fill="#e97866"/><path d="M217 157l12-3 7 13-13 8z" fill="#fffdf5"/><path d="M231 165q11-9 17 0l-3 9-13 4-5-8z" fill="#f7c7a9"/><path d="M226 168q-19 14-23 36 28 20 84 9 10-25-19-47l-7-15-27 3z" fill="#d8a77f"/><path d="M226 168q-19 14-23 36 28 20 84 9 10-25-19-47l-7-15-27 3z" fill="url(#error-pencil)" stroke="none"/><ellipse cx="248" cy="156" rx="25" ry="10" transform="rotate(8 248 156)" fill="#775a55"/><ellipse cx="248" cy="155" rx="17" ry="5" transform="rotate(8 248 155)" fill="#4b3b40" stroke="none"/><path d="M221 164q25 10 50 1m-25 9-8 10m15-9 7 11" fill="none"/>
-<g transform="translate(15 174) rotate(-10)"><path d="M0 8l34 2 22-7v29l-22 8L0 36z" fill="#c8a5e4"/><path d="M0 8l15-13 19 15 22-7 11 10-33 9z" fill="#f6d6a9"/><path d="M34 22v18M15-5l23 4 18 4" fill="none"/></g><g transform="translate(282 188) rotate(12)"><path d="M0 7l19 8 24-9v24l-24 9-19-8z" fill="#f3cd70"/><path d="M0 7l9-11 10 19 24-9 5-12-25 4z" fill="#f7df9f"/><path d="M19 15v24" fill="none"/></g><path d="M37 166l-8-7m31-2 6-9m232 23 7-9M209 68q7-10 15-3t-3 13q-5 4-5 9m-1 8h.1" fill="none" stroke="#ae785f"/></g></svg><h1>${esc(title)}</h1><p>${esc(description)}</p><div class="error-page-actions"><button class="btn btn-dark" data-action="retry-error">Попробовать снова</button><button class="btn btn-soft" data-action="report-incident" data-kind="${attr(kind)}" data-route="${attr(incidentRoute())}">Сообщить об ошибке</button><button class="text-link" data-nav="/">На главную ${ico('arrow')}</button></div><p class="note" data-incident-result role="status"></p></div></main>`);
+ const kind=incidentType(err),route=incidentRoute();
+ const notFound={'/list/*':'Вишлист не найден','/w/*':'Вишлист не найден','/santa/*':'Игра не найдена','/users/*':'Пользователь не найден','/u/*':'Пользователь не найден','/join/*':'Приглашение не найдено','/i/*':'Приглашение не найдено','/p/*':'Личная ссылка недействительна','/r/*':'Бронь не найдена'};
+ const heading=kind==='not_found'?(notFound[route]||'Страница не найдена'):title==='Страница потерялась'?'Страница не найдена':kind==='module'?'Не удалось загрузить интерфейс':kind==='access'?'Нет доступа':title;
+ const status=Number.isInteger(err?.status)?err.status:null;
+ const id=currentPath().match(/^\/(?:list|santa)\/(\d{1,10})$/)?.[1]||'';
+ const uiVersion=err?.uiVersion||landingArtPrefix.match(/\/ui\/([a-f0-9]{20})\//)?.[1]||'';
+ const moduleName=kind==='module'&&typeof err?.message==='string'?err.message.match(/\b(socialAdminUsersPage|socialAdminAuditPage|socialAdminPage|socialOwnProfilePage|socialProfilePage|socialFriendsPage|santaGamePage|santasPage|ownerListPage|dashboardPage|santaRosterPerson|inviteShareButtons)\b/)?.[1]||'':'';
+ visibleIncident={kind:kind==='unknown'&&title==='Страница потерялась'?'not_found':kind,route,status,api_route:incidentApiRoute(err?.apiPath),object_id:id,ui_version:uiVersion,request_id:err?.requestId||'',module_name:moduleName,context:true};
+ shell(`<main class="container page"><div class="error-page"><div class="error-approved-art">${serviceArt('santa')}</div><h1>${esc(heading)}</h1><div class="error-page-actions">${kind==='not_found'||title==='Страница потерялась'?'':'<button class="btn btn-dark" data-action="retry-error">Попробовать снова</button>'}<button class="btn btn-soft" data-action="report-incident">Сообщить об ошибке</button><button class="text-link" data-nav="/">На главную ${ico('arrow')}</button></div><p class="note" data-incident-result role="status"></p></div></main>`);
 }
 function emptyState(title,desc,button,open){return `<div class="blank-state"><div class="blank-illustration">${fallbackArt('gift')}</div><h3>${esc(title)}</h3><p>${esc(desc)}</p><button class="btn btn-dark" data-open="${attr(open)}">${esc(button)} ${ico('plus')}</button></div>`;}
 let wishlistTabGeneration=0;
@@ -1503,7 +1511,7 @@ async function adminFeedbackPage(marker=lastRenderToken){
    '<article class="panel feedback-entry"><div class="panel-heading-actions"><h2>'+esc(topic[item.topic]||item.topic)+
    '</h2><span class="chip">'+(item.status==='resolved'?'Закрыто':'Новое')+'</span></div>'+
    '<p><strong>'+esc(item.name)+'</strong>'+(item.email?' · <a href="mailto:'+attr(item.email)+'">'+esc(item.email)+'</a>':'')+'</p>'+
-   '<p class="feedback-message">'+esc(item.message)+'</p>'+ (item.source_route?'<p class="note">Раздел: '+esc(item.source_route)+' · Ответ на почту: '+(item.reply_email?'да':'нет')+' · Уведомление: '+(item.notify_site?'да':'нет')+'</p>':'')+
+   '<p class="feedback-message">'+esc(item.message)+'</p>'+ (item.source_route&&item.name!=='Системный инцидент'?'<p class="note">Раздел: '+esc(item.source_route)+' · Ответ на почту: '+(item.reply_email?'да':'нет')+' · Уведомление: '+(item.notify_site?'да':'нет')+'</p>':'')+
    '<div class="panel-heading-actions"><small>'+esc(item.created_at)+'</small>'+
    '<button type="button" class="btn btn-soft btn-small" data-action="admin-feedback-status" data-id="'+item.id+
    '" data-status="'+(item.status==='resolved'?'new':'resolved')+'">'+(item.status==='resolved'?'Вернуть в новые':'Отметить решённым')+'</button></div></article>'
@@ -2618,7 +2626,7 @@ async function dispatch(action,el){try{
  if(action==='report-incident'){
   if(el.disabled)return;el.disabled=true;
   const result=el.closest('.error-page')?.querySelector('[data-incident-result]');
-  try{await api('/api/incidents',{method:'POST',body:{kind:el.dataset.kind,route:el.dataset.route}});el.textContent='Сообщение отправлено';if(result)result.textContent='Администрация получила сообщение';}
+  try{await api('/api/incidents',{method:'POST',body:visibleIncident||{kind:'unknown',route:incidentRoute(),context:true}});el.textContent='Сообщение отправлено';if(result)result.textContent='Администрация получила сообщение';}
   catch(err){el.disabled=false;if(result)result.textContent='Не удалось отправить сообщение. Попробуй ещё раз';}
   return;
  }

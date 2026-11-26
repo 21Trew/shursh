@@ -325,7 +325,7 @@ def frontend(route=''):
     if route in LANDING_ART_ASSETS:
         return send_from_directory(ROOT/'public',route)
     # Serve only known app routes; never include the simulator or repository files.
-    if route in ('','index.html','lists','santas','friends','profile','notifications','admin','admin/users','admin/feedback','admin/audit') or re.fullmatch(r'(?:list|santa)/[0-9]{1,16}|(?:w|r|join|p)/[A-Za-z0-9_-]{1,128}|join/p/[A-Za-z0-9_-]{43}|i/[A-Za-z0-9_-]{24}|users/[0-9a-fA-F-]{36}',route):
+    if route in ('','index.html','lists','santas','friends','profile','notifications','admin','admin/users','admin/feedback','admin/audit') or re.fullmatch(r'(?:list|santa)/[0-9]{1,16}|(?:w|r|join|p)/[A-Za-z0-9_-]{1,128}|join/p/[A-Za-z0-9_-]{43}|i/[A-Za-z0-9_-]{24}|users/[0-9a-fA-F-]{36}|u/[A-Za-z0-9_]{3,20}',route):
         # Reuse the per-browser token across tabs. Never use the session cookie
         # as a CSRF token. HTML is no-store; the meta value is same-origin only.
         csrf=request.cookies.get('__Host-shursh_login_csrf','')
