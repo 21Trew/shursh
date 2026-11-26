@@ -2513,6 +2513,28 @@ def test_performance_soak_real_polling_session_and_retention(browser_https, appl
             browser.close()
 
 
+def assert_invite_branding(container):
+    expected={'telegram':('rgb(34, 158, 217)','rgb(16, 38, 55)'),
+              'vk':('rgb(0, 119, 255)','rgb(13, 0, 26)'),
+              'max':('rgb(71, 26, 255)','rgb(255, 255, 255)')}
+    for brand,(background,foreground) in expected.items():
+        link=container.locator('.share-'+brand)
+        expect(link).to_be_visible()
+        expect(link.locator('svg path')).to_have_count(1)
+        expect(link).to_have_css('background-color',background)
+        expect(link).to_have_css('color',foreground)
+        expect(link.locator('svg')).to_have_css('color','rgb(255, 255, 255)')
+        assert link.locator('svg path').evaluate("(path)=>{const b=path.getBBox();return b.width>0&&b.height>0&&getComputedStyle(path).fill==='rgb(255, 255, 255)'}")
+        assert link.evaluate("""el=>{
+            const luminance=color=>color.match(/\\d+/g).slice(0,3).map(Number).map(v=>v/255).map(v=>v<=.04045?v/12.92:((v+.055)/1.055)**2.4).reduce((s,v,i)=>s+v*[.2126,.7152,.0722][i],0);
+            const css=getComputedStyle(el),a=luminance(css.color),b=luminance(css.backgroundColor);
+            return (Math.max(a,b)+.05)/(Math.min(a,b)+.05)>=4.5;
+        }""")
+        assert link.evaluate("el=>el.scrollWidth<=el.clientWidth+1")
+        if brand=='max':
+            assert link.locator('svg path').get_attribute('d').startswith('M508.211 878.328')
+
+
 @pytest.mark.browser
 @pytest.mark.parametrize('engine',['chromium','webkit'])
 def test_friends_exact_search_and_qr_invite(browser_https,application,engine):
@@ -2556,8 +2578,7 @@ def test_friends_exact_search_and_qr_invite(browser_https,application,engine):
                 page.wait_for_function('(url)=>window.copiedInvite===url',arg=url)
                 assert page.locator('.personal-invite-social').evaluate("el=>{const r=[...el.children].map(c=>c.getBoundingClientRect());return r.length===5&&r.every(x=>Math.abs(x.top-r[0].top)<1)&&r.every(x=>x.width>0&&x.height>=44)}")
                 expect(page.locator('#personal-invite-qr')).to_be_visible()
-                for brand in ('telegram','vk','max'):
-                    expect(page.locator('.share-'+brand+' svg path')).to_have_count(1)
+                assert_invite_branding(page.locator('.personal-invite-social'))
                 page.wait_for_function("()=>document.querySelector('#personal-invite-qr')?.complete && document.querySelector('#personal-invite-qr')?.naturalWidth>0")
                 assert page.locator('#personal-invite-qr').evaluate("img=>img.complete&&img.naturalWidth>0&&img.src.startsWith('data:image/png')")
                 expect(page.get_by_role('button',name='QR',exact=True)).to_be_visible()
@@ -2597,6 +2618,7 @@ def test_friends_exact_search_and_qr_invite(browser_https,application,engine):
                 assert page.evaluate("document.documentElement.scrollWidth<=innerWidth+1")
                 page.set_viewport_size({'width':320,'height':780})
                 page.wait_for_function("""()=>{const el=document.querySelector('.personal-invite-social');if(!el)return false;const r=[...el.children].map(c=>c.getBoundingClientRect());return r.length===5&&r.every(x=>Math.abs(x.top-r[0].top)<1)&&r.every(x=>x.left>=0&&x.right<=innerWidth+1&&x.height>=44)}""")
+                assert_invite_branding(page.locator('.personal-invite-social'))
                 page.screenshot(path=str(output/f'{engine}-320-qr.png'),animations='disabled')
                 page.set_viewport_size({'width':1440,'height':900})
                 page.screenshot(path=str(output/f'{engine}-desktop-qr.png'),animations='disabled')
@@ -3544,7 +3566,9 @@ def test_profile_feedback_and_inline_santa_polish(browser_https,application,engi
             expect(page.locator('.profile-session-row .chip-green')).to_have_count(1)
             page.locator('[data-social-action=refresh-sessions]').click()
             revoke=page.locator('[data-session-id="'+secondary_id+'"]')
+            evidence=OUTPUT/'pr44-acceptance';evidence.mkdir(parents=True,exist_ok=True)
             expect(revoke).to_be_visible()
+            page.locator('.profile-sessions').screenshot(path=str(evidence/f'{engine}-sessions.png'),animations='disabled')
             page.once('dialog',lambda dialog:dialog.accept())
             revoke.click()
             expect(revoke).to_have_count(0)
@@ -3591,8 +3615,9 @@ def test_profile_feedback_and_inline_santa_polish(browser_https,application,engi
             expect(page.locator('[data-santa-date-input]')).to_have_value('2027-02-13')
             eid=page.evaluate("async()=> (await api('/api/santas',{method:'POST',body:{title:'QR regression'}})).id")
             page.evaluate("id=>nav('/santa/'+id,{force:true})",eid)
-            for brand in ('telegram','vk','max'):
-                expect(page.locator('.santa-share .share-'+brand+' svg path')).to_have_count(1)
+            assert_invite_branding(page.locator('.santa-share'))
+            evidence=OUTPUT/'pr44-acceptance';evidence.mkdir(parents=True,exist_ok=True)
+            page.locator('.santa-share').screenshot(path=str(evidence/f'{engine}-santa-share.png'),animations='disabled')
             url=page.locator('.santa-share [data-action=copy]').get_attribute('data-url')
             page.locator('.santa-share [data-social-action=santa-invite-qr]').click()
             expect(page.locator('.personal-invite-modal #personal-invite-qr')).to_be_visible()
@@ -3603,6 +3628,7 @@ def test_profile_feedback_and_inline_santa_polish(browser_https,application,engi
             qr=page.locator('.personal-invite-modal #personal-invite-qr')
             decoded=zxingcpp.read_barcode(Image.open(io.BytesIO(base64.b64decode(qr.get_attribute('src').split(',',1)[1]))))
             assert decoded and decoded.text==url
+            page.locator('.personal-invite-modal').screenshot(path=str(evidence/f'{engine}-santa-qr.png'),animations='disabled')
             page.keyboard.press('Escape')
             page.evaluate("""async id=>{const c=document.createElement('canvas');c.width=c.height=32;const ctx=c.getContext('2d');ctx.fillStyle='#ffdf90';ctx.fillRect(0,0,32,32);await api('/api/santas/'+id+'/finish',{method:'POST',body:{image_data:c.toDataURL('image/png')}});nav('/santa/'+id,{force:true});}""",eid)
             photo=page.locator('.santa-memory-wrap')
@@ -3616,6 +3642,7 @@ def test_profile_feedback_and_inline_santa_polish(browser_https,application,engi
             expect(menu).to_have_css('opacity','1')
             menu.locator('summary').click()
             expect(menu).to_have_attribute('open','')
+            photo.screenshot(path=str(evidence/f'{engine}-memory-menu.png'),animations='disabled')
             page.locator('.santa-memory-panel h2').click()
             expect(menu).not_to_have_attribute('open','')
             page.evaluate("id=>api('/api/santas/'+id,{method:'DELETE',body:{}})",eid)
