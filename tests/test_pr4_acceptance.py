@@ -2513,6 +2513,28 @@ def test_performance_soak_real_polling_session_and_retention(browser_https, appl
             browser.close()
 
 
+def assert_invite_branding(container):
+    expected={'telegram':('rgb(34, 158, 217)','rgb(16, 38, 55)'),
+              'vk':('rgb(0, 119, 255)','rgb(13, 0, 26)'),
+              'max':('rgb(71, 26, 255)','rgb(255, 255, 255)')}
+    for brand,(background,foreground) in expected.items():
+        link=container.locator('.share-'+brand)
+        expect(link).to_be_visible()
+        expect(link.locator('svg path')).to_have_count(1)
+        expect(link).to_have_css('background-color',background)
+        expect(link).to_have_css('color',foreground)
+        expect(link.locator('svg')).to_have_css('color','rgb(255, 255, 255)')
+        assert link.locator('svg path').evaluate("(path)=>{const b=path.getBBox();return b.width>0&&b.height>0&&getComputedStyle(path).fill==='rgb(255, 255, 255)'}")
+        assert link.evaluate("""el=>{
+            const luminance=color=>color.match(/\\d+/g).slice(0,3).map(Number).map(v=>v/255).map(v=>v<=.04045?v/12.92:((v+.055)/1.055)**2.4).reduce((s,v,i)=>s+v*[.2126,.7152,.0722][i],0);
+            const css=getComputedStyle(el),a=luminance(css.color),b=luminance(css.backgroundColor);
+            return (Math.max(a,b)+.05)/(Math.min(a,b)+.05)>=4.5;
+        }""")
+        assert link.evaluate("el=>el.scrollWidth<=el.clientWidth+1")
+        if brand=='max':
+            assert link.locator('svg path').get_attribute('d').startswith('M508.211 878.328')
+
+
 @pytest.mark.browser
 @pytest.mark.parametrize('engine',['chromium','webkit'])
 def test_friends_exact_search_and_qr_invite(browser_https,application,engine):
@@ -2531,6 +2553,8 @@ def test_friends_exact_search_and_qr_invite(browser_https,application,engine):
                 ctx=browser.new_context(ignore_https_errors=True,viewport={'width':390,'height':844})
                 page=ctx.new_page();page.goto(browser_https+'/');browser_login(page,landing='identity')
                 page.evaluate("nav('/friends')")
+                expect(page.get_by_role('heading',name='Приглашённые друзья')).to_be_visible()
+                expect(page.get_by_role('button',name='Пригласить друга')).to_have_count(1)
                 search=page.locator('#social-search-form input[name=q]')
                 search.fill('@qrother');page.locator('#social-search-form button').click()
                 result=page.locator('#social-search-results')
@@ -2554,6 +2578,7 @@ def test_friends_exact_search_and_qr_invite(browser_https,application,engine):
                 page.wait_for_function('(url)=>window.copiedInvite===url',arg=url)
                 assert page.locator('.personal-invite-social').evaluate("el=>{const r=[...el.children].map(c=>c.getBoundingClientRect());return r.length===5&&r.every(x=>Math.abs(x.top-r[0].top)<1)&&r.every(x=>x.width>0&&x.height>=44)}")
                 expect(page.locator('#personal-invite-qr')).to_be_visible()
+                assert_invite_branding(page.locator('.personal-invite-social'))
                 page.wait_for_function("()=>document.querySelector('#personal-invite-qr')?.complete && document.querySelector('#personal-invite-qr')?.naturalWidth>0")
                 assert page.locator('#personal-invite-qr').evaluate("img=>img.complete&&img.naturalWidth>0&&img.src.startsWith('data:image/png')")
                 expect(page.get_by_role('button',name='QR',exact=True)).to_be_visible()
@@ -2570,7 +2595,7 @@ def test_friends_exact_search_and_qr_invite(browser_https,application,engine):
                     let correct=true;
                     for(let y=0;y<rows.length;y++)for(let x=0;x<rows.length;x++){
                       const i=4*((band+y*scale+Math.floor(scale/2))*c.width+x*scale+Math.floor(scale/2));
-                      if(Math.hypot(x-(rows.length-1)/2,y-(rows.length-1)/2)<=5.5)continue;
+                      if(Math.hypot(x-(rows.length-1)/2,y-(rows.length-1)/2)<=6.5)continue;
                       if([[4,4],[rows.length-11,4],[4,rows.length-11]].some(([a,b])=>x>=a&&x<a+7&&y>=b&&y<b+7))continue;
                       const v=rows[y][x]==='1'?0:255;
                       if(data[i]!==v||data[i+1]!==v||data[i+2]!==v||data[i+3]!==255)correct=false;
@@ -2593,6 +2618,7 @@ def test_friends_exact_search_and_qr_invite(browser_https,application,engine):
                 assert page.evaluate("document.documentElement.scrollWidth<=innerWidth+1")
                 page.set_viewport_size({'width':320,'height':780})
                 page.wait_for_function("""()=>{const el=document.querySelector('.personal-invite-social');if(!el)return false;const r=[...el.children].map(c=>c.getBoundingClientRect());return r.length===5&&r.every(x=>Math.abs(x.top-r[0].top)<1)&&r.every(x=>x.left>=0&&x.right<=innerWidth+1&&x.height>=44)}""")
+                assert_invite_branding(page.locator('.personal-invite-social'))
                 page.screenshot(path=str(output/f'{engine}-320-qr.png'),animations='disabled')
                 page.set_viewport_size({'width':1440,'height':900})
                 page.screenshot(path=str(output/f'{engine}-desktop-qr.png'),animations='disabled')
@@ -2648,9 +2674,20 @@ def test_mobile_shared_sheets_header_actions_and_swipes(browser_https,engine):
                 page.goto(browser_https+'/');browser_login(page)
                 page.wait_for_function("()=>ownerWarmupReady",timeout=15000)
                 buttons=page.locator('.dashboard-welcome .btn-row .btn')
-                boxes=[b.bounding_box() for b in buttons.all()]
+                expect(buttons).to_have_count(2)
+                # Compare both buttons in one layout snapshot. Sequential protocol
+                # calls can sample different frames of the shared page translation.
+                page.wait_for_function("""()=>{
+                    const main=document.querySelector('#page-view > main');
+                    return main && main.getAnimations().every(a=>a.playState!=='running'&&a.playState!=='pending');
+                }""")
+                boxes=buttons.evaluate_all("""els=>els.map(el=>{
+                    const r=el.getBoundingClientRect();
+                    return {x:r.x,y:r.y,width:r.width,height:r.height};
+                })""")
                 assert len(boxes)==2 and abs(boxes[0]['y']-boxes[1]['y'])<=1 and boxes[0]['x']+boxes[0]['width']<=boxes[1]['x']+1,boxes
                 assert all(b['height']>=43.9 for b in boxes),boxes # subpixel tolerance, CSS min-height remains 44px
+                assert buttons.evaluate_all("els=>els.every(el=>getComputedStyle(el).transform==='none')")
                 assert page.evaluate("document.documentElement.scrollWidth<=innerWidth+1")
                 for selector in ('.dashboard-new-list','.santa-create-cta','header .header-bell'):
                     page.locator(selector).click()
@@ -2712,13 +2749,16 @@ def test_mobile_shared_sheets_header_actions_and_swipes(browser_https,engine):
                 page.wait_for_function("()=>!document.querySelector('.site-header').classList.contains('is-condensed') && Math.abs(document.querySelector('.site-header').getBoundingClientRect().height-132)<1")
                 # Synthetic touch events use the real handler, not a direct nav call.
                 def swipe(selector,dx,dy=0,x=width/2):
-                    page.evaluate("""([selector,dx,dy,x])=>{
+                    return page.evaluate("""([selector,dx,dy,x])=>{
                       const target=document.querySelector(selector);if(!target)throw Error(selector);
                       const y=160,id=5;
                       const touch=(a,b)=>({identifier:id,clientX:a,clientY:b,target});
+                      let movePrevented=false;
                       for(const [name,active,changed] of [['touchstart',[touch(x,y)],[touch(x,y)]],['touchmove',[touch(x+dx,y+dy)],[touch(x+dx,y+dy)]],['touchend',[],[touch(x+dx,y+dy)]]]){
-                       const e=new Event(name,{bubbles:true});Object.defineProperties(e,{touches:{value:active},changedTouches:{value:changed}});target.dispatchEvent(e);
+                       const e=new Event(name,{bubbles:true,cancelable:true});Object.defineProperties(e,{touches:{value:active},changedTouches:{value:changed}});target.dispatchEvent(e);
+                       if(name==='touchmove')movePrevented=e.defaultPrevented;
                       }
+                      return movePrevented;
                     }""",[selector,dx,dy,x])
                 if engine=='chromium':
                     # CDP delivers genuine browser touch input on the mobile context.
@@ -2737,14 +2777,31 @@ def test_mobile_shared_sheets_header_actions_and_swipes(browser_https,engine):
                 expect(page.locator('[data-wishlist-view="friends"]')).to_have_attribute('aria-selected','true')
                 swipe('#wishlist-view-content',100)
                 expect(page.locator('[data-wishlist-view="mine"]')).to_have_attribute('aria-selected','true')
-                swipe('main h1',-90,110)
+                assert not swipe('main h1',-90,110)
                 expect(page).to_have_url(re.compile(r'/lists$'))
-                swipe('main h1',-100,0,10)
+                assert not swipe('main h1',-100,0,10)
                 expect(page).to_have_url(re.compile(r'/lists$'))
-                swipe('main h1',-100)
+                assert not swipe('main h1',-10)
+                expect(page).to_have_url(re.compile(r'/lists$'))
+                assert swipe('main h1',-100)
                 expect(page).to_have_url(re.compile(r'/santas$'))
-                swipe('#santa-state-panel',-100)
+                assert swipe('#santa-state-panel',-100)
                 expect(page.locator('[data-santa-state="finished"]')).to_have_attribute('aria-selected','true')
+                # Exercise a cached owner-tab transition in addition to guest routes.
+                page.evaluate("notice('Только на странице Санты')")
+                expect(page.locator('#toast-root .toast')).to_have_text('Только на странице Санты')
+                # A genuine new touch resets the swipe compatibility-click guard.
+                page.locator('.site-header .nav a[data-nav="/lists"]').tap()
+                expect(page).to_have_url(re.compile(r'/lists$'))
+                expect(page.locator('.toast')).to_have_count(0)
+                page.evaluate("notice('Только на странице вишлистов')")
+                page.go_back()
+                expect(page).to_have_url(re.compile(r'/santas$'))
+                expect(page.locator('.toast')).to_have_count(0)
+                page.evaluate("notice('Не переносить вперёд')")
+                page.go_forward()
+                expect(page).to_have_url(re.compile(r'/lists$'))
+                expect(page.locator('.toast')).to_have_count(0)
                 ctx.close()
         finally:browser.close()
 
@@ -2808,13 +2865,17 @@ def test_mobile_toast_in_sheet_flow_and_lifecycle(browser_https,engine):
                 page.wait_for_function("()=>document.querySelector('.modal')?.getAnimations().length===0")
                 assert_geometry(geometry())
                 assert rail.evaluate("el=>el.scrollHeight>el.clientHeight")
-                # Resizing to desktop restores the same node and its original timer.
+                # Both breakpoints keep feedback inside the same modal and timer.
                 # Isolate breakpoint timing from the long-message screenshot.
                 page.evaluate("notice('Перенос уведомления');window.savedToast=document.querySelector('.toast');window.toastStarted=performance.now()")
                 page.set_viewport_size({'width':900,'height':844})
                 page.wait_for_function("()=>!matchMedia('(max-width:760px)').matches",timeout=2000)
-                expect(page.locator('#toast-root .toast')).to_have_count(1)
-                assert page.evaluate("savedToast===document.querySelector('#toast-root .toast')")
+                expect(page.locator('#toast-root .toast')).to_have_count(0)
+                expect(toast).to_have_count(1)
+                assert page.evaluate("savedToast===document.querySelector('.modal-toast-rail .toast')")
+                page.wait_for_function("()=>document.querySelector('.modal')?.getAnimations().length===0")
+                assert_geometry(geometry())
+                page.screenshot(path=str(out/f'{engine}-desktop-modal.png'),animations='disabled')
                 page.set_viewport_size({'width':width,'height':height})
                 page.wait_for_function("()=>matchMedia('(max-width:760px)').matches",timeout=2000)
                 expect(toast).to_have_count(1)
@@ -2836,6 +2897,62 @@ def test_mobile_toast_in_sheet_flow_and_lifecycle(browser_https,engine):
                 expect(page.locator('.toast')).to_have_count(0,timeout=6500)
                 ctx.close()
         finally:browser.close()
+
+@pytest.mark.browser
+@pytest.mark.parametrize('engine',['chromium','webkit'])
+def test_toast_route_scope_and_page_flow(browser_https,engine):
+    out=OUTPUT/'route-toast';out.mkdir(parents=True,exist_ok=True)
+    with sync_playwright() as play:
+        browser=getattr(play,engine).launch(headless=True)
+        try:
+            for width,height in ((390,844),(1280,800)):
+                ctx=browser.new_context(viewport={'width':width,'height':height},
+                    ignore_https_errors=True,reduced_motion='reduce')
+                page=ctx.new_page();page.goto(browser_https+'/')
+                expect(page.locator('main h1').first).to_be_visible()
+                page.evaluate("notice('Сохранено на этой странице')")
+                toast=page.locator('#toast-root .toast')
+                expect(toast).to_be_visible()
+                assert toast.evaluate("el=>getComputedStyle(el).position==='static'")
+                assert toast.evaluate("""el=>{
+                    const r=el.getBoundingClientRect();
+                    return [...document.querySelectorAll('button,a,input')].every(b=>{
+                        const q=b.getBoundingClientRect();
+                        return !(r.left<q.right&&r.right>q.left&&r.top<q.bottom&&r.bottom>q.top&&q.width&&q.height);
+                    });
+                }""")
+                page.screenshot(path=str(out/f'{engine}-{width}-page.png'),animations='disabled')
+                page.evaluate("nav('/toast-scope-test')")
+                expect(page.locator('.toast')).to_have_count(0)
+                expect(page.locator('main h1').first).to_be_visible()
+                page.evaluate("notice('Сообщение другого маршрута')")
+                page.go_back()
+                expect(page.locator('.toast')).to_have_count(0)
+                expect(page.locator('main h1').first).to_be_visible()
+                page.evaluate("""()=>{
+                    modal({title:'Ошибка',content:'<input aria-label="Поле">',onSubmit:async()=>{throw new Error('Проверь данные')}});
+                }""")
+                dialog=page.locator('.modal')
+                dialog.locator('button[type=submit]').click()
+                expect(dialog.locator('.modal-toast-rail .toast')).to_have_attribute('role','alert')
+                expect(page.locator('#toast-root .toast')).to_have_count(0)
+                page.screenshot(path=str(out/f'{engine}-{width}-modal-error.png'),animations='disabled')
+                page.keyboard.press('Escape')
+                expect(dialog).to_have_count(0)
+                expect(page.locator('.toast')).to_have_count(0)
+                page.evaluate("""()=>{
+                    modal({title:'Отложенная ошибка',content:'<p>Проверка</p>',onSubmit:()=>new Promise((_,reject)=>{window.rejectToastTest=reject})});
+                }""")
+                dialog.locator('button[type=submit]').click()
+                page.evaluate("nav('/toast-scope-test');rejectToastTest(new Error('Устаревшая ошибка'))")
+                expect(dialog).to_have_count(0)
+                expect(page.locator('main h1').first).to_be_visible()
+                expect(page.locator('.toast')).to_have_count(0)
+                page.evaluate("nav('/');notice('Новый маршрут готов')")
+                expect(toast).to_have_text('Новый маршрут готов')
+                ctx.close()
+        finally:browser.close()
+
 
 @pytest.mark.browser
 @pytest.mark.parametrize('engine', ['chromium','webkit'])
@@ -3129,8 +3246,10 @@ def test_service_crayon_covers_footer_and_circular_gift_gallery(browser_https,en
                     expect(dialog).to_have_attribute('aria-label','Третий')
                     dialog.locator('.gift-gallery-next').click()
                     expect(dialog).to_have_attribute('aria-label','Первый')
+                    page.evaluate("window.adjacentGiftImage=document.querySelector('.gift-gallery-next .gift-dialog-image')")
                     page.keyboard.press('ArrowRight')
                     expect(dialog).to_have_attribute('aria-label','Второй')
+                    assert page.evaluate("window.adjacentGiftImage===document.querySelector('.gift-dialog-media .gift-dialog-image')")
                     assert deck_size()==initial_size
                     page.evaluate("""()=>{
                       const target=document.querySelector('.gift-gallery .gift-dialog-media');
@@ -3529,6 +3648,25 @@ def test_profile_feedback_and_inline_santa_polish(browser_https,application,engi
             page=browser.new_page(ignore_https_errors=True,viewport={'width':390,'height':844})
             page.goto(browser_https+'/')
             browser_login(page)
+            from test_cloud import login,call
+            secondary=login(application)
+            secondary_id=next(s['id'] for s in call(secondary,'GET','/api/profile/me').json['sessions'] if s['current'])
+            page.evaluate("nav('/profile',{force:true})")
+            expect(page.get_by_role('heading',name='Активные сеансы')).to_be_visible()
+            expect(page.get_by_role('heading',name='Приглашённые друзья')).to_have_count(0)
+            expect(page.locator('.profile-session-row .chip-green')).to_have_count(1)
+            page.locator('[data-social-action=refresh-sessions]').click()
+            revoke=page.locator('[data-session-id="'+secondary_id+'"]')
+            evidence=OUTPUT/'pr44-acceptance';evidence.mkdir(parents=True,exist_ok=True)
+            expect(revoke).to_be_visible()
+            page.locator('.profile-sessions').screenshot(path=str(evidence/f'{engine}-sessions.png'),animations='disabled')
+            page.once('dialog',lambda dialog:dialog.accept())
+            revoke.click()
+            expect(revoke).to_have_count(0)
+            assert call(secondary,'GET','/api/me').json['user'] is None
+            page.locator('.profile-avatar-edit').click()
+            expect(page.locator('.emoji-grid [data-avatar-pick]')).to_have_count(48)
+            page.keyboard.press('Escape')
             page.evaluate("contactDeveloperModal()")
             expect(page.locator('[name=reply_email]')).to_be_checked()
             page.locator('label.shursh-checkbox').filter(has=page.locator('[name=reply_email]')).click()
@@ -3541,8 +3679,17 @@ def test_profile_feedback_and_inline_santa_polish(browser_https,application,engi
             assert page.locator('[name=topic] option[value=thanks]').count()==1
             page.keyboard.press('Escape')
             page.evaluate("socialEditProfileModal()")
-            expect(page.locator('[name=show_last_name]')).to_be_visible()
-            expect(page.locator('[name=show_patronymic]')).to_be_visible()
+            expect(page.locator('[data-avatar-pick]')).to_have_count(0)
+            expect(page.locator('.profile-edit-modal label[for=fld-name]')).to_have_text('Имя *')
+            for name in ('show_last_name','show_patronymic'):
+                eye=page.locator('[data-profile-visibility="'+name+'"]')
+                expect(eye).to_be_visible()
+                before=eye.get_attribute('aria-pressed')
+                eye.click()
+                expect(eye).to_have_attribute('aria-pressed','false' if before=='true' else 'true')
+                assert eye.get_attribute('title')
+                eye.click()
+                expect(eye).to_have_attribute('aria-pressed',before)
             expect(page.locator('[name=show_full_name]')).to_have_count(0)
             page.keyboard.press('Escape')
             page.evaluate("listModal()")
@@ -3557,6 +3704,39 @@ def test_profile_feedback_and_inline_santa_polish(browser_https,application,engi
             page.locator('.ui-calendar-toolbar [data-shift="-1"]').click()
             page.locator('.ui-calendar-day[data-date="2027-02-13"]').click()
             expect(page.locator('[data-santa-date-input]')).to_have_value('2027-02-13')
+            eid=page.evaluate("async()=> (await api('/api/santas',{method:'POST',body:{title:'QR regression'}})).id")
+            page.evaluate("id=>nav('/santa/'+id,{force:true})",eid)
+            assert_invite_branding(page.locator('.santa-share'))
+            evidence=OUTPUT/'pr44-acceptance';evidence.mkdir(parents=True,exist_ok=True)
+            page.locator('.santa-share').screenshot(path=str(evidence/f'{engine}-santa-share.png'),animations='disabled')
+            url=page.locator('.santa-share [data-action=copy]').get_attribute('data-url')
+            page.locator('.santa-share [data-social-action=santa-invite-qr]').click()
+            expect(page.locator('.personal-invite-modal #personal-invite-qr')).to_be_visible()
+            expect(page.locator('.personal-invite-modal .personal-invite-social')).to_have_count(0)
+            expect(page.locator('.personal-invite-modal .modal-fixed-footer')).to_have_count(0)
+            import base64,io,zxingcpp
+            from PIL import Image
+            qr=page.locator('.personal-invite-modal #personal-invite-qr')
+            decoded=zxingcpp.read_barcode(Image.open(io.BytesIO(base64.b64decode(qr.get_attribute('src').split(',',1)[1]))))
+            assert decoded and decoded.text==url
+            page.locator('.personal-invite-modal').screenshot(path=str(evidence/f'{engine}-santa-qr.png'),animations='disabled')
+            page.keyboard.press('Escape')
+            page.evaluate("""async id=>{const c=document.createElement('canvas');c.width=c.height=32;const ctx=c.getContext('2d');ctx.fillStyle='#ffdf90';ctx.fillRect(0,0,32,32);await api('/api/santas/'+id+'/finish',{method:'POST',body:{image_data:c.toDataURL('image/png')}});nav('/santa/'+id,{force:true});}""",eid)
+            photo=page.locator('.santa-memory-wrap')
+            expect(photo).to_be_visible()
+            page.set_viewport_size({'width':1280,'height':900})
+            menu=photo.locator('.santa-memory-menu')
+            photo.scroll_into_view_if_needed()
+            page.mouse.move(0,0)
+            expect(menu).to_have_css('opacity','0')
+            photo.hover()
+            expect(menu).to_have_css('opacity','1')
+            menu.locator('summary').click()
+            expect(menu).to_have_attribute('open','')
+            photo.screenshot(path=str(evidence/f'{engine}-memory-menu.png'),animations='disabled')
+            page.locator('.santa-memory-panel h2').click()
+            expect(menu).not_to_have_attribute('open','')
+            page.evaluate("id=>api('/api/santas/'+id,{method:'DELETE',body:{}})",eid)
         finally:
             browser.close()
 

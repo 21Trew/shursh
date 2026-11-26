@@ -4,6 +4,8 @@ No new outbound integrations or background jobs.
 """
 import re
 import os
+import time
+from hashlib import sha256
 from uuid import UUID
 
 NOTIFY_FIELDS=('notify_friends','notify_santa','notify_gifts','notify_system')
@@ -98,8 +100,46 @@ def request_friend(con, user, other, *, invitation=False):
               SET requested_by=excluded.requested_by,status='pending',updated_at=now()""",(a,b,user['id']))
         _notify(con,other,'friend_request','Тебе отправили заявку в друзья','/friends',user['id'])
 
+def session_identifier(digest):
+    # A UI handle cannot authenticate or reveal the stored session hash.
+    return sha256(('shursh-session-id-v1:'+digest).encode()).hexdigest()
+
+
+def current_session_hash(handler):
+    return token_hash(handler.request.cookies.get('shursh_sid',''))
+
+
+def own_sessions(handler, con, user):
+    now=int(time.time())
+    current=current_session_hash(handler)
+    rows=con.execute("""SELECT token_hash,created_at,expires_at FROM app_sessions
+        WHERE user_id=? AND expires_at>?
+        ORDER BY (token_hash=?) DESC,created_at DESC""",(user['id'],now,current)).fetchall()
+    result=[]
+    for row in rows:
+        expiry=min(row['expires_at'],int(row['created_at'].timestamp())+86400) if user.get('is_admin') else row['expires_at']
+        if expiry<=now: continue
+        result.append({'id':session_identifier(row['token_hash']),'current':row['token_hash']==current,
+                       'created_at':row['created_at'].isoformat(),'expires_at':expiry})
+    return result
+
+
 def handle(handler, method, path, con):
     """Return an API response triple or None for non-social endpoints."""
+    session_match=re.fullmatch(r'/api/sessions/(others|[0-9a-f]{64})',path)
+    if session_match and method=='DELETE':
+        user=handler.auth(con)
+        current=current_session_hash(handler)
+        requested=session_match.group(1)
+        if requested=='others':
+            con.execute('DELETE FROM app_sessions WHERE user_id=? AND token_hash<>?',(user['id'],current))
+        else:
+            rows=con.execute('SELECT token_hash FROM app_sessions WHERE user_id=? AND expires_at>?',(user['id'],int(time.time()))).fetchall()
+            digest=next((r['token_hash'] for r in rows if session_identifier(r['token_hash'])==requested),None)
+            if not digest: raise ApiError(404,'Сеанс не найден')
+            if digest==current: raise ApiError(400,'Текущий сеанс можно завершить кнопкой выхода')
+            con.execute('DELETE FROM app_sessions WHERE user_id=? AND token_hash=? AND token_hash<>?',(user['id'],digest,current))
+        return 200,{'ok':True},None
     qr_match=re.fullmatch(r'/api/invites/([A-Za-z0-9_-]{1,128})/qr',path)
     if qr_match and method=='GET':
         event=con.execute("SELECT id FROM santa_events WHERE invite_key=? AND status='open'",(qr_match.group(1),)).fetchone()
@@ -266,7 +306,7 @@ def handle(handler, method, path, con):
                             WHERE l.owner_id=? AND l.visibility='link'
                             GROUP BY l.id ORDER BY l.id DESC""",(user['id'],)).fetchall()
         count=con.execute('SELECT count(*) AS n FROM referral_attributions WHERE referrer_id=?',(user['id'],)).fetchone()['n'] if enabled else 0
-        return 200,{'profile':{**dict(p),'email':user['email']},'lists':[dict(l) for l in lists],'invites_enabled':enabled,'referral_count':count},None
+        return 200,{'profile':{**dict(p),'email':user['email']},'lists':[dict(l) for l in lists],'invites_enabled':enabled,'referral_count':count,'sessions':own_sessions(handler,con,user)},None
 
     if path == '/api/users/search' and method=='GET':
         user=handler.auth(con)
@@ -382,7 +422,8 @@ def handle(handler, method, path, con):
                 friends.append(data)
             elif item['status']=='pending':
                 (outgoing if item['requested_by']==user['id'] else incoming).append(data)
-        return 200,{'friends':friends,'incoming':incoming,'outgoing':outgoing,'invites_enabled':enabled},None
+        count=con.execute('SELECT count(*) AS n FROM referral_attributions WHERE referrer_id=?',(user['id'],)).fetchone()['n'] if enabled else 0
+        return 200,{'friends':friends,'incoming':incoming,'outgoing':outgoing,'invites_enabled':enabled,'referral_count':count},None
 
     match=re.fullmatch(r'/api/friends/([0-9a-fA-F-]{36})',path)
     if match and method in ('POST','PATCH','DELETE'):

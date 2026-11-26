@@ -3504,6 +3504,7 @@ def test_referral_verified_confirmation_exactly_once_and_revocation(application,
             results=list(pool.map(concurrent_confirm,range(2)))
         assert sum(r.get('invite_path')=='/i/'+invite for r in results)==1
         assert count(owner)==initial+1 and count(other)==initial_other
+        assert call(owner,'GET','/api/friends').json['referral_count']==initial+1
         assert 'invite_path' not in confirm('referral-a@example.test')
         assert count(owner)==initial+1
         current=call(owner,'POST','/api/friend-invites/me',{}).json
@@ -3697,7 +3698,9 @@ def test_admin_detail_visibility_and_audit(application,monkeypatch):
         assert detail['before_visible']==before and detail['after_visible']!=before
         assert detail['target_id']==uid
         assert 'password' not in str(detail) and 'valid-password' not in str(logs)
-        assert any(x['event']=='gift.created' for x in call(manager,'GET','/api/admin/audit?audience=users').json['items'])
+        assert all(x['event']!='gift.created' for x in call(manager,'GET','/api/admin/audit?audience=users').json['items'])
+        call(member,'DELETE','/api/wishes/'+str(wid))
+        assert any(x['event']=='gift.deleted' for x in call(manager,'GET','/api/admin/audit?audience=users').json['items'])
     finally:
         with db.transaction(write=True) as con:
             con.execute('UPDATE profiles SET discoverable=true WHERE id=?',(uid,))
@@ -3726,3 +3729,26 @@ def test_document_404_uses_brand_and_keeps_api_and_asset_contract(application):
     assert direct.status_code==404 and direct.mimetype=='text/html'
     assert client.get('/ui/'+UI_VERSION+'/error-page.js',base_url=BASE).status_code==200
     assert client.get('/u/legacy_nick',base_url=BASE).status_code==200
+
+def test_own_active_sessions_and_revocation(application):
+    a=login(application)
+    b=login(application)
+    c=login(application,'other@example.test')
+    profile=lambda client: call(client,'GET','/api/profile/me').json['sessions']
+    own=profile(a)
+    assert sum(s['current'] for s in own)==1
+    assert all(set(s)=={'id','current','created_at','expires_at'} for s in own)
+    current=next(s['id'] for s in own if s['current'])
+    other=next(s['id'] for s in profile(b) if s['current'])
+    foreign=next(s['id'] for s in profile(c) if s['current'])
+    assert current!=other and any(s['id']==other and not s['current'] for s in own)
+    call(a,'DELETE','/api/sessions/'+foreign,{},404)
+    call(a,'DELETE','/api/sessions/'+current,{},400)
+    call(application.test_client(),'DELETE','/api/sessions/others',{},401)
+    call(a,'DELETE','/api/sessions/'+other,{})
+    assert call(b,'GET','/api/me').json['user'] is None
+    d=login(application)
+    call(a,'DELETE','/api/sessions/others',{})
+    assert call(d,'GET','/api/me').json['user'] is None
+    assert [s['id'] for s in profile(a)]==[current]
+    assert call(c,'GET','/api/me').json['user'] is not None

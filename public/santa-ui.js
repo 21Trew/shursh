@@ -88,20 +88,30 @@ function showGameWishDetails(el){
  dialog.classList.add('gift-deck-modal');
  const layout=dialog.querySelector('.gift-dialog-layout');
  function step(dir){
+  if(![-1,1].includes(dir))return;
   if(activeGameContext!==state||!dialog.isConnected||dialog.closest('[inert]'))return;
   const focusInside=layout.contains(document.activeElement);
   const focused=document.activeElement?.closest('[data-gallery-step]')?.dataset.galleryStep;
   index=wrap(index+dir);
   const gift=gifts[index];dialog.setAttribute('aria-label',gift.title);
   dialog.querySelector('.modal-fixed-header h2').textContent=gift.title;
-  layout.innerHTML=content();
-  dialog.querySelector('.modal-scroll-area').scrollTop=0;
+  // Reuse already decoded adjacent images. Keep the modal, header and footer
+  // mounted and avoid a blank frame while switching between image cards.
+  const next=document.createElement('template');next.innerHTML=content();
+  const images=Array.from(layout.querySelectorAll('img'));
+  for(const image of next.content.querySelectorAll('img')){
+   const i=images.findIndex(old=>old.getAttribute('src')===image.getAttribute('src')&&old.className===image.className);
+   if(i<0)continue;
+   const [old]=images.splice(i,1);old.alt=image.alt;old.loading='eager';image.replaceWith(old);
+  }
+  layout.replaceChildren(next.content);
+  const scroller=dialog.querySelector('.modal-scroll-area');if(scroller)scroller.scrollTop=0;
   if(focused)layout.querySelector('[data-gallery-step="'+focused+'"]')?.focus({preventScroll:true});
   else if(focusInside)dialog.focus({preventScroll:true});
   const deck=layout.querySelector('.gift-gallery');
   if(!motionReduced()&&deck?.animate){
-   deck.querySelector('.gift-dialog-media')?.animate([{opacity:.5,transform:'translateX('+(dir*64)+'px) scale(.96)'},{opacity:1,transform:'translateX(0) scale(1)'}],{duration:300,easing:'cubic-bezier(.2,.7,.2,1)'});
-   for(const side of deck.querySelectorAll('.gift-gallery-preview-art'))side.animate([{opacity:.25,transform:'translateX('+(dir*20)+'px)'},{opacity:.55,transform:'translateX(0)'}],{duration:300,easing:'ease-out'});
+   deck.querySelector('.gift-dialog-media')?.animate([{opacity:.82,transform:'translateX('+(dir*24)+'px) scale(.985)'},{opacity:1,transform:'translateX(0) scale(1)'}],{duration:220,easing:'cubic-bezier(.2,.7,.2,1)'});
+   for(const side of deck.querySelectorAll('.gift-gallery-preview-art'))side.animate([{opacity:.75,transform:'translateX('+(dir*10)+'px)'},{opacity:1,transform:'translateX(0)'}],{duration:220,easing:'ease-out'});
   }
  }
  let suppressClickUntil=0;
