@@ -20,7 +20,7 @@ from server import ApiError, LIMIT_BYTES
 ROOT = Path(__file__).resolve().parent
 # One fingerprint for the HTML and every first-party UI module. A new release
 # cannot reuse a cached app.js under the previous HTML's unversioned URL.
-UI_ASSETS=('app.js','santa-ui.js','social-ui.js','styles.css','polish.css','fonts.css')
+UI_ASSETS=('app.js','santa-ui.js','social-ui.js','styles.css','polish.css','fonts.css','favicon.svg','favicon.ico')
 LANDING_ART_ASSETS=tuple('art/crayon/'+name+'.webp' for name in (
     'hero-accents', 'hero-mail', 'hero-gift', 'hero-mascot', 'step-list', 'step-share', 'step-gift', 'camera', 'cup', 'ticket', 'santa', 'privacy'
 ))

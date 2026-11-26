@@ -1092,6 +1092,17 @@ def test_shursh_ux_followup_finish_game_and_sticky_modal(browser_https):
             expect(page.locator('#santa-memory-input')).to_have_count(1)
             expect(page.locator('.santa-memory-photo')).to_be_visible()
             assert page.locator('.santa-memory-photo').get_attribute('src').startswith('data:image/webp;base64,')
+            for width in (390,1280):
+                page.set_viewport_size({'width':width,'height':844})
+                page.locator('.santa-memory-photo').evaluate("(img)=>img.decode()")
+                geometry=page.locator('.santa-memory-photo').evaluate("""img=>{
+                    const r=img.getBoundingClientRect(),parent=img.parentElement.getBoundingClientRect();
+                    return {w:r.width,h:r.height,parent:parent.width,ratio:img.naturalWidth/img.naturalHeight,maxHeight:getComputedStyle(img).maxHeight};
+                }""")
+                assert abs(geometry['w']-geometry['parent'])<2,geometry
+                assert abs(geometry['w']/geometry['h']-geometry['ratio'])<.02,geometry
+                assert geometry['maxHeight']=='none',geometry
+            page.set_viewport_size({'width':390,'height':844})
             page.locator('#santa-memory-input').set_input_files({
                 'name':'all-together.png','mimeType':'image/png','buffer':photo})
             expect(page.locator('.santa-memory-photo')).to_be_visible(timeout=15000)
@@ -2877,3 +2888,83 @@ def test_landing_crayon_art_responsive_motion_and_decoding(browser_https, engine
                     context.close()
         finally:
             browser.close()
+
+@pytest.mark.browser
+@pytest.mark.parametrize('engine',['chromium','webkit'])
+def test_service_crayon_covers_footer_and_circular_gift_gallery(browser_https,engine):
+    """Exercise the real shared renderers without any mutation of hosted data."""
+    with sync_playwright() as play:
+        browser=getattr(play,engine).launch(headless=True)
+        try:
+            for width in (320,390,1280):
+                ctx=browser.new_context(viewport={'width':width,'height':844},has_touch=width<760,
+                    is_mobile=width<760,ignore_https_errors=True,reduced_motion='reduce')
+                page=ctx.new_page()
+                try:
+                    page.goto(browser_https+'/')
+                    expect(page.locator('main h1').first).to_be_visible()
+                    data=page.evaluate("""()=>{
+                      const lists=[1,11,21,31,41,51,61,71,81,91,101,111].map(id=>({id,title:'Список '+id,theme:'mint',occasion:'Просто так',wish_count:0}));
+                      const map=assignWishlistCovers(lists);
+                      const again=assignWishlistCovers([...lists].reverse());
+                      const node=document.createElement('div');
+                      node.innerHTML=lists.map(l=>listCard(l,map)).join('');
+                      const slots=[...node.querySelectorAll('[data-cover-variant]')].map(x=>x.dataset.coverVariant);
+                      const srcs=[...node.querySelectorAll('.wishlist-cover-art')].map(x=>[...x.querySelectorAll('img')].map(i=>i.getAttribute('src')).join('|'));
+                      const f=document.querySelector('.footer'),c=f.querySelector('.footer-credit');
+                      const fr=f.getBoundingClientRect(),cr=c.getBoundingClientRect();
+                      return {unique:new Set(slots).size,art:new Set(srcs).size,stable:lists.every(l=>map.get(String(l.id))===again.get(String(l.id))),
+                        right:Math.abs(fr.right-cr.right),align:getComputedStyle(c).textAlign};
+                    }""")
+                    assert data['unique']==12 and data['art']==12 and data['stable'],data
+                    assert data['right']<=2 and data['align']=='right',data
+                    page.evaluate("""()=>{
+                      activeGameContext={own:[{id:1,title:'Первый',description:'Первое описание'},{id:2,title:'Второй'},{id:3,title:'Третий'}],
+                        recipient:[{id:4,title:'Только получатель'},{id:5,title:'Другой подарок'}]};
+                      showGameWishDetails({dataset:{source:'own',id:'1'}});
+                    }""")
+                    dialog=page.locator('.gift-details-modal')
+                    expect(dialog).to_have_attribute('aria-label','Первый')
+                    expect(dialog.locator('.gift-gallery-peek')).to_have_count(2)
+                    expect(dialog.locator('.gift-gallery-count')).to_have_text('1 / 3')
+                    expect(dialog.locator('.gift-gallery-prev')).to_have_attribute('aria-label','Предыдущий подарок: Третий')
+                    expect(dialog.locator('.gift-gallery-next')).to_have_attribute('aria-label','Следующий подарок: Второй')
+                    geometry=dialog.locator('.gift-gallery').evaluate("""el=>{
+                      const a=el.querySelector('.gift-gallery-prev').getBoundingClientRect(),
+                        b=el.querySelector('.gift-dialog-media').getBoundingClientRect(),
+                        c=el.querySelector('.gift-gallery-next').getBoundingClientRect();
+                      return {ordered:a.right<=b.left+1&&b.right<=c.left+1,peeks:a.width>=44&&c.width>=44,
+                        dark:getComputedStyle(el.querySelector('.gift-gallery-preview-art')).filter,
+                        overflow:el.scrollWidth-el.clientWidth};
+                    }""")
+                    assert geometry['ordered'] and geometry['peeks'] and 'brightness' in geometry['dark'] and geometry['overflow']<=2,geometry
+                    dialog.locator('.gift-gallery-prev').click()
+                    expect(dialog).to_have_attribute('aria-label','Третий')
+                    dialog.locator('.gift-gallery-next').click()
+                    expect(dialog).to_have_attribute('aria-label','Первый')
+                    page.keyboard.press('ArrowRight')
+                    expect(dialog).to_have_attribute('aria-label','Второй')
+                    page.evaluate("""()=>{
+                      const target=document.querySelector('.gift-gallery .gift-dialog-media');
+                      const t=(x)=>({identifier:1,clientX:x,clientY:150,target});
+                      for(const [name,active,changed] of [['touchstart',[t(150)],[t(150)]],['touchend',[],[t(60)]]]){
+                        const e=new Event(name,{bubbles:true});Object.defineProperties(e,{touches:{value:active},changedTouches:{value:changed}});target.dispatchEvent(e);
+                      }
+                    }""")
+                    expect(dialog).to_have_attribute('aria-label','Третий')
+                    expect(dialog.locator('.gift-dialog-edit')).to_have_attribute('data-id','3')
+                    folder=OUTPUT/'service-crayon-gallery';folder.mkdir(parents=True,exist_ok=True)
+                    dialog.screenshot(path=str(folder/f'{engine}-{width}-gallery.png'))
+                    page.keyboard.press('Escape');expect(dialog).to_have_count(0)
+                    page.evaluate("showGameWishDetails({dataset:{source:'recipient',id:'4'}})")
+                    expect(dialog).to_have_attribute('aria-label','Только получатель')
+                    expect(dialog.locator('.gift-dialog-edit')).to_have_count(0)
+                    dialog.locator('.gift-gallery-prev').click()
+                    expect(dialog).to_have_attribute('aria-label','Другой подарок')
+                    expect(dialog.locator('.gift-gallery-count')).to_have_text('2 / 2')
+                    page.keyboard.press('Escape');expect(dialog).to_have_count(0)
+                    page.evaluate("activeGameContext.own=[{id:1,title:'Один'}];showGameWishDetails({dataset:{source:'own',id:'1'}})")
+                    expect(dialog.locator('.gift-gallery')).to_have_count(0)
+                    expect(dialog.locator('.gift-dialog-fallback img.service-art')).to_be_visible()
+                finally:ctx.close()
+        finally:browser.close()

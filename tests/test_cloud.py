@@ -953,7 +953,7 @@ def test_browser_register_wishlist_reservation_and_isolation(browser_http):
                 size=badge.evaluate("""el => {
                     const b=el.getBoundingClientRect();
                     const icon=el.querySelector('svg').getBoundingClientRect();
-                    const art=el.closest('.wish-image').querySelector(':scope > svg').getBoundingClientRect();
+                    const art=el.closest('.wish-image').querySelector(':scope > img.service-art').getBoundingClientRect();
                     const image=el.closest('.wish-image').getBoundingClientRect();
                     return {badgeWidth:b.width,badgeHeight:b.height,iconWidth:icon.width,
                             iconHeight:icon.height,artWidth:art.width,
@@ -2644,9 +2644,9 @@ def test_browser_ux_fixes_avatar_gift_placeholder_and_admin_directory(browser_ht
             page.locator('#fld-title').fill('Подарок без фото')
             page.locator('#fld-shop_url').fill('https://example.com/gift')
             page.locator('.modal-fixed-footer button[type="submit"]').click()
-            expect(page.locator('.game-gift-card .game-gift-placeholder svg')).to_be_visible()
+            expect(page.locator('.game-gift-card .game-gift-placeholder img.service-art')).to_be_visible()
             page.locator('.game-gift-primary').first.click()
-            expect(page.locator('.gift-details-modal .gift-dialog-fallback svg')).to_be_visible()
+            expect(page.locator('.gift-details-modal .gift-dialog-fallback img.service-art')).to_be_visible()
             edit_icon=page.locator('.gift-details-modal .gift-dialog-edit')
             expect(edit_icon).to_be_visible()
             expect(edit_icon.locator('svg.icon')).to_have_count(1)
@@ -2764,7 +2764,12 @@ def test_favicon_ico_fallback_is_available(application):
     svg=application.test_client().get('/favicon.svg')
     assert svg.status_code==200
     html=application.test_client().get('/').get_data(as_text=True)
-    assert 'href="/favicon.ico"' in html and 'href="/favicon.svg"' in html
+    from app import UI_VERSION
+    for asset in ('favicon.ico','favicon.svg'):
+        assert f'href="/ui/{UI_VERSION}/{asset}"' in html
+        versioned=application.test_client().get(f'/ui/{UI_VERSION}/{asset}')
+        assert versioned.status_code==200
+        assert versioned.data==application.test_client().get('/'+asset).data
 
 
 def test_personal_invites_expire_after_24h_and_are_pruned_without_touching_seats(application):

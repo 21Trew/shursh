@@ -1014,3 +1014,49 @@ input[type="checkbox"]:not(.shursh-checkbox input):checked::after{content:"✓";
   0 56%,0 44%,35.5% 44%,10.5% 19%,19% 10.5%,44% 35.5%);
 }
 .bubble-gift::before,.marquee-inner span::before{vertical-align:-.12em}
+
+/* Approved crayon assets in authenticated views; keep real user photos unchanged. */
+.service-art{display:block;object-fit:contain;max-width:100%;max-height:100%;pointer-events:none}
+.dashboard-welcome-art>.service-art{width:195px;height:195px}
+.dashboard-empty-art>.service-art,.blank-illustration>.service-art{width:100%;height:100%}
+.dashboard-santa-symbol>.service-art{width:64px;height:52px}
+.wishlist-cover-art{position:relative;display:grid;place-items:center;width:100%;height:100%;min-width:0;min-height:0}
+.list-cover .wishlist-cover-art{padding:10px 20px}
+.list-cover .cover-stamp{z-index:1}
+.wishlist-cover-art>.service-art{width:100%;height:100%;min-height:0;object-fit:contain}
+.wishlist-cover-paired>.service-art:first-child{width:74%;justify-self:start}
+.wishlist-cover-art>.cover-companion{position:absolute;right:4%;bottom:6%;width:40%;height:53%;transform:rotate(8deg)}
+.detail-art .wishlist-cover-art{width:200px;height:200px}
+.friend-stack-list .wishlist-cover-art{padding:8px 12px}
+.wish-image>.service-art{width:min(70%,125px);height:min(84%,125px);object-fit:contain}
+.wish-detail-art>.service-art{width:100%;height:100%;max-height:180px;object-fit:contain}
+.game-gift-placeholder{min-height:0}
+.game-gift-placeholder>.service-art{width:min(82%,150px);height:100%;max-height:100%;object-fit:contain}
+.gift-dialog-fallback>.service-art{width:min(82%,210px);height:auto;max-height:205px;object-fit:contain}
+.invite-icon>.envelope-art{width:100%;height:100%}
+.secret-card>.envelope-art{width:120px;height:96px;margin:0 auto}
+.error-page>.envelope-art{width:150px;height:125px;margin:0 auto 24px}
+.footer{align-items:flex-end}
+.footer-credit{align-self:flex-end;justify-content:flex-end;text-align:right}
+.santa-memory-photo{width:100%;height:auto;max-height:none;object-fit:contain;background:transparent}
+/* The side cards are darkened, clipped previews; only the current gift has
+   editable controls. Navigation changes this dialog, not the page or API. */
+.gift-dialog-layout.gift-gallery-layout{grid-template-columns:minmax(0,1fr)}
+.gift-gallery{display:grid;grid-template-columns:minmax(0,14%) minmax(0,1fr) minmax(0,14%);gap:8px;align-items:stretch;touch-action:pan-y;min-width:0}
+.gift-gallery>.gift-dialog-media{min-width:0}
+.gift-gallery-peek{position:relative;display:grid;place-items:center;overflow:hidden;min-width:0;padding:0;border:0;border-radius:16px;background:#5d5148;color:white;isolation:isolate}
+.gift-gallery-preview-art{position:absolute;inset:0;display:grid;place-items:center;overflow:hidden;filter:brightness(.52);pointer-events:none}
+.gift-gallery-preview-art>.gift-dialog-image,.gift-gallery-preview-art>.gift-dialog-fallback{width:180%;max-width:none;height:100%;max-height:none;min-height:0;object-fit:cover;border-radius:0}
+.gift-gallery-preview-art .service-art{width:100%;height:100%;max-width:none;max-height:none}
+.gift-gallery-arrow{position:relative;z-index:1;display:grid;place-items:center;width:30px;height:30px;border-radius:50%;background:rgba(39,39,43,.72)}
+.gift-gallery-count{grid-column:1/-1;text-align:center;color:#625b57;font-size:12px}
+.gift-gallery-layout .gift-dialog-copy{position:relative;min-height:0}
+.gift-gallery-layout .gift-dialog-edit{top:0;right:0}
+.gift-gallery-layout .gift-dialog-price{padding-right:56px}
+@media(max-width:760px){
+ .footer{align-items:flex-start}
+ .footer-credit{align-self:flex-end;justify-content:flex-end;text-align:right}
+ .detail-art .wishlist-cover-art{width:110px;height:110px}
+ .dashboard-santa-symbol>.service-art{width:48px;height:42px}
+ .gift-gallery{grid-template-columns:minmax(44px,13%) minmax(0,1fr) minmax(44px,13%);gap:5px}
+}

@@ -2,7 +2,7 @@
 'use strict';
 function gameWishCard(w,source='own'){
  const mine=source==='own';
- const image=w.image_data?'<img src="'+attr(w.image_data)+'" alt="'+attr(w.title)+'" loading="lazy" decoding="async">': '<div class="game-gift-placeholder">'+fallbackArt('gift')+'</div>';
+ const image=w.image_data?'<img src="'+attr(w.image_data)+'" alt="'+attr(w.title)+'" loading="lazy" decoding="async">': '<div class="game-gift-placeholder">'+artFor(w)+'</div>';
  const actions=mine?'<div class="game-gift-overlay-actions"><button type="button" class="btn btn-soft" data-action="edit-game-gift" data-id="'+w.id+'" aria-label="Изменить подарок" title="Изменить">'+ico('edit')+'</button>'+
   '<button type="button" class="btn btn-soft" data-action="delete-game-gift" data-id="'+w.id+'" aria-label="Удалить подарок" title="Удалить">'+ico('trash')+'</button></div>':'';
  return '<article class="wish-card game-gift-card">'+
@@ -58,23 +58,59 @@ async function refreshGameOwnWishes(state){
  const track=root.querySelector('.game-gifts-track');if(track)track.scrollLeft=trackX;
  if(Math.abs(window.scrollY-scrollY)>1)window.scrollTo({top:scrollY,behavior:'instant'});
 }
+function gameGiftDetailImage(gift){
+ return gift.image_data?'<img class="gift-dialog-image" src="'+attr(gift.image_data)+'" alt="'+attr(gift.title)+'" draggable="false">':
+  '<div class="gift-dialog-fallback" role="img" aria-label="Фото подарка не добавлено">'+artFor(gift)+'</div>';
+}
 function showGameWishDetails(el){
  const state=activeGameContext;if(!state)return;
- const source=el.dataset.source||'own';
- const gift=(source==='recipient'?state.recipient:state.own)?.find(w=>Number(w.id)===Number(el.dataset.id));
- if(!gift)return;
- const mine=source!=='recipient';
- const image=gift.image_data?'<img class="gift-dialog-image" src="'+attr(gift.image_data)+'" alt="'+attr(gift.title)+'">':
-   '<div class="gift-dialog-fallback" role="img" aria-label="Фото подарка не добавлено">'+fallbackArt('gift')+'</div>';
- const description=gift.description?'<div class="gift-dialog-description"><strong>Комментарий</strong><p>'+esc(gift.description)+'</p></div>':'';
- const store=gift.shop_url?'<a class="btn btn-soft" href="'+attr(gift.shop_url)+'" target="_blank" rel="noopener noreferrer">В магазин '+ico('external')+'</a>':'';
- const footer='<button type="button" class="btn btn-dark" data-close>Закрыть</button>';
- const edit=mine?'<button type="button" class="gift-dialog-edit" data-action="edit-game-gift" data-id="'+gift.id+'" aria-label="Изменить подарок" data-tooltip="Изменить">'+ico('edit',20)+'</button>':'';
- modal({title:gift.title,content:'<div class="gift-dialog-layout">'+edit+'<div class="gift-dialog-media">'+image+'</div>'+
-  '<div class="gift-dialog-copy"><div class="gift-dialog-price">'+money(gift.price_cents,gift.currency)+'</div>'+
-  description+store+'</div></div>',
-  footer:'<div class="gift-dialog-footer">'+footer+'</div>'});
- modalRoot.querySelector('.modal')?.classList.add('gift-details-modal');
+ const source=el.dataset.source==='recipient'?'recipient':'own';
+ const gifts=(source==='recipient'?state.recipient:state.own)||[];
+ let index=gifts.findIndex(w=>Number(w.id)===Number(el.dataset.id));
+ if(index<0)return;
+ const mine=source==='own',count=gifts.length,multiple=count>1;
+ const wrap=i=>(i+count)%count;
+ function preview(dir){
+  const g=gifts[wrap(index+dir)],direction=dir<0?'prev':'next';
+  return '<button type="button" class="gift-gallery-peek gift-gallery-'+direction+'" data-gallery-step="'+dir+'" aria-label="'+(dir<0?'Предыдущий подарок: ':'Следующий подарок: ')+attr(g.title)+'"><span class="gift-gallery-preview-art" aria-hidden="true">'+gameGiftDetailImage(g)+'</span><span class="gift-gallery-arrow">'+ico(dir<0?'back':'arrow')+'</span></button>';
+ }
+ function content(){
+  const gift=gifts[index],image='<div class="gift-dialog-media">'+gameGiftDetailImage(gift)+'</div>';
+  const media=multiple?'<div class="gift-gallery" role="region" aria-label="Галерея подарков">'+preview(-1)+image+preview(1)+'<p class="gift-gallery-count" aria-live="polite">'+(index+1)+' / '+count+'</p></div>':image;
+  const description=gift.description?'<div class="gift-dialog-description"><strong>Комментарий</strong><p>'+esc(gift.description)+'</p></div>':'';
+  const store=gift.shop_url?'<a class="btn btn-soft" href="'+attr(gift.shop_url)+'" target="_blank" rel="noopener noreferrer">В магазин '+ico('external')+'</a>':'';
+  const edit=mine?'<button type="button" class="gift-dialog-edit" data-action="edit-game-gift" data-id="'+gift.id+'" aria-label="Изменить подарок" data-tooltip="Изменить">'+ico('edit',20)+'</button>':'';
+  return (multiple?'':edit)+media+'<div class="gift-dialog-copy">'+(multiple?edit:'')+'<div class="gift-dialog-price">'+money(gift.price_cents,gift.currency)+'</div>'+description+store+'</div>';
+ }
+ modal({title:gifts[index].title,content:'<div class="gift-dialog-layout'+(multiple?' gift-gallery-layout':'')+'">'+content()+'</div>',footer:'<div class="gift-dialog-footer"><button type="button" class="btn btn-dark" data-close>Закрыть</button></div>'});
+ const dialog=modalRoot.querySelector('.modal');if(!dialog)return;
+ dialog.classList.add('gift-details-modal');if(!multiple)return;
+ const layout=dialog.querySelector('.gift-dialog-layout');
+ function step(dir){
+  if(activeGameContext!==state||!dialog.isConnected||dialog.closest('[inert]'))return;
+  const focused=document.activeElement?.closest('[data-gallery-step]')?.dataset.galleryStep;
+  index=wrap(index+dir);
+  const gift=gifts[index];dialog.setAttribute('aria-label',gift.title);
+  dialog.querySelector('.modal-fixed-header h2').textContent=gift.title;
+  layout.innerHTML=content();
+  if(focused)layout.querySelector('[data-gallery-step="'+focused+'"]')?.focus({preventScroll:true});
+  if(!motionReduced()&&layout.animate)layout.animate([{opacity:.7,transform:'translateX('+(dir*8)+'px)'},{opacity:1,transform:'translateX(0)'}],{duration:180,easing:'ease-out'});
+ }
+ dialog.addEventListener('click',e=>{const button=e.target.closest('[data-gallery-step]');if(button){e.preventDefault();step(Number(button.dataset.galleryStep));}});
+ dialog.tabIndex=-1;dialog.focus({preventScroll:true});
+ dialog.addEventListener('keydown',e=>{if(e.key==='ArrowLeft'||e.key==='ArrowRight'){if(e.target.matches('input,textarea,select,[contenteditable]'))return;e.preventDefault();step(e.key==='ArrowLeft'?-1:1);}});
+ let touch=null;
+ dialog.addEventListener('touchstart',e=>{
+  touch=null;if(e.touches.length!==1||!e.target.closest('.gift-gallery'))return;
+  const t=e.touches[0];touch={id:t.identifier,x:t.clientX,y:t.clientY};
+ },{passive:true});
+ dialog.addEventListener('touchcancel',()=>{touch=null;},{passive:true});
+ dialog.addEventListener('touchend',e=>{
+  const start=touch;touch=null;if(!start)return;
+  const t=[...e.changedTouches].find(t=>t.identifier===start.id);if(!t)return;
+  const dx=t.clientX-start.x,dy=t.clientY-start.y;
+  if(Math.abs(dx)>50&&Math.abs(dx)>Math.abs(dy)*1.7)step(dx<0?1:-1);
+ },{passive:true});
 }
 async function smallGamePhoto(file){
  return compressToWebp(file,{maxDimension:780,maxBytes:235000,maxSourceBytes:12000000});

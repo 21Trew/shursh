@@ -92,6 +92,7 @@ async function socialProfilePage(uid,marker=lastRenderToken){
  if(!currentUser){loginModal();return;}
  const data=await api('/api/users/'+encodeURIComponent(uid));if(marker!==lastRenderToken)return;
  const p=data.profile,relation=data.relationship;
+ const coverAssignments=assignWishlistCovers(data.lists);
  let action='';
  if(relation==='none')action='<button class="btn btn-dark btn-small" data-social-action="add" data-user-id="'+attr(uid)+'">Добавить в друзья</button>';
  if(relation==='incoming')action='<button class="btn btn-dark btn-small" data-social-action="accept" data-user-id="'+attr(uid)+'">Принять заявку</button>';
@@ -104,7 +105,7 @@ async function socialProfilePage(uid,marker=lastRenderToken){
    '<section class="dashboard-section"><div class="dashboard-section-head"><h2>Вишлисты <span class="chip">'+data.lists.length+'</span></h2></div>'+
   (data.lists.length?'<div class="cards-grid">'+data.lists.map(list=>
    '<article class="list-card"><a class="card-hitarea" href="/w/'+attr(list.share_key)+'" data-nav="/w/'+attr(list.share_key)+'" aria-label="Открыть список '+attr(list.title)+'"></a>'+
-   '<div class="list-cover cover-'+attr(list.theme)+'">'+fallbackArt('gift')+'</div>'+
+   '<div class="list-cover cover-'+attr(list.theme)+'">'+wishlistCover(list,coverAssignments)+'</div>'+
    '<div class="list-info"><h3>'+esc(list.title)+'</h3><p>'+esc(list.description||'Список подарков')+'</p>'+
    '<div class="list-bottom"><span>'+ruCount(list.wish_count,'желание','желания','желаний')+'</span><button class="text-link" data-nav="/w/'+attr(list.share_key)+'">Посмотреть '+ico('arrow')+'</button></div></div></article>').join('')+'</div>':
    '<div class="panel"><p class="note">'+(relation==='admin_directory'?'Личные вишлисты недоступны':relation==='self'?'У тебя пока нет открытых вишлистов':relation==='friends'?'Пока нет доступных вишлистов':'Вишлисты доступны после добавления в друзья')+'</p></div>')+'</section>'+

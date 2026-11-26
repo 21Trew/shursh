@@ -83,7 +83,7 @@ function restoreOwnerTab(path){
 // Touch only. Native vertical scrolling and horizontally scrollable controls
 // always win; never intercept OS back gestures at screen edges.
 let pageSwipe=null,swipeClickUntil=0;
-const swipeExcluded='input,textarea,select,button,a:not(.card-hitarea),[contenteditable], [role="slider"],.ui-select,.ui-calendar-popover,.game-gifts-track,.game-chat-messages,.admin-users-table-scroll,.nav,.cookie-notice';
+const swipeExcluded='input,textarea,select,button,a:not(.card-hitarea),[contenteditable], [role="slider"],.ui-select,.ui-calendar-popover,.game-gifts-track,.gift-gallery,.game-chat-messages,.admin-users-table-scroll,.nav,.cookie-notice';
 function swipeScrollable(node,limit){
  for(let el=node;el&&el!==limit;el=el.parentElement){
   if(el.scrollWidth>el.clientWidth+3&&/auto|scroll/.test(getComputedStyle(el).overflowX))return true;
@@ -894,20 +894,17 @@ window.addEventListener('resize',()=>closeCalendar());
 
 function selectField(label,name,options,selected){return `<div class="field"><label for="fld-${name}">${esc(label)}</label><select id="fld-${name}" name="${name}">${options.map(([value,text])=>`<option value="${attr(value)}" ${String(value)===String(selected)?'selected':''}>${esc(text)}</option>`).join('')}</select></div>`;}
 function readForm(form){return Object.fromEntries(new FormData(form).entries());}
+// Use the approved crayon collection throughout the service.
+function serviceArt(name,classes=''){
+ const [width,height]=landingArtSizes[name];
+ return `<img alt="" aria-hidden="true" class="service-art ${classes}" data-service-art="${name}" width="${width}" height="${height}" src="${landingArtPrefix}${name}.webp" loading="lazy" decoding="async" draggable="false">`;
+}
 function fallbackArt(type='gift'){
- const out={
-  'gift':`<path d="M37 72h94v64H37z" fill="#e6b7df" stroke="#302b34" stroke-width="3"/><path d="M30 63h107v20H30z" fill="#f6c4a9" stroke="#302b34" stroke-width="3"/><path d="M75 64v72m0-53h19" fill="none" stroke="#302b34" stroke-width="3"/><path d="M77 63c-13-3-25-13-19-24s25 1 19 24Zm1 0c13-3 25-13 19-24S72 52 78 63Z" fill="#f8e7a3" stroke="#302b34" stroke-width="3"/>`,
-  'camera':`<rect x="20" y="53" width="125" height="80" rx="14" fill="#f0aa80" stroke="#29272b" stroke-width="3"/><rect x="42" y="42" width="44" height="14" rx="5" fill="#f2cb91" stroke="#29272b" stroke-width="3"/><circle cx="89" cy="91" r="29" fill="#f6ecd9" stroke="#29272b" stroke-width="3"/><circle cx="89" cy="91" r="19" fill="#87a2af" stroke="#29272b" stroke-width="3"/><circle cx="37" cy="72" r="5" fill="#f7e5a8"/>`,
-  'cup':`<path d="M42 53h81v44c0 26-17 40-40 40S42 120 42 97V53Z" fill="#d9c9ed" stroke="#29272b" stroke-width="3"/><path d="M124 65c38-7 34 43-1 42" fill="none" stroke="#29272b" stroke-width="9"/><path d="M65 41c-10-12 9-20-1-29m27 29c-10-12 9-20-1-29" stroke="#947e98" stroke-width="3" fill="none" stroke-linecap="round"/><path d="M60 88c15-8 30-8 45 0" stroke="#7c638f" stroke-width="3" fill="none"/>`,
-  'ticket':`<path d="M22 61 131 39l17 79-108 22-7-27c11-4 9-20-5-18Z" fill="#f4b6a8" stroke="#29272b" stroke-width="3"/><path d="m91 52 13 66" stroke="#29272b" stroke-dasharray="5 6" stroke-width="2"/><path d="m62 79 9 8 14-16" stroke="#29272b" stroke-width="3" fill="none"/>`,
-  'book':`<path d="M33 46c22-8 43-3 53 7v83c-17-10-37-12-53-5V46Z" fill="#f2c69a" stroke="#29272b" stroke-width="3"/><path d="M86 53c19-11 39-12 56-4v84c-20-7-40-6-56 3V53Z" fill="#d6c7ec" stroke="#29272b" stroke-width="3"/><path d="m48 67 20 5m-20 11 20 5m35-17 21-6m-21 20 21-6" stroke="#928485" stroke-width="2"/>`,
-  'plant':`<path d="M54 93h63l-8 43H62Z" fill="#e7a18b" stroke="#29272b" stroke-width="3"/><path d="M86 94c-5-32-5-57 0-75" stroke="#29272b" stroke-width="3" fill="none"/><path d="M86 76c-38-4-35-41-16-41 12 1 15 25 16 41Zm0-18c30-5 39-34 24-37-20-3-25 21-24 37Z" fill="#91c8a5" stroke="#29272b" stroke-width="3"/>`
- };
- return `<svg viewBox="0 0 170 160" aria-hidden="true">${out[type]||out.gift}</svg>`;
+ return serviceArt(({gift:'step-gift',camera:'camera',cup:'cup',ticket:'ticket',book:'step-list',plant:'hero-gift'})[type]||'step-gift');
 }
 function artFor(w){const t=(w.title||'').toLowerCase();if(w.kind==='experience'||/билет|театр|концерт|поездк|настол/.test(t))return fallbackArt('ticket');if(/камер|фотоаппарат|плён/.test(t))return fallbackArt('camera');if(/чаш|кофе|чай/.test(t))return fallbackArt('cup');if(/книг|издани|пазл/.test(t))return fallbackArt('book');if(/растен|цвет|карандаш/.test(t))return fallbackArt('plant');return fallbackArt('gift')}
-function envelopeArt(){return `<svg class="envelope-svg" viewBox="0 0 210 175" fill="none" aria-hidden="true"><g transform="rotate(-7 105 90)"><rect x="20" y="32" width="169" height="119" rx="13" fill="#f8c8a8" stroke="#302c31" stroke-width="3"/><path d="m21 43 84 65 82-65" fill="#fbe3bb" stroke="#302c31" stroke-width="3"/><path d="m22 143 62-50m104 50-61-50" stroke="#302c31" stroke-width="3"/><circle cx="105" cy="105" r="17" fill="#e18d79" stroke="#302c31" stroke-width="3"/><path d="M99 101c2-3 6-3 8 0 2-3 7-3 9 0 0 5-5 7-9 11-5-4-8-6-8-11Z" fill="#fff"/></g><path d="M10 15v18M1 24h18M179 9v27m-13-13h26" stroke="#efad65" stroke-width="3" stroke-linecap="round"/></svg>`;}
-// Approved crayon artwork, confined to the guest landing page. The script's
+function envelopeArt(){return serviceArt('hero-mail','envelope-art');}
+// Approved crayon artwork shared by the landing page and service. The script's
 // release prefix also fingerprints the image bytes; the local server uses
 // the same assets through its unversioned public directory.
 const landingArtPrefix = (new URL(document.currentScript?.src || '/app.js',location.href).pathname.match(/^\/ui\/[a-f0-9]{20}\//)?.[0] || '/') + 'art/crayon/';
@@ -929,6 +926,38 @@ function landingArt(name, classes=''){
  const [width,height]=landingArtSizes[name];
  const hero=name.startsWith('hero-');
  return `<img alt="" data-art="${name}" class="${classes}" width="${width}" height="${height}" src="${landingArtPrefix}${name}.webp" decoding="async"${hero?(name==='hero-mascot'?' fetchpriority="high"':''):' loading="lazy"'}>`;
+}
+// Stable default art with collision-free allocation in each rendered collection.
+const wishlistCoverArt=['step-gift','camera','cup','ticket','step-list','step-share','hero-gift','hero-mail','hero-mascot','privacy'];
+const wishlistCoverSlots=new Map();
+function wishlistCoverKey(list){return String(list.id??list.share_key??'');}
+function wishlistCoverSeed(list){
+ const key=wishlistCoverKey(list);
+ if(/^\d+$/.test(key))return Number(BigInt(key)%100n);
+ let h=0;for(const ch of key)h=(Math.imul(h,31)+ch.charCodeAt(0))>>>0;
+ return h%100;
+}
+function assignWishlistCovers(lists){
+ const taken=new Set(),ordered=[...lists].sort((x,y)=>wishlistCoverKey(x).localeCompare(wishlistCoverKey(y),'en',{numeric:true}));
+ const result=new Map();
+ for(const list of ordered){
+  const key=wishlistCoverKey(list);if(result.has(key))continue;
+  const seed=wishlistCoverSlots.get(key)??wishlistCoverSeed(list)%wishlistCoverArt.length;
+  let slot=seed;
+  // Prefer a distinct single illustration, then distinct paired compositions.
+  if(taken.has(slot)){
+   slot=0;while(taken.has(slot))slot++;
+  }
+  taken.add(slot);result.set(key,slot);wishlistCoverSlots.set(key,slot);
+ }
+ return result;
+}
+function wishlistCover(list,assignments){
+ const key=wishlistCoverKey(list);
+ const slot=assignments?.get(key)??wishlistCoverSlots.get(key)??wishlistCoverSeed(list)%wishlistCoverArt.length;
+ const n=wishlistCoverArt.length,primary=wishlistCoverArt[slot%n];
+ const secondary=slot<n?'':wishlistCoverArt[(Math.floor(slot/n)+slot%n)%n];
+ return `<span class="wishlist-cover-art${secondary?' wishlist-cover-paired':''}" data-cover-variant="${slot}">${serviceArt(primary)}${secondary?serviceArt(secondary,'cover-companion'):''}</span>`;
 }
 function heroArt(){return `<div class="hero-stage" aria-hidden="true">${landingArt('hero-accents','hero-layer')}${landingArt('hero-mail','hero-layer float-one')}${landingArt('hero-gift','hero-layer float-two')}${landingArt('hero-mascot','hero-layer wobble')}</div>`;}
 function santaArt(){return landingArt('santa');}
@@ -1119,7 +1148,7 @@ function santaGameCard(game,{shared=false}={}){
  const meta=shared?dateRu(game.exchange_date):ruCount(game.participant_count||0,'участник','участника','участников');
  return '<article class="dashboard-santa-card santa-tone-'+santaTone(game.id)+'">'+
   '<a class="card-hitarea" href="/santa/'+game.id+'" data-nav="/santa/'+game.id+'" aria-label="Открыть игру '+attr(game.title)+'"></a>'+
-  '<div class="dashboard-santa-symbol">'+ico('gift',30)+'</div>'+
+  '<div class="dashboard-santa-symbol">'+serviceArt('santa')+'</div>'+
   '<div class="section-label">'+status+'</div><h3>'+esc(game.title)+'</h3><p>'+esc(detail)+'</p>'+
   '<div class="dashboard-card-footer"><span>'+esc(meta)+'</span>'+
   '<button class="text-link" type="button" data-nav="/santa/'+game.id+'">Открыть '+ico('arrow')+'</button></div></article>';
@@ -1128,7 +1157,8 @@ function dashboardContent(data){
  const lists=Array.isArray(data.lists)?data.lists:[];
  const events=Array.isArray(data.events)?data.events:[];
  const name=esc((currentUser.name||'Друг').trim().split(/\s+/)[0]);
- const recentLists=lists.slice(0,3).map(listCard).join('');
+ const coverAssignments=assignWishlistCovers(lists);
+ const recentLists=lists.slice(0,3).map(l=>listCard(l,coverAssignments)).join('');
  const recentEvents=events.slice(0,3).map(e=>santaGameCard(e)).join('');
  shell('<main class="container dashboard-page">'+
   '<section class="dashboard-welcome"><div><h1><span class="welcome-intro">С возвращением,</span> <em class="welcome-name'+(name.length>14?' welcome-name-long':'')+'">'+name+'!</em></h1>'+
@@ -1204,12 +1234,14 @@ function wishlistCategoryFilter(lists){
   '<button type="button" class="filter-chip'+(i===0?' active':'')+'" aria-pressed="'+(i===0)+'" data-wishlist-filter="'+attr(x)+'">'+esc(x)+'</button>').join('')+'</div>';
 }
 function ownWishlistTiles(lists){
+ const coverAssignments=assignWishlistCovers(lists);
  return lists.length?wishlistCategoryFilter(lists)+
-  '<div class="cards-grid">'+lists.map(l=>listCard(l).replace('<article class="list-card">','<article class="list-card" data-occasion="'+attr(l.occasion?.trim()||'')+'">')).join('')+'</div>':
+  '<div class="cards-grid">'+lists.map(l=>listCard(l,coverAssignments).replace('<article class="list-card">','<article class="list-card" data-occasion="'+attr(l.occasion?.trim()||'')+'">')).join('')+'</div>':
   emptyState('Здесь пока тихо','Создай первый список и добавь пару желаний','Создать список','list');
 }
 function friendWishlistTiles(lists){
  if(!lists.length)return '<div class="blank-state"><h3>Пока нет доступных вишлистов друзей</h3><p>Добавь друзей, которые открыли свои списки по ссылке</p><button class="btn btn-soft" data-nav="/friends">Мои друзья</button></div>';
+ const coverAssignments=assignWishlistCovers(lists);
  const groups=new Map();
  for(const l of lists){
   const id=String(l.owner_id||l.owner_name);
@@ -1221,7 +1253,7 @@ function friendWishlistTiles(lists){
   const tiles=friend.lists.map(l=>
    '<article class="list-card friend-stack-list" data-occasion="'+attr(l.occasion?.trim()||'')+'">'+
    '<a class="card-hitarea" href="/w/'+attr(l.share_key)+'" data-nav="/w/'+attr(l.share_key)+'" aria-label="Открыть вишлист '+attr(l.title)+'"></a>'+
-   '<div class="list-cover cover-'+attr(l.theme)+'">'+fallbackArt('gift')+'</div>'+
+   '<div class="list-cover cover-'+attr(l.theme)+'">'+wishlistCover(l,coverAssignments)+'</div>'+
    '<div class="list-info"><h3>'+esc(l.title)+'</h3><p>'+esc(l.description||l.occasion||'Список подарков')+'</p>'+
    '<div class="list-bottom"><span>'+ruCount(l.wish_count,'желание','желания','желаний')+'</span><button class="text-link" data-nav="/w/'+attr(l.share_key)+'">Открыть '+ico('arrow')+'</button></div></div></article>').join('');
   return '<section class="friend-wishlist-stack" data-friend-stack>'+(friend.id?'<a class="friend-stack-heading" href="/users/'+attr(friend.id)+'" data-nav="/users/'+attr(friend.id)+'" aria-label="Открыть профиль '+attr(friend.name)+'">':'<div class="friend-stack-heading">')+'<span class="friend-stack-avatar">'+esc(friend.avatar)+'</span><div><strong>'+name+'</strong><span>'+ruCount(friend.lists.length,'вишлист','вишлиста','вишлистов')+'</span></div>'+
@@ -1280,7 +1312,7 @@ document.addEventListener('click',async event=>{
   }
  }
 });
-function listCard(l){return `<article class="list-card"><a class="card-hitarea" href="/list/${l.id}" data-nav="/list/${l.id}" aria-label="Открыть вишлист ${attr(l.title)}"></a><div class="list-cover cover-${attr(l.theme)}"><span class="cover-stamp">${esc(l.occasion)}</span>${fallbackArt('gift')}</div><div class="list-info"><h3>${esc(l.title)}</h3><p>${esc(l.description||'Место для твоих желаний')}</p><div class="list-bottom"><span>${ruCount(l.wish_count,'желание','желания','желаний')}</span><button class="text-link" data-nav="/list/${l.id}">Открыть ${ico('arrow')}</button></div></div></article>`;}
+function listCard(l,coverAssignments){return `<article class="list-card"><a class="card-hitarea" href="/list/${l.id}" data-nav="/list/${l.id}" aria-label="Открыть вишлист ${attr(l.title)}"></a><div class="list-cover cover-${attr(l.theme)}"><span class="cover-stamp">${esc(l.occasion)}</span>${wishlistCover(l,coverAssignments)}</div><div class="list-info"><h3>${esc(l.title)}</h3><p>${esc(l.description||'Место для твоих желаний')}</p><div class="list-bottom"><span>${ruCount(l.wish_count,'желание','желания','желаний')}</span><button class="text-link" data-nav="/list/${l.id}">Открыть ${ico('arrow')}</button></div></div></article>`;}
 function plural(n,a,b,c){
  const value=Math.abs(Math.trunc(Number(n)||0)),k=value%100,d=k%10;
  return k>=11&&k<=14?c:d===1?a:d>=2&&d<=4?b:c;
@@ -1373,7 +1405,7 @@ function showWishDetails(el){
 }
 let loadedList = null;
 async function ownerListPage(id,marker=lastRenderToken){if(!currentUser)throw new Error('Войди, чтобы открыть список');const d=await api(`/api/lists/${id}`);if(marker!==lastRenderToken)return;loadedList=d;
- const l=d.list;const url=getLink(`/w/${l.share_key}`);shell(`<main class="container page"><div class="guest-topline"><button class="text-link" data-nav="/lists">${ico('back')} Мои вишлисты</button> <span>/</span> <span>${esc(l.title)}</span></div><div class="detail-top cover-${attr(l.theme)}"><div><span class="chip">${ico('gift')} ${esc(l.occasion)}</span><h1>${esc(l.title)}</h1><p>${esc(l.description||'Список маленьких и больших мечтаний')}</p></div><div class="detail-art">${fallbackArt('gift')}</div></div><div class="detail-actions"><div><h2>Желания <span class="chip" data-owner-wish-count>${d.wishes.length}</span></h2><p class="note">Брони друзей здесь никогда не отображаются</p></div><div class="btn-row"><button class="btn btn-soft btn-small" data-action="edit-list">${ico('edit')} Настройки</button><button class="btn btn-soft btn-small" data-action="copy" data-url="${attr(url)}" ${l.visibility==='private'?'disabled title="Сначала открой доступ по ссылке"':''}>${ico('copy')} Ссылка</button><button class="btn btn-dark btn-small" data-open="wish">Добавить желание ${ico('plus')}</button></div></div>${l.visibility==='private'?`<div class="alert">${ico('lock')} Список приватный. Доступ по ссылке выключен в настройках</div>`:''}<div data-owner-wishes>${ownerWishesMarkup(d.wishes)}</div><div class="divider-line"></div><button class="btn btn-ghost btn-small" data-action="delete-list">${ico('trash')} Удалить весь список</button></main>`);}
+ const l=d.list;const url=getLink(`/w/${l.share_key}`);shell(`<main class="container page"><div class="guest-topline"><button class="text-link" data-nav="/lists">${ico('back')} Мои вишлисты</button> <span>/</span> <span>${esc(l.title)}</span></div><div class="detail-top cover-${attr(l.theme)}"><div><span class="chip">${ico('gift')} ${esc(l.occasion)}</span><h1>${esc(l.title)}</h1><p>${esc(l.description||'Список маленьких и больших мечтаний')}</p></div><div class="detail-art">${wishlistCover(l)}</div></div><div class="detail-actions"><div><h2>Желания <span class="chip" data-owner-wish-count>${d.wishes.length}</span></h2><p class="note">Брони друзей здесь никогда не отображаются</p></div><div class="btn-row"><button class="btn btn-soft btn-small" data-action="edit-list">${ico('edit')} Настройки</button><button class="btn btn-soft btn-small" data-action="copy" data-url="${attr(url)}" ${l.visibility==='private'?'disabled title="Сначала открой доступ по ссылке"':''}>${ico('copy')} Ссылка</button><button class="btn btn-dark btn-small" data-open="wish">Добавить желание ${ico('plus')}</button></div></div>${l.visibility==='private'?`<div class="alert">${ico('lock')} Список приватный. Доступ по ссылке выключен в настройках</div>`:''}<div data-owner-wishes>${ownerWishesMarkup(d.wishes)}</div><div class="divider-line"></div><button class="btn btn-ghost btn-small" data-action="delete-list">${ico('trash')} Удалить весь список</button></main>`);}
 function ownerWishesMarkup(wishes){
  return wishes.length?'<div class="wishlist-grid">'+wishes.map(w=>wishCard(w)).join('')+'</div>':
   emptyState('Пока ни одного желания','Вдохновение начинается с первой идеи','Добавить желание','wish');
@@ -1390,7 +1422,7 @@ async function refreshOwnerWishes(id){
  if(Math.abs(window.scrollY-scrollY)>1)window.scrollTo({top:scrollY,behavior:'instant'});
 }
 let loadedPublicWishes=[];
-async function publicListPage(key,marker=lastRenderToken){const {list:l,wishes,owner_view}=await api(`/api/public/${key}`);if(marker!==lastRenderToken)return;loadedPublicWishes=wishes;shell(`<main class="container page"><div class="guest-topline">${ico('gift')} <span>Вишлист по ссылке</span><span>/</span><strong>от ${esc(l.owner_name)}</strong></div><div class="detail-top cover-${attr(l.theme)}"><div><span class="chip">${ico('heart')} ${esc(l.occasion)}</span><h1>${esc(l.title)}</h1><p>${esc(l.description)}</p></div><div class="detail-art">${fallbackArt('gift')}</div></div><div class="guest-banner">${owner_view?'Это твой список - статус бронирования для владельца скрыт':'Можешь забронировать понравившийся подарок. Владелец списка не увидит, что выбрано. Для брони войди в аккаунт. Нажми «Забронировать», чтобы занять подарок, или ту же кнопку, чтобы снять свою бронь с любого устройства'}</div><div class="detail-actions"><h2>Желания <span class="chip">${wishes.length}</span></h2></div>${wishes.length?`<div class="wishlist-grid">${wishes.map(w=>wishCard(w,owner_view?'view':'guest',key)).join('')}</div>`:emptyState('В этом списке пока пусто','Загляни позже - здесь скоро появятся желания','На главную','login')}</main>`);}
+async function publicListPage(key,marker=lastRenderToken){const {list:l,wishes,owner_view}=await api(`/api/public/${key}`);if(marker!==lastRenderToken)return;loadedPublicWishes=wishes;shell(`<main class="container page"><div class="guest-topline">${ico('gift')} <span>Вишлист по ссылке</span><span>/</span><strong>от ${esc(l.owner_name)}</strong></div><div class="detail-top cover-${attr(l.theme)}"><div><span class="chip">${ico('heart')} ${esc(l.occasion)}</span><h1>${esc(l.title)}</h1><p>${esc(l.description)}</p></div><div class="detail-art">${wishlistCover(l)}</div></div><div class="guest-banner">${owner_view?'Это твой список - статус бронирования для владельца скрыт':'Можешь забронировать понравившийся подарок. Владелец списка не увидит, что выбрано. Для брони войди в аккаунт. Нажми «Забронировать», чтобы занять подарок, или ту же кнопку, чтобы снять свою бронь с любого устройства'}</div><div class="detail-actions"><h2>Желания <span class="chip">${wishes.length}</span></h2></div>${wishes.length?`<div class="wishlist-grid">${wishes.map(w=>wishCard(w,owner_view?'view':'guest',key)).join('')}</div>`:emptyState('В этом списке пока пусто','Загляни позже - здесь скоро появятся желания','На главную','login')}</main>`);}
 async function reservationPage(key,marker=lastRenderToken){const {reservation:r}=await api(`/api/reservations/${key}`);if(marker!==lastRenderToken)return;shell(`<main class="container page"><div class="invite-card"><div class="invite-icon">${envelopeArt()}</div><h1>${r.cancelled_at?'Бронь отменена':'Подарок ждёт своего часа!'}</h1><p>${r.cancelled_at?'Этот подарок снова доступен другим дарителям':'Твоя бронь сохранена. Эта ссылка - личный ключ для отмены, береги её'}</p><div class="details-box"><p><strong>Подарок:</strong> ${esc(r.wish_title)}</p><p><strong>Вишлист:</strong> ${esc(r.list_title)}</p></div>${!r.cancelled_at?`<div class="share-field"><input class="input" readonly value="${attr(getLink(`/r/${key}`))}" aria-label="Ссылка управления бронью"><button class="btn btn-dark btn-small" data-action="copy" data-url="${attr(getLink(`/r/${key}`))}">${ico('copy')} Копировать</button></div><button class="btn btn-danger btn-small" data-action="cancel-reservation" data-token="${attr(key)}">Отменить мою бронь</button>`:''}</div></main>`);}
 async function adminFeedbackPage(marker=lastRenderToken){
  const {items}=await api('/api/admin/feedback');
