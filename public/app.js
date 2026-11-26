@@ -1672,7 +1672,7 @@ function editSantaIdentity(fieldName){
  }
  const editor=document.createElement(description?'textarea':'input');
  editor.className='santa-inline-editor santa-inline-editor-'+fieldName;
- if(!description)editor.type=date?'date':budget?'number':'text';
+ if(!description)editor.type=budget?'number':'text';
  if(budget){editor.min='0';editor.max='100000000';editor.step='0.01';}
  if(description)editor.maxLength=800;
  if(fieldName==='title')editor.maxLength=90;

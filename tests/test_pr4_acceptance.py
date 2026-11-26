@@ -1091,6 +1091,7 @@ def test_shursh_ux_followup_finish_game_and_sticky_modal(browser_https):
             expect(page.locator('.santa-memory-panel')).to_be_visible()
             expect(page.locator('#santa-memory-input')).to_have_count(1)
             expect(page.locator('.santa-memory-photo')).to_be_visible()
+            assert page.locator('.santa-memory-panel').evaluate("el=>el.previousElementSibling.querySelector('h2')?.textContent==='О событии'")
             assert page.locator('.santa-memory-photo').get_attribute('src').startswith('data:image/webp;base64,')
             for width in (390,1280):
                 page.set_viewport_size({'width':width,'height':844})
@@ -2523,7 +2524,9 @@ def test_friends_exact_search_and_qr_invite(browser_https,application,engine):
                 expect(result.get_by_text('Заявка отправлена',exact=True)).to_be_visible()
                 assert page.evaluate("friendInput===document.querySelector('#social-search-form input')")
                 expect(search).to_have_value('@qr_other')
-                page.get_by_role('button',name='Пригласить друга').click()
+                with page.expect_response(lambda res: res.url.endswith('/api/friend-invites/me') and res.request.method=='POST') as invite_response:
+                    page.get_by_role('button',name='Пригласить друга').click()
+                rows=invite_response.value.json()['qr']
                 link=page.locator('#personal-invite-link')
                 expect(link).to_be_visible()
                 url=link.input_value();assert url.startswith(browser_https+'/i/')
@@ -2533,8 +2536,23 @@ def test_friends_exact_search_and_qr_invite(browser_https,application,engine):
                 assert page.locator('a[download="shursh-invite.png"]').count()==1
                 expect(page.locator('.personal-invite-modal .modal-fixed-header .modal-close')).to_be_visible()
                 expect(page.locator('.personal-invite-modal .modal-fixed-footer')).to_be_visible()
-                expect(page.locator('.personal-invite-modal .invite-brand .avatar')).to_be_visible()
-                assert page.locator('#personal-invite-qr').evaluate("img=>img.naturalHeight-img.naturalWidth===104")
+                # The downloadable PNG contains branding once, outside the
+                # matrix; compare every module including its quiet zone.
+                assert page.locator('.personal-invite-modal .invite-brand').count()==0
+                pixels=page.locator('#personal-invite-qr').evaluate("""(img,rows)=>{
+                    const c=document.createElement('canvas');c.width=img.naturalWidth;c.height=img.naturalHeight;
+                    const ctx=c.getContext('2d');ctx.drawImage(img,0,0);
+                    const band=c.height-c.width,scale=c.width/rows.length;
+                    const data=ctx.getImageData(0,0,c.width,c.height).data;
+                    let correct=true;
+                    for(let y=0;y<rows.length;y++)for(let x=0;x<rows.length;x++){
+                      const i=4*((band+y*scale+Math.floor(scale/2))*c.width+x*scale+Math.floor(scale/2));
+                      const v=rows[y][x]==='1'?0:255;
+                      if(data[i]!==v||data[i+1]!==v||data[i+2]!==v||data[i+3]!==255)correct=false;
+                    }
+                    return {band,correct,branded:data[0]===249&&data[1]===231&&data[2]===163};
+                }""",rows)
+                assert pixels=={'band':104,'correct':True,'branded':True},pixels
                 assert page.locator('a[download="shursh-invite.png"]').get_attribute('href')==page.locator('#personal-invite-qr').get_attribute('src')
                 assert 't.me/share/url' in page.get_by_role('link',name='Telegram',exact=True).get_attribute('href')
                 assert 'vk.com/share.php' in page.get_by_role('link',name='VK',exact=True).get_attribute('href')
@@ -2589,6 +2607,17 @@ def test_mobile_shared_sheets_header_actions_and_swipes(browser_https,engine):
                     rect=dialog.bounding_box()
                     assert abs(rect['x'])<=1 and abs(rect['width']-width)<=1 and abs(rect['y']+rect['height']-height)<=1,rect
                     assert rect['y']>=-1,rect
+                    header=dialog.locator('.modal-fixed-header')
+                    close=header.locator('.modal-close')
+                    expect(close).to_be_visible()
+                    h,b=header.bounding_box(),close.bounding_box()
+                    assert b['width']>=43.9 and b['height']>=43.9 and abs((h['y']+h['height']/2)-(b['y']+b['height']/2))<=2,(h,b)
+                    assert b['x']+b['width']<=h['x']+h['width'],(h,b)
+                    area=dialog.locator('.modal-scroll-area')
+                    before=header.bounding_box()
+                    area.evaluate("el=>el.scrollTop=el.scrollHeight")
+                    assert abs(header.bounding_box()['y']-before['y'])<=1
+                    area.evaluate("el=>el.scrollTop=0")
                     page.screenshot(path=str(out/f"{engine}-{width}-{selector.split()[-1].replace('.','')}.png"),animations='disabled')
                     page.keyboard.press('Escape')
                     expect(dialog).to_have_count(0)
@@ -2614,13 +2643,14 @@ def test_mobile_shared_sheets_header_actions_and_swipes(browser_https,engine):
                   document.body.style.minHeight='3000px';const h=document.querySelector('.site-header'),bar=h.querySelector('.topbar');
                   const initial=h.getBoundingClientRect().height,offset=getComputedStyle(document.querySelector('#app')).paddingTop;
                   const display=getComputedStyle(bar).display;scrollTo({top:300,behavior:'instant'});
-                  const frames=[],start=performance.now();
-                  while(performance.now()-start<420){await new Promise(requestAnimationFrame);frames.push(h.getBoundingClientRect().height);}
-                  return {initial,frames,final:h.getBoundingClientRect().height,display,afterDisplay:getComputedStyle(bar).display,offset,afterOffset:getComputedStyle(document.querySelector('#app')).paddingTop,y:scrollY};
+                  const frames=[],opacities=[],nav=h.querySelector('.nav'),start=performance.now();
+                  while(performance.now()-start<420){await new Promise(requestAnimationFrame);frames.push(h.getBoundingClientRect().height);opacities.push(Number(getComputedStyle(nav).opacity));}
+                  return {initial,frames,opacities,scrollbar:getComputedStyle(nav).scrollbarWidth,final:h.getBoundingClientRect().height,display,afterDisplay:getComputedStyle(bar).display,offset,afterOffset:getComputedStyle(document.querySelector('#app')).paddingTop,y:scrollY};
                 }""")
                 assert metrics['initial']>metrics['final']+30 and abs(metrics['final']-62)<2,metrics
                 assert metrics['display']==metrics['afterDisplay'] and metrics['offset']==metrics['afterOffset'] and abs(metrics['y']-300)<2,metrics
                 assert any(metrics['final']+2<h<metrics['initial']-2 for h in metrics['frames']),metrics
+                assert any(.05<o<.95 for o in metrics['opacities']),metrics
                 page.evaluate("scrollTo({top:0,behavior:'instant'})")
                 page.wait_for_function("()=>!document.querySelector('.site-header').classList.contains('is-condensed') && Math.abs(document.querySelector('.site-header').getBoundingClientRect().height-132)<1")
                 # Synthetic touch events use the real handler, not a direct nav call.
@@ -2932,6 +2962,22 @@ def test_service_crayon_covers_footer_and_circular_gift_gallery(browser_https,en
                     }""")
                     assert themed=={'pools':7,'valid':True,'unique':28,'thematic':True},themed
                     assert data['right']<=2 and data['align']=='right',data
+                    page.evaluate("contactDeveloperModal()")
+                    expect(page.locator('.modal')).not_to_contain_text('кабинет')
+                    expect(page.locator('.modal-fixed-header .modal-close')).to_be_visible()
+                    expect(page.locator('.modal-fixed-footer [type=submit]')).to_be_visible()
+                    page.keyboard.press('Escape')
+                    expect(page.locator('.modal')).to_have_count(0)
+                    page.evaluate("loginModal()")
+                    expect(page.locator('[name=remember]')).to_be_checked()
+                    page.locator('[name=remember]').uncheck()
+                    expect(page.locator('[name=remember]')).not_to_be_checked()
+                    page.keyboard.press('Escape')
+                    expect(page.locator('.modal')).to_have_count(0)
+                    page.evaluate("loginModal()")
+                    expect(page.locator('[name=remember]')).to_be_checked()
+                    page.keyboard.press('Escape')
+                    expect(page.locator('.modal')).to_have_count(0)
                     # Load the real versioned WebP resources via the shared service
                     # renderer and verify decoding, rather than only inspecting URLs.
                     decoded=page.evaluate("""async()=>{

@@ -546,7 +546,7 @@ async function socialPersonalInviteModal(){
  if(url!==data.url)throw new Error('Адрес приглашения не совпадает с сайтом');
  const qr=inviteQrData(data.qr);
  modal({title:'Пригласить друга',content:
-  '<div class="personal-invite-card"><div class="invite-brand"><span class="logo">шурш<span>!</span></span>'+socialAvatar(currentUser)+'</div>'+
+  '<div class="personal-invite-card">'+
   '<img id="personal-invite-qr" alt="QR-код приглашения от '+attr(currentUser.name||'')+'" width="208" src="'+attr(qr)+'">'+
   '<div class="personal-invite-download"><a class="btn btn-soft btn-small" download="shursh-invite.png" href="'+attr(qr)+'">Скачать QR</a><button class="btn btn-soft btn-small" type="button" data-social-action="share-personal-qr">Поделиться QR</button></div></div>'+
   '<div class="field"><label for="personal-invite-link">Твоя ссылка</label><div class="share-field invite-link-row"><input class="input" aria-label="Персональная ссылка" id="personal-invite-link" readonly value="'+attr(url)+'"><button class="btn btn-soft btn-small" type="button" data-social-action="copy-personal-invite" aria-label="Копировать ссылку">'+ico('copy')+'</button></div></div>'+

@@ -3232,8 +3232,13 @@ def test_touch_login_native_and_admin_date_labels(browser_http,monkeypatch):
             page.locator('header [data-open="login"]').click()
             page.locator('#fld-email').fill('other@example.test')
             page.locator('#fld-password').fill('valid-password')
-            page.locator('label.shursh-checkbox').filter(has=page.locator('[name=remember]')).click()
-            expect(page.locator('[name=remember]')).to_be_checked()
+            remember=page.locator('[name=remember]')
+            label=page.locator('label.shursh-checkbox').filter(has=remember)
+            expect(remember).to_be_checked()
+            label.click()
+            expect(remember).not_to_be_checked()
+            label.click()
+            expect(remember).to_be_checked()
             with page.expect_response(lambda res: res.url.endswith('/api/login') and res.request.is_navigation_request()) as login_response:
                 page.locator('.modal-fixed-footer [type=submit]').click()
             assert login_response.value.status==303
