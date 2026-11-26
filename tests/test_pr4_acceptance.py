@@ -3463,11 +3463,13 @@ def test_hotfix_admin_direct_reload_and_error_report(browser_https,application,m
             expect(page.locator('.error-page h1')).to_have_text('Не удалось загрузить интерфейс')
             expect(page.locator('.error-page > p:not([data-incident-result])')).to_have_count(0)
             expect(page.locator('.error-page')).not_to_contain_text('is not defined')
-            btn=page.get_by_role('button',name='Сообщить об ошибке')
+            btn=page.locator('[data-action="report-incident"]')
+            expect(btn).to_have_text('Сообщить об ошибке')
             with page.expect_response(lambda r:r.url.endswith('/api/incidents')) as response:
                 btn.click()
             assert response.value.status in (200,201)
             expect(btn).to_be_disabled()
+            expect(btn).to_have_text('Сообщение отправлено')
             expect(page.locator('[data-incident-result]')).to_contain_text('получила сообщение')
             output=OUTPUT/'hotfix';output.mkdir(parents=True,exist_ok=True)
             page.screenshot(path=str(output/f'{engine}-error-report.png'))
@@ -3557,3 +3559,54 @@ def test_profile_feedback_and_inline_santa_polish(browser_https,application,engi
             expect(page.locator('[data-santa-date-input]')).to_have_value('2027-02-13')
         finally:
             browser.close()
+
+
+@pytest.mark.browser
+@pytest.mark.parametrize('engine',['chromium','webkit'])
+def test_branded_document_404_and_diagnostic(browser_https,application,monkeypatch,engine):
+    from test_cloud import login,call
+    monkeypatch.setenv('SHURSH_ADMIN_EMAILS','owner@example.test')
+    manager=login(application)
+    paths={'/missing-page':'Страница не найдена','/santa/invalid':'Игра не найдена','/list/invalid':'Вишлист не найден','/u/!':'Пользователь не найден','/users/invalid':'Пользователь не найден','/join/!':'Приглашение не найдено','/i/!':'Приглашение не найдено','/p/!':'Личная ссылка недействительна','/r/!':'Бронь не найдена','/w/!':'Вишлист не найден','/uploads/no-such-image.webp':'Изображение не найдено'}
+    out=OUTPUT/'document-404';out.mkdir(parents=True,exist_ok=True)
+    with sync_playwright() as play:
+        browser=getattr(play,engine).launch(headless=True)
+        try:
+            for enabled in (False,True):
+                ctx=browser.new_context(ignore_https_errors=True,java_script_enabled=enabled,viewport={'width':320,'height':780},reduced_motion='reduce')
+                try:
+                    page=ctx.new_page()
+                    for index,(path,heading) in enumerate(paths.items()):
+                        response=page.goto(browser_https+path+'?hidden=DO-NOT-REFLECT')
+                        assert response.status==404
+                        assert 'text/html' in response.headers['content-type']
+                        expect(page.locator('h1')).to_have_text(heading)
+                        expect(page.locator('.error-approved-art img')).to_be_visible()
+                        expect(page.locator('.error-page a[href="/"]')).to_be_visible()
+                        assert 'DO-NOT-REFLECT' not in page.content()
+                        assert page.locator('h1').count()==1
+                        if enabled:
+                            page.wait_for_function("document.querySelector('.error-approved-art img').naturalWidth>0")
+                            assert page.evaluate('document.documentElement.scrollWidth <= innerWidth+1')
+                            expect(page.locator('[data-report-404]')).to_be_visible()
+                        else:
+                            expect(page.locator('[data-report-404]')).to_be_hidden()
+                        if index in (0,1,2,5):
+                            page.screenshot(path=str(out/f'{engine}-320-{enabled}-{index}.png'),animations='disabled')
+                    if enabled:
+                        page.set_viewport_size({'width':1440,'height':900})
+                        page.goto(browser_https+'/santa/invalid')
+                        with page.expect_response(lambda r:r.url.endswith('/api/incidents')) as sent:
+                            page.locator('[data-report-404]').click()
+                        assert sent.value.status in (200,201)
+                        expect(page.locator('[data-report-404]')).to_be_disabled()
+                        expect(page.locator('[data-report-status]')).to_contain_text('получила сообщение')
+                        page.screenshot(path=str(out/f'{engine}-desktop-reported.png'),animations='disabled')
+                        page.locator('.error-page a[href="/"]').click()
+                        expect(page.locator('main h1').first).to_be_visible()
+                finally:
+                    ctx.close()
+        finally:
+            browser.close()
+    items=call(manager,'GET','/api/admin/feedback').json['items']
+    assert any('HTTP: 404' in item['message'] and '/santa/*' in item['message'] and 'Версия UI:' in item['message'] and not item['reply_email'] and not item['notify_site'] for item in items)

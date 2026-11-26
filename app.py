@@ -20,14 +20,15 @@ from server import ApiError, LIMIT_BYTES
 ROOT = Path(__file__).resolve().parent
 # One fingerprint for the HTML and every first-party UI module. A new release
 # cannot reuse a cached app.js under the previous HTML's unversioned URL.
-UI_ASSETS=('app.js','santa-ui.js','social-ui.js','styles.css','polish.css','fonts.css','favicon.svg','favicon.ico','error-page.js')
+UI_ASSETS=('app.js','santa-ui.js','social-ui.js','styles.css','polish.css','fonts.css','favicon.svg','favicon.ico')
+ERROR_ASSETS=('error-page.js',)
 LANDING_ART_ASSETS=tuple('art/crayon/'+name+'.webp' for name in (
     'hero-accents', 'hero-mail', 'hero-gift', 'hero-mascot', 'step-list', 'step-share', 'step-gift', 'camera', 'cup', 'ticket', 'santa', 'privacy'
 ))
 _ui_digest=hashlib.sha256()
 _ui_digest.update(b'index.html\0'+(ROOT/'templates'/'index.html').read_bytes())
 _ui_digest.update(b'404.html\0'+(ROOT/'templates'/'404.html').read_bytes())
-for _asset in UI_ASSETS + LANDING_ART_ASSETS:
+for _asset in UI_ASSETS + LANDING_ART_ASSETS + ERROR_ASSETS:
     _ui_digest.update(_asset.encode('ascii')+b'\0'+(ROOT/'public'/_asset).read_bytes())
 UI_VERSION=_ui_digest.hexdigest()[:20]
 app = Flask(__name__, static_folder=None)
@@ -111,7 +112,7 @@ def security_headers(result):
     # Static UI assets are public and identical for every user. Reusing them
     # avoids repeated downloads on reload; HTML, APIs and capability URLs
     # must always remain private and uncached.
-    versioned_asset=(result.status_code in (200,304) and request.path.startswith('/ui/'+UI_VERSION+'/') and request.path[len('/ui/'+UI_VERSION+'/'):] in UI_ASSETS + LANDING_ART_ASSETS)
+    versioned_asset=(result.status_code in (200,304) and request.path.startswith('/ui/'+UI_VERSION+'/') and request.path[len('/ui/'+UI_VERSION+'/'):] in UI_ASSETS + LANDING_ART_ASSETS + ERROR_ASSETS)
     if result.status_code in (200,304) and (versioned_asset or request.path.lstrip('/') in LANDING_ART_ASSETS or request.path in ('/app.js','/santa-ui.js','/social-ui.js','/styles.css','/polish.css','/fonts.css','/favicon.svg','/favicon.ico') or request.path.startswith('/fonts/')):
         result.headers['Cache-Control'] = 'public, max-age=300, must-revalidate'
     else:
@@ -347,7 +348,7 @@ def image(filename):
 
 @app.get('/ui/<version>/<path:asset>')
 def versioned_ui_asset(version,asset):
-    if version!=UI_VERSION or asset not in UI_ASSETS + LANDING_ART_ASSETS:
+    if version!=UI_VERSION or asset not in UI_ASSETS + LANDING_ART_ASSETS + ERROR_ASSETS:
         return response({'error':'Версия интерфейса недоступна. Обнови страницу'},404)
     return send_from_directory(ROOT/'public',asset)
 
