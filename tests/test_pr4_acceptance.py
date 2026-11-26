@@ -2701,17 +2701,25 @@ def test_mobile_toast_in_sheet_flow_and_lifecycle(browser_https,engine):
                 assert_geometry(geometry())
                 assert rail.evaluate("el=>el.scrollHeight>el.clientHeight")
                 # Resizing to desktop restores the same node and its original timer.
-                page.evaluate("window.savedToast=document.querySelector('.toast')")
+                # Isolate breakpoint timing from the long-message screenshot.
+                page.evaluate("notice('Перенос уведомления');window.savedToast=document.querySelector('.toast');window.toastStarted=performance.now()")
                 page.set_viewport_size({'width':900,'height':844})
+                page.wait_for_function("()=>!matchMedia('(max-width:760px)').matches",timeout=2000)
                 expect(page.locator('#toast-root .toast')).to_have_count(1)
                 assert page.evaluate("savedToast===document.querySelector('#toast-root .toast')")
                 page.set_viewport_size({'width':width,'height':height})
+                page.wait_for_function("()=>matchMedia('(max-width:760px)').matches",timeout=2000)
                 expect(toast).to_have_count(1)
                 assert page.evaluate("savedToast===document.querySelector('.modal-toast-rail .toast')")
                 # Replace the sheet (and then close it); never duplicate or lose feedback.
                 page.evaluate("modal({title:'Следующая модалка',content:'<p>Новое содержимое</p>'})")
                 expect(toast).to_have_count(1)
                 assert page.evaluate("savedToast===document.querySelector('.modal-toast-rail .toast')")
+                # Moving through both breakpoints and replacing the dialog must
+                # not restart the notification's original 4.5-second lifetime.
+                expect(toast).to_have_count(0,timeout=5500)
+                elapsed=page.evaluate("performance.now()-toastStarted")
+                assert 4300<=elapsed<=5400,elapsed
                 page.evaluate("notice('Готово')")
                 expect(toast).to_have_text('Готово')
                 page.keyboard.press('Escape');expect(dialog).to_have_count(0)

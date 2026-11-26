@@ -495,6 +495,10 @@ function syncToastPlacement(){
  if(!mobileToastMedia.matches||!rail){restorePageToast();return;}
  if(root.firstElementChild)rail.replaceChildren(root.firstElementChild);
 }
+// WebKit may deliver resize before the media query has updated. Listen to
+// the query itself as the authoritative breakpoint, independently of resize.
+if(mobileToastMedia.addEventListener)mobileToastMedia.addEventListener('change',syncToastPlacement);
+else mobileToastMedia.addListener(syncToastPlacement);
 function notice(message,error=false){
  const n=document.createElement('div');
  n.className='toast'+(error?' error':'');
