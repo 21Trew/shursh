@@ -510,7 +510,7 @@ async function socialInviteFriendsModal(){
  const eventId=loadedSanta.event.id,marker=lastRenderToken;
  const {friends}=await api('/api/friends');
  if(marker!==lastRenderToken)return;
- if(!friends.length){notice('Сначала добавь друзей',true);nav('/friends');return;}
+ if(!friends.length){nav('/friends');notice('Сначала добавь друзей',true);return;}
  modal({title:'Позвать друзей в игру',subtitle:'Друг получит приглашение в уведомлениях',
   content:selectField('Кого пригласить','friend_id',friends.map(x=>[x.id,x.name]),friends[0].id),
   submitLabel:'Отправить приглашение',onSubmit:async form=>{
@@ -522,7 +522,7 @@ async function socialInviteFriendsModal(){
 async function socialAskGiftModal(wishId){
  if(!currentUser){loginModal();return;}
  const {friends}=await api('/api/friends');
- if(!friends.length){notice('Чтобы попросить подарок, сначала добавь друга',true);nav('/friends');return;}
+ if(!friends.length){nav('/friends');notice('Чтобы попросить подарок, сначала добавь друга',true);return;}
  modal({title:'Попросить друга о подарке',subtitle:'Друг увидит пожелание и сможет забронировать подарок, если он свободен',
   content:selectField('Кому отправить просьбу','friend_id',friends.map(f=>[f.id,f.name]),friends[0].id),
   submitLabel:'Попросить',onSubmit:async form=>{

@@ -949,19 +949,18 @@ input[type="checkbox"]:not(.shursh-checkbox input):checked::after{content:"✓";
 
 /* Modal notifications are a real flex row, never a fixed overlay. Keep the
    header/footer actionable; long messages scroll within their bounded row. */
-.modal-toast-rail{display:none}
-@media(max-width:760px){
- .modal>.modal-toast-rail:not(:empty){
-  display:block;flex:0 0 auto;min-width:0;max-height:min(112px,24dvh);
-  padding:6px 20px 0;overflow:auto;overscroll-behavior:contain;
- }
- .modal-toast-rail>.toast{
-  position:static;inset:auto;z-index:auto;width:100%;max-width:none;
-  padding:9px 12px;font-size:13px;line-height:1.35;border-radius:12px;
-  overflow-wrap:anywhere;box-shadow:none;animation:none;transform:none;
- }
+.modal-toast-rail,#toast-root:empty{display:none}
+.modal>.modal-toast-rail:not(:empty){
+ display:block;flex:0 0 auto;min-width:0;max-height:min(112px,24dvh);
+ padding:6px 20px 0;overflow:auto;overscroll-behavior:contain;
 }
-
+#toast-root:not(:empty){display:block;position:static;min-width:0;padding:8px 12px}
+#toast-root>.toast,.modal-toast-rail>.toast{
+ position:static;inset:auto;z-index:auto;width:100%;max-width:none;
+ padding:9px 12px;font-size:13px;line-height:1.35;border-radius:12px;
+ overflow-wrap:anywhere;box-shadow:none;animation:none;transform:none;
+}
+#toast-root>.toast{max-width:560px;margin:0 auto}
 
 /* Crayon illustrations: independent transforms; labels occupy dedicated layout rows. */
 .hero-visual{display:grid;grid-template-rows:auto minmax(0,1fr) auto;gap:10px;height:550px;align-items:center;padding:2px 0 10px;isolation:isolate;overflow:visible}

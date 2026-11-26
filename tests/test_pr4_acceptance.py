@@ -2834,13 +2834,17 @@ def test_mobile_toast_in_sheet_flow_and_lifecycle(browser_https,engine):
                 page.wait_for_function("()=>document.querySelector('.modal')?.getAnimations().length===0")
                 assert_geometry(geometry())
                 assert rail.evaluate("el=>el.scrollHeight>el.clientHeight")
-                # Resizing to desktop restores the same node and its original timer.
+                # Both breakpoints keep feedback inside the same modal and timer.
                 # Isolate breakpoint timing from the long-message screenshot.
                 page.evaluate("notice('Перенос уведомления');window.savedToast=document.querySelector('.toast');window.toastStarted=performance.now()")
                 page.set_viewport_size({'width':900,'height':844})
                 page.wait_for_function("()=>!matchMedia('(max-width:760px)').matches",timeout=2000)
-                expect(page.locator('#toast-root .toast')).to_have_count(1)
-                assert page.evaluate("savedToast===document.querySelector('#toast-root .toast')")
+                expect(page.locator('#toast-root .toast')).to_have_count(0)
+                expect(toast).to_have_count(1)
+                assert page.evaluate("savedToast===document.querySelector('.modal-toast-rail .toast')")
+                page.wait_for_function("()=>document.querySelector('.modal')?.getAnimations().length===0")
+                assert_geometry(geometry())
+                page.screenshot(path=str(out/f'{engine}-desktop-modal.png'),animations='disabled')
                 page.set_viewport_size({'width':width,'height':height})
                 page.wait_for_function("()=>matchMedia('(max-width:760px)').matches",timeout=2000)
                 expect(toast).to_have_count(1)
@@ -2862,6 +2866,62 @@ def test_mobile_toast_in_sheet_flow_and_lifecycle(browser_https,engine):
                 expect(page.locator('.toast')).to_have_count(0,timeout=6500)
                 ctx.close()
         finally:browser.close()
+
+@pytest.mark.browser
+@pytest.mark.parametrize('engine',['chromium','webkit'])
+def test_toast_route_scope_and_page_flow(browser_https,engine):
+    out=OUTPUT/'route-toast';out.mkdir(parents=True,exist_ok=True)
+    with sync_playwright() as play:
+        browser=getattr(play,engine).launch(headless=True)
+        try:
+            for width,height in ((390,844),(1280,800)):
+                ctx=browser.new_context(viewport={'width':width,'height':height},
+                    ignore_https_errors=True,reduced_motion='reduce')
+                page=ctx.new_page();page.goto(browser_https+'/')
+                expect(page.locator('main h1').first).to_be_visible()
+                page.evaluate("notice('Сохранено на этой странице')")
+                toast=page.locator('#toast-root .toast')
+                expect(toast).to_be_visible()
+                assert toast.evaluate("el=>getComputedStyle(el).position==='static'")
+                assert toast.evaluate("""el=>{
+                    const r=el.getBoundingClientRect();
+                    return [...document.querySelectorAll('button,a,input')].every(b=>{
+                        const q=b.getBoundingClientRect();
+                        return !(r.left<q.right&&r.right>q.left&&r.top<q.bottom&&r.bottom>q.top&&q.width&&q.height);
+                    });
+                }""")
+                page.screenshot(path=str(out/f'{engine}-{width}-page.png'),animations='disabled')
+                page.evaluate("nav('/toast-scope-test')")
+                expect(page.locator('.toast')).to_have_count(0)
+                expect(page.locator('main h1').first).to_be_visible()
+                page.evaluate("notice('Сообщение другого маршрута')")
+                page.go_back()
+                expect(page.locator('.toast')).to_have_count(0)
+                expect(page.locator('main h1').first).to_be_visible()
+                page.evaluate("""()=>{
+                    modal({title:'Ошибка',content:'<input aria-label="Поле">',onSubmit:async()=>{throw new Error('Проверь данные')}});
+                }""")
+                dialog=page.locator('.modal')
+                dialog.locator('button[type=submit]').click()
+                expect(dialog.locator('.modal-toast-rail .toast')).to_have_attribute('role','alert')
+                expect(page.locator('#toast-root .toast')).to_have_count(0)
+                page.screenshot(path=str(out/f'{engine}-{width}-modal-error.png'),animations='disabled')
+                page.keyboard.press('Escape')
+                expect(dialog).to_have_count(0)
+                expect(page.locator('.toast')).to_have_count(0)
+                page.evaluate("""()=>{
+                    modal({title:'Отложенная ошибка',content:'<p>Проверка</p>',onSubmit:()=>new Promise((_,reject)=>{window.rejectToastTest=reject})});
+                }""")
+                dialog.locator('button[type=submit]').click()
+                page.evaluate("nav('/toast-scope-test');rejectToastTest(new Error('Устаревшая ошибка'))")
+                expect(dialog).to_have_count(0)
+                expect(page.locator('main h1').first).to_be_visible()
+                expect(page.locator('.toast')).to_have_count(0)
+                page.evaluate("nav('/');notice('Новый маршрут готов')")
+                expect(toast).to_have_text('Новый маршрут готов')
+                ctx.close()
+        finally:browser.close()
+
 
 @pytest.mark.browser
 @pytest.mark.parametrize('engine', ['chromium','webkit'])

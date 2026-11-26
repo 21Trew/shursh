@@ -151,6 +151,7 @@ document.addEventListener('click',event=>{if(swipeClickUntil>performance.now()&&
 
 function nav(path,{force=false}={}){
  if(currentPath()===path&&!force)return;
+ if(currentPath()!==path)beginToastRoute(path);
  closeCalendar();
  stopGameLifecycle();
  if(!force)rememberOwnerTab();else clearOwnerTabViews();
@@ -491,37 +492,76 @@ async function startupApi(path){
   throw error;
  }finally{clearTimeout(timeout);}
 }
-// A single notification keeps its lifetime when moved between page and sheet.
-const mobileToastMedia=matchMedia('(max-width:760px)');
+// Page feedback belongs to one route. Modal errors belong to their dialog.
+const pageToastRoot=document.getElementById('toast-root');
+let toastRoute=currentPath(),toastRouteEpoch=0;
 function toastRail(dialog=modalRoot.querySelector('.modal')){
  return dialog?.querySelector(':scope > .modal-toast-rail')||null;
 }
+function parkPageToast(){
+ const view=app.querySelector('#page-view');
+ if(view){if(pageToastRoot.nextElementSibling!==view)view.before(pageToastRoot);}
+ else if(pageToastRoot.parentElement!==document.body)document.body.append(pageToastRoot);
+}
+function placePageToast(){
+ parkPageToast();
+ if(!pageToastRoot.firstElementChild)return;
+ const view=app.querySelector('#page-view'),main=view?.querySelector(':scope > main');
+ if(!main)return;
+ const top=Math.max(0,app.querySelector('.site-header')?.getBoundingClientRect().bottom||0);
+ const bottom=window.visualViewport?.height||innerHeight;
+ if(view.getBoundingClientRect().top>=top&&view.getBoundingClientRect().top<bottom-80)return;
+ // At a scrolled position insert feedback into an existing visible block
+ // flow, never over a control, into a grid, form or scroll pane.
+ const candidates=[...main.children,...main.querySelectorAll('section,article,div,p,h1,h2,h3')];
+ const target=candidates.find(el=>{
+  const parent=el.parentElement;
+  if(!parent||el===pageToastRoot||el.closest('form,button,a,dialog,[role="dialog"],[role="tablist"],[contenteditable]'))return false;
+  const r=el.getBoundingClientRect(),p=getComputedStyle(parent);
+  if(r.top<top+8||r.top>bottom-90||r.width<Math.min(240,innerWidth-32))return false;
+  if(!(p.display==='block'||(p.display==='flex'&&p.flexDirection==='column')))return false;
+  for(let n=parent;n&&n!==main.parentElement;n=n.parentElement){
+   const style=getComputedStyle(n);
+   if(['absolute','fixed','sticky'].includes(style.position)||['hidden','auto','scroll','clip'].includes(style.overflowY))return false;
+  }
+  return true;
+ });
+ if(target)target.before(pageToastRoot);
+}
+function clearNotice(){
+ clearTimeout(toastTimeout);toastTimeout=undefined;
+ pageToastRoot.replaceChildren();toastRail()?.replaceChildren();parkPageToast();
+}
+function beginToastRoute(path=currentPath()){
+ if(path===toastRoute)return;
+ toastRoute=path;toastRouteEpoch++;clearNotice();
+ if(modalRoot.firstElementChild)closeModal({immediate:true});
+}
 function restorePageToast(){
  const n=toastRail()?.firstElementChild;
- if(n)document.getElementById('toast-root').replaceChildren(n);
+ if(!n)return;
+ if(n.classList.contains('error')){n.remove();clearTimeout(toastTimeout);toastTimeout=undefined;return;}
+ pageToastRoot.replaceChildren(n);placePageToast();
 }
 function syncToastPlacement(){
  const rail=toastRail();
- const root=document.getElementById('toast-root');
- if(!mobileToastMedia.matches||!rail){restorePageToast();return;}
- if(root.firstElementChild)rail.replaceChildren(root.firstElementChild);
+ if(!rail||modalExit)return;
+ if(pageToastRoot.firstElementChild){rail.replaceChildren(pageToastRoot.firstElementChild);parkPageToast();}
 }
-// WebKit may deliver resize before the media query has updated. Listen to
-// the query itself as the authoritative breakpoint, independently of resize.
-if(mobileToastMedia.addEventListener)mobileToastMedia.addEventListener('change',syncToastPlacement);
-else mobileToastMedia.addListener(syncToastPlacement);
 function notice(message,error=false){
+ beginToastRoute();
  const n=document.createElement('div');
  n.className='toast'+(error?' error':'');
  n.setAttribute('role',error?'alert':'status');
  n.setAttribute('aria-atomic','true');
  n.textContent=error?localizedError(message):message;
- const root=document.getElementById('toast-root'),rail=toastRail();
- root.replaceChildren();rail?.replaceChildren();
- (mobileToastMedia.matches&&rail?rail:root).append(n);
- clearTimeout(toastTimeout);toastTimeout=setTimeout(()=>n.remove(),4500);
+ const rail=toastRail();
+ pageToastRoot.replaceChildren();rail?.replaceChildren();
+ if(rail&&!modalExit){rail.append(n);parkPageToast();}
+ else{pageToastRoot.append(n);placePageToast();}
+ clearTimeout(toastTimeout);toastTimeout=setTimeout(()=>{n.remove();parkPageToast();},4500);
 }
-async function clipboard(value){try{await navigator.clipboard.writeText(value);notice('Ссылка скопирована!');}catch{modal({title:'Скопируй ссылку',content:`<div class="field"><label>Ссылка</label><input class="input" autofocus readonly value="${attr(value)}" onclick="this.select()"></div>`});}}
+async function clipboard(value){const epoch=toastRouteEpoch;try{await navigator.clipboard.writeText(value);if(epoch===toastRouteEpoch)notice('Ссылка скопирована!');}catch{if(epoch!==toastRouteEpoch)return;modal({title:'Скопируй ссылку',content:`<div class="field"><label>Ссылка</label><input class="input" autofocus readonly value="${attr(value)}" onclick="this.select()"></div>`});}}
 let modalContentObserver=null,authModalMotion=null,authModalFrame=0;
 let modalEntrance=[],modalExit=null;
 const motionReduced=()=>matchMedia('(prefers-reduced-motion: reduce)').matches;
@@ -646,7 +686,7 @@ function modal({title,subtitle='',content='',onSubmit=null,onError=null,submitLa
  }
  if(!priorDialog)animateModalEntrance(dialog.parentElement,dialog);
  document.body.style.overflow='hidden';const bd=modalRoot.querySelector('[data-backdrop]');if(!reuseAuth)bd.addEventListener('click',e=>{if(e.target===bd)closeModal()});modalRoot.querySelectorAll('[data-close]').forEach(b=>b.addEventListener('click',closeModal));
- if(onSubmit){modalRoot.querySelector('form').addEventListener('submit',async e=>{if(nativeSubmit){if(e.defaultPrevented)return;const password=e.currentTarget.elements.password;if(password)password.type='password';return;}e.preventDefault();const btn=e.currentTarget.querySelector('[type=submit]')||modalRoot.querySelector('.modal-fixed-footer [type=submit]');if(btn.disabled)return;btn.disabled=true;const submitted=e.currentTarget;try{await onSubmit(submitted);if(modalRoot.querySelector('form')===submitted)closeModal();}catch(err){if(onError){if(submitted.isConnected)onError(err,submitted);}else notice(err.message,true)}finally{if(btn.isConnected)btn.disabled=false;}});}
+ if(onSubmit){modalRoot.querySelector('form').addEventListener('submit',async e=>{if(nativeSubmit){if(e.defaultPrevented)return;const password=e.currentTarget.elements.password;if(password)password.type='password';return;}e.preventDefault();const btn=e.currentTarget.querySelector('[type=submit]')||modalRoot.querySelector('.modal-fixed-footer [type=submit]');if(btn.disabled)return;btn.disabled=true;const submitted=e.currentTarget,epoch=toastRouteEpoch;try{await onSubmit(submitted);if(modalRoot.querySelector('form')===submitted)closeModal();}catch(err){if(submitted.isConnected&&!modalExit&&epoch===toastRouteEpoch){if(onError)onError(err,submitted);else notice(err.message,true);}}finally{if(btn.isConnected)btn.disabled=false;}});}
  // No delayed autofocus: it can steal focus while the user types in the
  // password field, silently redirecting keystrokes to email after 10 ms.
  // Fields focus on the first intentional click; avoid noisy autofocus rings.
@@ -1131,6 +1171,8 @@ function ensureCookieNotice(){
  app.querySelector('#page-view').before(node);
 }
 function shell(body){
+ const hadPageToast=!!pageToastRoot.firstElementChild;
+ parkPageToast();
  if(ownerPatchRoot){
   const template=document.createElement('template');template.innerHTML=body;
   const next=template.content.firstElementChild;
@@ -1147,12 +1189,14 @@ function shell(body){
    }
    patchOwnerNode(ownerPatchRoot,next);
   }
+  if(hadPageToast)placePageToast();
   return;
  }
  const identity=(currentUser?.id??'guest')+':'+(currentUser?.name??'')+':'+(currentUser?.avatar_emoji??'')+':'+!!currentUser?.is_admin+':'+isDemo+':'+isPreview;
  let view=app.querySelector('#page-view');
  if(!view){
-  app.innerHTML=header()+'<div id="page-view"></div>'+footer();
+  document.body.append(pageToastRoot);
+   app.innerHTML=header()+'<div id="page-view"></div>'+footer();
   if(!document.getElementById('scroll-to-top')){
    const top=document.createElement('button');
    top.id='scroll-to-top';top.type='button';top.className='scroll-to-top';top.setAttribute('aria-label','Наверх');
@@ -1172,6 +1216,7 @@ function shell(body){
  syncNavigationSelection();
  attachNavigationScrollCue();
   closeUiSelect();view.innerHTML=body;enhanceSelects(view);view.removeAttribute('aria-busy');app.classList.remove('route-loading');
+   if(hadPageToast)placePageToast();else parkPageToast();
  renderedOwnerTab=ownerTab(currentPath())?currentPath():null;consumeSwipeArrival();
  document.title='Шурш! - вишлисты и Тайный Санта';
  if(currentUser&&!isPreview){
@@ -1248,6 +1293,7 @@ function home(){shell(`<main><section class="container hero"><div class="hero-co
  <section class="container"><div class="final-cta"><div><h2>Пусть хорошие подарки случаются чаще</h2><p>Первый список можно собрать прямо сейчас</p></div><button class="btn btn-dark" data-open="list">Создать свой список ${ico('arrow')}</button></div></section></main>`);}
 const loadingHelpMarkup='<div class="loading-help"><p>Загрузка занимает больше времени, чем обычно</p><a class="btn btn-soft" href="/">Повторить загрузку</a></div>';
 function loading(){
+ parkPageToast();
  renderedOwnerTab=null;
  const view=app.querySelector('#page-view');
  if(view&&renderStarted){
@@ -1264,6 +1310,7 @@ function loading(){
     '</main>';
   return;
  }
+ document.body.append(pageToastRoot);
  app.innerHTML=header()+'<div class="loading-screen"><div class="loading-mark">шурш<span>!</span></div><div class="loading-line"></div>'+loadingHelpMarkup+'</div>';
 }
 function localizedError(value){
@@ -2428,12 +2475,12 @@ async function authSuccess(result,register){
  if(pendingGameClaim){
   const claim=pendingGameClaim;
   try{await claimPersonalGame(claim);}
-  catch(error){notice('Ты вошёл, но игру пока не удалось привязать: '+error.message,true);nav('/p/'+claim,{force:true});}
+  catch(error){nav('/p/'+claim,{force:true});notice('Ты вошёл, но игру пока не удалось привязать: '+error.message,true);}
   return;
  }
- notice(register?'Аккаунт создан!':'С возвращением!');
  const landing=result.invite_path||currentPath();
  nav((/^\/join\/([A-Za-z0-9_-]+|p\/[A-Za-z0-9_-]{43})$/.test(landing)||/^\/w\/[A-Za-z0-9_-]+$/.test(landing)||/^\/i\/[A-Za-z0-9_-]{24}$/.test(landing))?landing:'/',{force:true});
+ notice(register?'Аккаунт создан!':'С возвращением!');
 }
 function loginModal(mode='login',email=''){
  const register=mode==='register';
@@ -2479,7 +2526,7 @@ function loginModal(mode='login',email=''){
  setupAuthFormValidation(form,register);
 }
 function listModal(edit=null){if(!currentUser){loginModal('register');return;}
- const selected=edit||{};modal({title:edit?'Настройки вишлиста':'Новый вишлист',subtitle:edit?'Меняй оформление и доступ, когда захочешь':'Как назовём твою маленькую коллекцию желаний?',content:`${field('Название','title','Например, День рождения, ура!','text',selected.title||'',true,'maxlength="90"')}${textArea('Пара слов о списке','description','Что важно знать дарителям?',selected.description||'')}<div class="form-grid">${selectField('Повод','occasion',['Просто так','День рождения','Годовщина','Новоселье','Свадьба','Новый год','Другое'].map(v=>[v,v]),selected.occasion||'День рождения')}${selectField('Оформление','theme',[['peach','🟠 Персиковое'],['lilac','🟣 Лавандовое'],['mint','🟢 Мятное'],['yellow','🟡 Солнечное']],selected.theme||'peach')}</div>${selectField('Доступ к списку','visibility',[['link','По ссылке'],['private','Только мне']],selected.visibility||'link')}${!isPreview?'<div class="field"><label for="wishlist-cover-file">Своя обложка (необязательно)</label><div class="file-picker"><input id="wishlist-cover-file" type="file" accept="image/jpeg,image/png,image/webp,image/heic,image/heif,.heic,.heif"></div></div>'+(selected.cover_path?shurshCheckbox('remove_cover','Вернуть тематическую обложку',false):''):''}`,submitLabel:edit?'Сохранить':'Создать список',onSubmit:async form=>{const payload=readForm(form);delete payload.remove_cover;const file=form.querySelector('#wishlist-cover-file')?.files?.[0];if(file)payload.cover_data=await compressToWebp(file,{maxDimension:960,maxBytes:65000});else if(form.elements.remove_cover?.checked)payload.cover_data=null;if(edit){await api(`/api/lists/${edit.id}`,{method:'PATCH',body:payload});notice('Настройки сохранены');await render();}else{const r=await api('/api/lists',{method:'POST',body:payload});notice('Список создан!');nav(`/list/${r.id}`);}}});}
+ const selected=edit||{};modal({title:edit?'Настройки вишлиста':'Новый вишлист',subtitle:edit?'Меняй оформление и доступ, когда захочешь':'Как назовём твою маленькую коллекцию желаний?',content:`${field('Название','title','Например, День рождения, ура!','text',selected.title||'',true,'maxlength="90"')}${textArea('Пара слов о списке','description','Что важно знать дарителям?',selected.description||'')}<div class="form-grid">${selectField('Повод','occasion',['Просто так','День рождения','Годовщина','Новоселье','Свадьба','Новый год','Другое'].map(v=>[v,v]),selected.occasion||'День рождения')}${selectField('Оформление','theme',[['peach','🟠 Персиковое'],['lilac','🟣 Лавандовое'],['mint','🟢 Мятное'],['yellow','🟡 Солнечное']],selected.theme||'peach')}</div>${selectField('Доступ к списку','visibility',[['link','По ссылке'],['private','Только мне']],selected.visibility||'link')}${!isPreview?'<div class="field"><label for="wishlist-cover-file">Своя обложка (необязательно)</label><div class="file-picker"><input id="wishlist-cover-file" type="file" accept="image/jpeg,image/png,image/webp,image/heic,image/heif,.heic,.heif"></div></div>'+(selected.cover_path?shurshCheckbox('remove_cover','Вернуть тематическую обложку',false):''):''}`,submitLabel:edit?'Сохранить':'Создать список',onSubmit:async form=>{const payload=readForm(form);delete payload.remove_cover;const file=form.querySelector('#wishlist-cover-file')?.files?.[0];if(file)payload.cover_data=await compressToWebp(file,{maxDimension:960,maxBytes:65000});else if(form.elements.remove_cover?.checked)payload.cover_data=null;if(edit){await api(`/api/lists/${edit.id}`,{method:'PATCH',body:payload});notice('Настройки сохранены');await render();}else{const r=await api('/api/lists',{method:'POST',body:payload});nav(`/list/${r.id}`);notice('Список создан!');}}});}
 function fixWishModalLayout(){
  const dialog=modalRoot.querySelector('.modal');
  dialog?.classList.add('wish-edit-modal');
@@ -2538,7 +2585,7 @@ function wishModal(edit=null){
 
 }
 function fileToData(file){return compressToWebp(file,{maxDimension:1440,maxBytes:850000});}
-function santaModal(){if(!currentUser){loginModal('register');return;}modal({title:'Создать Тайного Санту',subtitle:'Праздничный заговор начинается здесь. Ты автоматически станешь первым участником',content:`${field('Название игры','title','Например, Санта в нашем офисе','text','',true,'maxlength="100"')}${textArea('Описание','description','Кого зовём и что задумали?')}<div class="form-grid">${field('Дата обмена','exchange_date','','date')}${field('Бюджет','budget','Например, 2500','number','','','min="0" step="0.01"')}</div>${textArea('Дополнительные правила','rules','Что стоит учесть каждому?')}`,submitLabel:'Создать игру',onSubmit:async form=>{const r=await api('/api/santas',{method:'POST',body:readForm(form)});notice('Игра создана! Зови участников');nav(`/santa/${r.id}`);}});}
+function santaModal(){if(!currentUser){loginModal('register');return;}modal({title:'Создать Тайного Санту',subtitle:'Праздничный заговор начинается здесь. Ты автоматически станешь первым участником',content:`${field('Название игры','title','Например, Санта в нашем офисе','text','',true,'maxlength="100"')}${textArea('Описание','description','Кого зовём и что задумали?')}<div class="form-grid">${field('Дата обмена','exchange_date','','date')}${field('Бюджет','budget','Например, 2500','number','','','min="0" step="0.01"')}</div>${textArea('Дополнительные правила','rules','Что стоит учесть каждому?')}`,submitLabel:'Создать игру',onSubmit:async form=>{const r=await api('/api/santas',{method:'POST',body:readForm(form)});nav(`/santa/${r.id}`);notice('Игра создана! Зови участников');}});}
 
 function showParticipantLink(token,name){
  const url=getLink('/p/'+token);
@@ -2610,8 +2657,8 @@ function personalGameTokenFromLink(value){
 async function claimPersonalGame(token){
  const result=await api('/api/participant/'+encodeURIComponent(token)+'/claim',{method:'POST',body:{}});
  clearPendingGameClaim();
- notice('Игра привязана к аккаунту!');
  nav('/santas',{force:true});
+ notice('Игра привязана к аккаунту!');
  return result;
 }
 function connectGameModal(){
@@ -2624,7 +2671,7 @@ function connectGameModal(){
 }
 async function reserveModal(id,key){await toggleGiftReservation(id,key);}
 async function confirmAction(title,subtitle,handler,label='Удалить'){modal({title,subtitle,content:'<div class="alert alert-error">Это действие нельзя отменить</div>',submitLabel:label,onSubmit:handler});}
-async function dispatch(action,el){try{
+async function dispatch(action,el){const epoch=toastRouteEpoch;try{
  if(action==='retry-error'){location.reload();return;}
  if(action==='report-incident'){
   if(el.disabled)return;el.disabled=true;
@@ -2637,13 +2684,13 @@ async function dispatch(action,el){try{
   if(!currentUser)return;
   await api('/api/invites/'+encodeURIComponent(el.dataset.key)+'/join',{method:'POST',body:{name:currentUser.name}});
   // Signed-in joins are already bound to the verified UID server-side.
-  notice('Ты в игре!');nav('/santas',{force:true});return;
+  nav('/santas',{force:true});notice('Ты в игре!');return;
  }
 
  if(action==='delete-santa'){
   const game=loadedSanta?.event;if(!game)return;
   confirmAction('Удалить игру «'+game.title+'»?','Все участники, пожелания, чаты и фотографии будут удалены без возможности восстановления',async()=>{
-   await api('/api/santas/'+game.id,{method:'DELETE'});loadedSanta=null;notice('Игра удалена');nav('/santas',{force:true});
+   await api('/api/santas/'+game.id,{method:'DELETE'});loadedSanta=null;nav('/santas',{force:true});notice('Игра удалена');
   },'Удалить игру');return;
  }
  if(action==='finish-santa'){
@@ -2672,8 +2719,8 @@ async function dispatch(action,el){try{
  }
  if(action==='connect-game'){connectGameModal();return;}
  if(action==='reset-preview'){window.SHURSH_PREVIEW_RESET?.();return;}
- if(action==='logout'){await api('/api/logout',{method:'POST',body:{}});clearPendingGameClaim();clearOwnerDataCache();currentUser=null;broadcastSessionChange();notice('Ты вышел из аккаунта');nav('/',{force:true});}
- if(action==='demo-login'){const r=await api('/api/demo-login',{method:'POST',body:{}});currentUser=r.user;closeModal();notice('Демо-аккаунт открыт');nav('/lists');}
+ if(action==='logout'){await api('/api/logout',{method:'POST',body:{}});clearPendingGameClaim();clearOwnerDataCache();currentUser=null;broadcastSessionChange();nav('/',{force:true});notice('Ты вышел из аккаунта');}
+ if(action==='demo-login'){const r=await api('/api/demo-login',{method:'POST',body:{}});currentUser=r.user;closeModal();nav('/lists');notice('Демо-аккаунт открыт');}
  if(action==='sample-list'){if(!isDemo){listModal();return;}if(!currentUser){const r=await api('/api/demo-login',{method:'POST',body:{}});currentUser=r.user;}const {lists}=await api('/api/lists');if(lists.length)nav(`/w/${lists[lists.length-1].share_key}`);else nav('/lists');}
  if(action==='copy')await clipboard(el.dataset.url);
  if(action==='contact-developer')contactDeveloperModal();
@@ -2714,7 +2761,7 @@ async function dispatch(action,el){try{
   const listId=loadedList?.list.id,wishId=el.dataset.id;
   if(listId)confirmAction('Удалить это желание?','Подарок пропадёт из списка. Активная бронь тоже будет удалена',async()=>{await api(`/api/wishes/${wishId}`,{method:'DELETE'});notice('Желание удалено');await refreshOwnerWishes(listId);});
  }
- if(action==='delete-list')confirmAction('Удалить весь вишлист?','Все желания, ссылки и связанные брони будут удалены',async()=>{await api(`/api/lists/${loadedList.list.id}`,{method:'DELETE'});notice('Список удалён');nav('/lists');});
+ if(action==='delete-list')confirmAction('Удалить весь вишлист?','Все желания, ссылки и связанные брони будут удалены',async()=>{await api(`/api/lists/${loadedList.list.id}`,{method:'DELETE'});nav('/lists');notice('Список удалён');});
  if(action==='reserve'){await reserveModal(el.dataset.id,el.dataset.key);return;}
  if(action==='cancel-reservation')confirmAction('Отменить бронирование?','Подарок снова станет доступен другим дарителям',async()=>{await api(`/api/reservations/${el.dataset.token}`,{method:'DELETE'});notice('Бронь отменена');await render();},'Отменить бронь');
  if(action==='remove-player')confirmAction('Убрать участника?','Его приватная ссылка перестанет работать, и он не будет участвовать в жеребьёвке',async()=>{await api(`/api/santas/${loadedSanta.event.id}/participants/${el.dataset.id}`,{method:'DELETE'});notice('Участник удалён');await render();});
@@ -2745,7 +2792,7 @@ async function dispatch(action,el){try{
   }finally{if(el.isConnected)el.disabled=false;}
   return;
  }
- }catch(err){notice(err.message,true)}}
+ }catch(err){if(epoch===toastRouteEpoch)notice(err.message,true)}}
 // Invalidate sensitive owner RAM cache across browser tabs after sign-in/out.
 const sessionChannel=(!isPreview&&'BroadcastChannel' in window)?
  new BroadcastChannel('shursh-session-changed'):null;
@@ -2806,7 +2853,7 @@ if(!isPreview && ['access_token','refresh_token','error','error_code','error_des
  // navigating or drawing any UI. Do not store tokens in localStorage.
  history.replaceState(null,'',location.pathname+location.search);
 }
-async function render(){closeCalendar();stopGameLifecycle();const marker=++lastRenderToken;try{
+async function render(){beginToastRoute();closeCalendar();stopGameLifecycle();const marker=++lastRenderToken;try{
  const path=currentPath();
  syncNavigationSelection(path);
  if(!renderStarted&&path==='/'&&!isPreview){
@@ -2875,7 +2922,7 @@ document.addEventListener('click',async ev=>{
   return;
  }
  const n=ev.target.closest('[data-nav]');if(n){if(n.tagName==='A'&&(ev.ctrlKey||ev.metaKey||ev.shiftKey||ev.altKey||ev.button!==0))return;ev.preventDefault();nav(n.dataset.nav);return;}const op=ev.target.closest('[data-open]');if(op){ev.preventDefault();const key=op.dataset.open;if(key==='login'||key==='register'||key==='resend'){const email=op.closest('.modal')?.querySelector('#fld-email')?.value||op.dataset.email||'';if(key==='resend')resendConfirmationModal(email);else loginModal(key,email);}if(key==='list')listModal();if(key==='wish')wishModal();if(key==='santa')santaModal();return;}const a=ev.target.closest('[data-action]');if(a){ev.preventDefault();await dispatch(a.dataset.action,a);}});
-window.addEventListener('popstate',()=>{stopGameLifecycle();rememberOwnerTab();if(restoreOwnerTab(currentPath()))lastRenderToken++;else render();});window.addEventListener('hashchange',()=>{if(isPreview)render();});
+window.addEventListener('popstate',()=>{beginToastRoute();stopGameLifecycle();rememberOwnerTab();if(restoreOwnerTab(currentPath()))lastRenderToken++;else render();});window.addEventListener('hashchange',()=>{if(isPreview)render();});
 async function startApplication(){
  if(confirmationToken&&!authReturnError){
   try{
@@ -2903,7 +2950,7 @@ async function startApplication(){
   if(pendingGameClaim){
    const claim=pendingGameClaim;
    try{await claimPersonalGame(claim);}
-   catch(err){notice('Ты вошёл, но игру пока не удалось привязать',true);nav('/p/'+claim,{force:true});}
+   catch(err){nav('/p/'+claim,{force:true});notice('Ты вошёл, но игру пока не удалось привязать',true);}
    return;
   }
   notice('С возвращением!');
