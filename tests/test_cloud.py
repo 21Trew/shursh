@@ -3096,6 +3096,8 @@ def test_browser_reveal_for_account_member_owner_and_guest(browser_http,applicat
                 assigned=pending.value.json()['assignment']
                 assert assigned['revealed'] is True
                 expect(page.locator('.secret-card .recipient')).to_have_text(assigned['receiver_name'])
+                expect(page.locator('.secret-card .recipient-avatar')).to_have_text(assigned.get('receiver_avatar_emoji') or '🎁')
+                expect(page.locator('.secret-card .recipient-eyebrow')).to_have_count(0)
                 assert requests==[True]
                 assert not detail_reads
                 assert page.evaluate("""() => window.__revealMain===document.querySelector('main')
@@ -3118,6 +3120,8 @@ def test_browser_reveal_for_account_member_owner_and_guest(browser_http,applicat
                 expect(page.locator('.game-chat-messages')).to_contain_text('Unsent draft')
                 page.reload()
                 expect(page.locator('.secret-card .recipient')).to_have_text(assigned['receiver_name'])
+                expect(page.locator('.secret-card .recipient-avatar')).to_have_text(assigned.get('receiver_avatar_emoji') or '🎁')
+                expect(page.locator('.secret-card .recipient-eyebrow')).to_have_count(0)
                 context.close()
                 if email=='other@example.test':
                     assert call(owner,'GET',owner_path).json['my_assignment']=={'revealed':False}

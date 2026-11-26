@@ -1918,6 +1918,8 @@ def test_chat_marker_exclusive_across_resolutions_and_pointer_types(browser_http
                         page.wait_for_function(marker_visible,arg='general')
                         for width in (320,375,390,430,760,761,768,1024,1440):
                             page.set_viewport_size({'width':width,'height':844})
+                            chat=page.locator('.game-chat-messages')
+                            initial_height=chat.bounding_box()['height']
                             for room in ('to-recipient','from-santa','general'):
                                 tab=page.locator(f'#game-chat [data-chat-room="{room}"]')
                                 if not touch:
@@ -1938,6 +1940,8 @@ def test_chat_marker_exclusive_across_resolutions_and_pointer_types(browser_http
                                 assert tabs.evaluate_all("""bs=>bs.filter(b=>b.getAttribute('aria-pressed')!=='true').every(b=>getComputedStyle(b,'::before').content==='none')""")
                                 page.wait_for_function(marker_visible,arg=room)
                                 expect(page.locator('.game-chat-messages')).to_contain_text('Marker '+room)
+                                assert abs(chat.bounding_box()['height']-initial_height)<=1
+                                assert chat.evaluate("el=>getComputedStyle(el).scrollbarWidth==='none'||getComputedStyle(el,'::-webkit-scrollbar').display==='none'")
                                 for other in rooms:
                                     if other!=room:
                                         expect(page.locator('.game-chat-messages')).not_to_contain_text('Marker '+other)
@@ -2980,6 +2984,16 @@ def test_service_crayon_covers_footer_and_circular_gift_gallery(browser_https,en
                     expect(page.locator('.modal')).to_have_count(0)
                     page.evaluate("loginModal()")
                     expect(page.locator('[name=remember]')).to_be_checked()
+                    page.keyboard.press('Escape')
+                    expect(page.locator('.modal')).to_have_count(0)
+                    page.evaluate("modal({title:'Дата обмена',content:field('Дата обмена','exchange_date','','date','2027-02-12',true)})")
+                    expect(page.locator('input[type=date]')).to_have_attribute('aria-hidden','true')
+                    page.locator('.ui-calendar-trigger').click()
+                    expect(page.locator('.ui-calendar-popover')).to_be_visible()
+                    assert page.locator('.ui-calendar-popover').evaluate("el=>{const r=el.getBoundingClientRect();return r.left>=0&&r.right<=innerWidth+1&&r.top>=0&&r.bottom<=innerHeight+1}")
+                    page.locator('.ui-calendar-popover [data-date="2027-02-15"]').click()
+                    expect(page.locator('input[type=date]')).to_have_value('2027-02-15')
+                    expect(page.locator('.ui-calendar-popover')).to_have_count(0)
                     page.keyboard.press('Escape')
                     expect(page.locator('.modal')).to_have_count(0)
                     # Load the real versioned WebP resources via the shared service
