@@ -123,8 +123,12 @@ document.addEventListener('touchstart',event=>{
 document.addEventListener('touchmove',event=>{
  if(!pageSwipe)return;
  const t=[...event.touches].find(v=>v.identifier===pageSwipe.id);
- if(!t||event.touches.length!==1||Math.abs(t.clientY-pageSwipe.y)>Math.abs(t.clientX-pageSwipe.x)*.85+12)pageSwipe.cancelled=true;
-},{passive:true});
+ if(!t||event.touches.length!==1||Math.abs(t.clientY-pageSwipe.y)>Math.abs(t.clientX-pageSwipe.x)*.85+12){pageSwipe.cancelled=true;return;}
+ // Claim only a clearly horizontal eligible gesture before Chromium starts
+ // native gesture handling (which can swallow the following independent tap).
+ // Keep vertical scrolling, edge gestures, multitouch and small moves native.
+ if(!pageSwipe.cancelled&&Math.abs(t.clientX-pageSwipe.x)>14&&Math.abs(t.clientX-pageSwipe.x)>Math.abs(t.clientY-pageSwipe.y)*1.7&&event.cancelable)event.preventDefault();
+},{passive:false});
 document.addEventListener('touchcancel',()=>{pageSwipe=null;},{passive:true});
 document.addEventListener('touchend',event=>{
  const s=pageSwipe;pageSwipe=null;

@@ -2749,13 +2749,16 @@ def test_mobile_shared_sheets_header_actions_and_swipes(browser_https,engine):
                 page.wait_for_function("()=>!document.querySelector('.site-header').classList.contains('is-condensed') && Math.abs(document.querySelector('.site-header').getBoundingClientRect().height-132)<1")
                 # Synthetic touch events use the real handler, not a direct nav call.
                 def swipe(selector,dx,dy=0,x=width/2):
-                    page.evaluate("""([selector,dx,dy,x])=>{
+                    return page.evaluate("""([selector,dx,dy,x])=>{
                       const target=document.querySelector(selector);if(!target)throw Error(selector);
                       const y=160,id=5;
                       const touch=(a,b)=>({identifier:id,clientX:a,clientY:b,target});
+                      let movePrevented=false;
                       for(const [name,active,changed] of [['touchstart',[touch(x,y)],[touch(x,y)]],['touchmove',[touch(x+dx,y+dy)],[touch(x+dx,y+dy)]],['touchend',[],[touch(x+dx,y+dy)]]]){
-                       const e=new Event(name,{bubbles:true});Object.defineProperties(e,{touches:{value:active},changedTouches:{value:changed}});target.dispatchEvent(e);
+                       const e=new Event(name,{bubbles:true,cancelable:true});Object.defineProperties(e,{touches:{value:active},changedTouches:{value:changed}});target.dispatchEvent(e);
+                       if(name==='touchmove')movePrevented=e.defaultPrevented;
                       }
+                      return movePrevented;
                     }""",[selector,dx,dy,x])
                 if engine=='chromium':
                     # CDP delivers genuine browser touch input on the mobile context.
@@ -2774,13 +2777,15 @@ def test_mobile_shared_sheets_header_actions_and_swipes(browser_https,engine):
                 expect(page.locator('[data-wishlist-view="friends"]')).to_have_attribute('aria-selected','true')
                 swipe('#wishlist-view-content',100)
                 expect(page.locator('[data-wishlist-view="mine"]')).to_have_attribute('aria-selected','true')
-                swipe('main h1',-90,110)
+                assert not swipe('main h1',-90,110)
                 expect(page).to_have_url(re.compile(r'/lists$'))
-                swipe('main h1',-100,0,10)
+                assert not swipe('main h1',-100,0,10)
                 expect(page).to_have_url(re.compile(r'/lists$'))
-                swipe('main h1',-100)
+                assert not swipe('main h1',-10)
+                expect(page).to_have_url(re.compile(r'/lists$'))
+                assert swipe('main h1',-100)
                 expect(page).to_have_url(re.compile(r'/santas$'))
-                swipe('#santa-state-panel',-100)
+                assert swipe('#santa-state-panel',-100)
                 expect(page.locator('[data-santa-state="finished"]')).to_have_attribute('aria-selected','true')
                 # Exercise a cached owner-tab transition in addition to guest routes.
                 page.evaluate("notice('Только на странице Санты')")
