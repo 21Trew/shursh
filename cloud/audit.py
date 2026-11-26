@@ -12,18 +12,18 @@ CATEGORIES={
 }
 MUTATIONS=(
  ('POST',r'/api/lists','wishlist.created'),
- ('PATCH',r'/api/lists/(\\d+)','wishlist.updated'),
- ('DELETE',r'/api/lists/(\\d+)','wishlist.deleted'),
- ('POST',r'/api/lists/\\d+/wishes','gift.created'),
- ('PATCH',r'/api/wishes/(\\d+)','gift.updated'),
- ('DELETE',r'/api/wishes/(\\d+)','gift.deleted'),
+ ('PATCH',r'/api/lists/(\d+)','wishlist.updated'),
+ ('DELETE',r'/api/lists/(\d+)','wishlist.deleted'),
+ ('POST',r'/api/lists/\d+/wishes','gift.created'),
+ ('PATCH',r'/api/wishes/(\d+)','gift.updated'),
+ ('DELETE',r'/api/wishes/(\d+)','gift.deleted'),
  ('POST',r'/api/santas','santa.created'),
- ('PATCH',r'/api/santas/(\\d+)','santa.updated'),
- ('DELETE',r'/api/santas/(\\d+)','santa.deleted'),
- ('POST',r'/api/santas/(\\d+)/draw','santa.drawn'),
- ('POST',r'/api/santas/(\\d+)/finish','santa.finished'),
- ('PUT',r'/api/santas/(\\d+)/memory','santa.photo_saved'),
- ('DELETE',r'/api/santas/(\\d+)/memory','santa.photo_deleted'),
+ ('PATCH',r'/api/santas/(\d+)','santa.updated'),
+ ('DELETE',r'/api/santas/(\d+)','santa.deleted'),
+ ('POST',r'/api/santas/(\d+)/draw','santa.drawn'),
+ ('POST',r'/api/santas/(\d+)/finish','santa.finished'),
+ ('PUT',r'/api/santas/(\d+)/memory','santa.photo_saved'),
+ ('DELETE',r'/api/santas/(\d+)/memory','santa.photo_deleted'),
  ('POST',r'/api/invites/[A-Za-z0-9_-]+/join','santa.joined'),
  ('POST',r'/api/personal-invites/[A-Za-z0-9_-]+/join','santa.joined'),
  ('PATCH',r'/api/profile/me','profile.updated'),
@@ -31,7 +31,7 @@ MUTATIONS=(
  ('PATCH',r'/api/friends/[0-9a-fA-F-]{36}','friend.updated'),
  ('DELETE',r'/api/friends/[0-9a-fA-F-]{36}','friend.removed'),
  ('POST',r'/api/feedback','feedback.created'),
- ('PATCH',r'/api/admin/feedback/(\\d+)','feedback.updated'),
+ ('PATCH',r'/api/admin/feedback/(\d+)','feedback.updated'),
  ('DELETE',r'/api/friend-invites/me','invite.revoked'),
  ('POST',r'/api/logout','auth.logout'),
 )
@@ -70,7 +70,7 @@ def after_mutation(con,handler,method,path,result):
 
 def offset(request):
     value=request.args.get('offset','0')
-    if not re.fullmatch(r'\\d{1,5}',value) or int(value)>10000: raise ApiError(400,'Неверная страница')
+    if not re.fullmatch(r'\d{1,5}',value) or int(value)>10000: raise ApiError(400,'Неверная страница')
     return int(value)
 
 def user_id(raw):
@@ -109,7 +109,7 @@ def handle(handler,method,path,con):
           WHERE a.audience=? AND a.created_at>=now()-interval '90 days'
           ORDER BY a.id DESC LIMIT 26 OFFSET ?""",(audience,page)).fetchall()
         return 200,{'items':[dict(row) for row in rows[:25]],'offset':page,'more':len(rows)>25},None
-    match=re.fullmatch(r'/api/admin/audit/(\\d{1,18})',path)
+    match=re.fullmatch(r'/api/admin/audit/(\d{1,18})',path)
     if match and method=='GET':
         handler.is_site_admin(con);require_ready(con)
         row=con.execute("""SELECT a.id,a.created_at,a.event,a.success,a.audience,a.actor_id,a.target_id,a.object_id,
