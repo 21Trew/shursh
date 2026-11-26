@@ -3032,6 +3032,20 @@ def test_admin_last_visit_across_devices(application,monkeypatch):
     call(first,'GET','/api/dashboard',headers={**windows,'X-Shursh-Visit':'1'})
     c=row()
     assert c['last_platform']=='windows' and c['last_seen_at']>=b['last_seen_at']
+    # Ordinary unread reads do not record presence. The visible-tab marker
+    # reuses the authenticated session and never trusts a supplied user ID.
+    with psycopg.connect(os.environ['SHURSH_DATABASE_URL']) as con:
+        con.execute("UPDATE public.admin_user_activity SET last_seen_at=now()-interval '10 minutes' WHERE user_id=%s",(IDS['other@example.test'],))
+    old=row()['last_seen_at']
+    call(second,'GET','/api/notifications/unread',headers=android)
+    assert row()['last_seen_at']==old
+    call(application.test_client(),'GET','/api/notifications/unread',status=401,headers={**android,'X-Shursh-Visit':'1'})
+    assert row()['last_seen_at']==old
+    call(second,'GET','/api/notifications/unread',headers={**android,'X-Shursh-Visit':'1'})
+    live=row()
+    assert live['last_seen_at']>old and live['last_platform']=='android' and live['last_seen_source']=='visit'
+    call(first,'GET','/api/notifications/unread',headers={**windows,'X-Shursh-Visit':'1'})
+    assert row()['last_seen_at']==live['last_seen_at'] and row()['last_platform']=='android'
     assert 'last_seen_at' not in call(first,'GET','/api/me').json['user']
     call(first,'GET','/api/admin/users',status=403)
     with psycopg.connect(os.environ['SHURSH_DATABASE_URL']) as con:
