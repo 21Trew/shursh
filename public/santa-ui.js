@@ -98,8 +98,11 @@ function showGameWishDetails(el){
   dialog.querySelector('.modal-scroll-area').scrollTop=0;
   if(focused)layout.querySelector('[data-gallery-step="'+focused+'"]')?.focus({preventScroll:true});
   else if(focusInside)dialog.focus({preventScroll:true});
-  const deck=layout.querySelector('.gift-dialog-media');
-  if(!motionReduced()&&deck?.animate)deck.animate([{opacity:.65,transform:'translateX('+(dir*12)+'px)'},{opacity:1,transform:'translateX(0)'}],{duration:180,easing:'ease-out'});
+  const deck=layout.querySelector('.gift-gallery');
+  if(!motionReduced()&&deck?.animate){
+   deck.querySelector('.gift-dialog-media')?.animate([{opacity:.5,transform:'translateX('+(dir*64)+'px) scale(.96)'},{opacity:1,transform:'translateX(0) scale(1)'}],{duration:300,easing:'cubic-bezier(.2,.7,.2,1)'});
+   for(const side of deck.querySelectorAll('.gift-gallery-preview-art'))side.animate([{opacity:.25,transform:'translateX('+(dir*20)+'px)'},{opacity:.55,transform:'translateX(0)'}],{duration:300,easing:'ease-out'});
+  }
  }
  let suppressClickUntil=0;
  function swipe(dx,dy){if(Math.abs(dx)<=50||Math.abs(dx)<=Math.abs(dy)*1.7)return false;suppressClickUntil=Date.now()+350;step(dx<0?1:-1);return true;}
@@ -154,8 +157,8 @@ function gameGiftModal(edit=null){
    textArea('Комментарий','description','Размер, цвет, модель, особенности',gift.description||'')+
    field('Ориентировочная цена','price','Например, 1500','number',budget,false,'min="0" step="0.01"')+
    '<div class="field"><label for="game-gift-photo">Фотография (необязательно)</label>'+
-   '<div class="file-picker"><input id="game-gift-photo" name="image" type="file" accept="image/png,image/jpeg,image/webp">'+
-   '<div class="field-hint">JPG, PNG или WEBP до 12 МБ. Сожмём в WebP до 235 КБ</div></div></div>'+
+   '<div class="file-picker"><input id="game-gift-photo" name="image" type="file" accept="image/png,image/jpeg,image/webp,image/heic,image/heif,.heic,.heif">'+
+   '<div class="field-hint">JPG, PNG, WebP или HEIC до 12 МБ</div></div></div>'+
    (isEdit&&gift.image_data?'<label class="switch-label"><input type="checkbox" id="game-gift-remove-photo"> Удалить фотографию</label>':''),
    submitLabel:isEdit?'Сохранить':'Добавить желание',
    onSubmit:async form=>{
@@ -172,6 +175,24 @@ function gameGiftModal(edit=null){
    }});
  fixWishModalLayout();
   const desc=modalRoot.querySelector('#fld-description');if(desc)desc.maxLength=800;
+}
+function setupSantaChatLayout(){
+ const grid=document.querySelector('.santa-detail-layout'),chat=document.querySelector('#game-chat');
+ if(!grid||!chat)return;
+ const [left,right]=grid.children,home=grid.parentElement;if(!left||!right)return;
+ const panels=()=>[...left.children].filter(el=>el!==chat&&el.getClientRects().length);
+ const extent=()=>{const items=panels();return items.length?items[items.length-1].getBoundingClientRect().bottom-left.getBoundingClientRect().top:0;};
+ let frame=0;
+ const update=()=>{frame=0;if(!grid.isConnected)return;
+  const wide=grid.clientWidth>=1000,gap=right.getBoundingClientRect().height-extent(),inLeft=chat.parentElement===left;
+  const desired=wide&&(inLeft?gap>=220:gap>=300);
+  if(desired===inLeft||chat.contains(document.activeElement))return;
+  if(desired)left.append(chat);else home.insertBefore(chat,grid.nextSibling);
+ };
+ const queue=()=>{if(!frame)frame=requestAnimationFrame(update);};
+ const observer=new ResizeObserver(queue);observer.observe(grid);observer.observe(right);for(const p of panels())observer.observe(p);
+ chat.addEventListener('focusout',queue);window.addEventListener('resize',queue);queue();
+ gameLifecycleCleanup.push(()=>{observer.disconnect();cancelAnimationFrame(frame);chat.removeEventListener('focusout',queue);window.removeEventListener('resize',queue);});
 }
 function setupGameChat(state){
  const root=document.querySelector('#game-chat');if(!root)return;

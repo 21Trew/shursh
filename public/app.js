@@ -615,7 +615,7 @@ function modal({title,subtitle='',content='',onSubmit=null,onError=null,submitLa
   if(extra)footerRail.append(extra);
   dialog.append(footerRail);
  }
- enhanceSelects(modalRoot);enhanceCalendars(modalRoot);
+ enhanceSelects(modalRoot);enhanceCalendars(modalRoot);enhancePhotoPickers(modalRoot);
  // The same bounded height animation serves every dialog, not only Auth.
  if(reuseAuth){
   if(!motionReduced()&&dialog.animate){
@@ -1539,29 +1539,46 @@ function stopGameLifecycle(){
  for(const cleanup of gameLifecycleCleanup.splice(0))cleanup();
  if(typeof disposeGameGiftOverflow==='function')disposeGameGiftOverflow();
 }
-// Standardise every browser image upload to WebP before it reaches the API.
+// Prefer WebP, but do not require Safari to provide its encoder or createImageBitmap.
+function photoDataURL(file){return new Promise((resolve,reject)=>{const reader=new FileReader();reader.onload=()=>resolve(reader.result);reader.onerror=()=>reject(new Error('Не удалось прочитать фотографию'));reader.readAsDataURL(file);});}
 async function compressToWebp(file,{maxDimension=1280,maxBytes=800000,maxSourceBytes=12000000}={}){
- if(!['image/jpeg','image/png','image/webp'].includes(file?.type))throw new Error('Выбери изображение JPG, PNG или WEBP');
+ const accepted=['image/jpeg','image/png','image/webp','image/heic','image/heif'];
+ const type=(file?.type||'').toLowerCase(),ext=file?.name?.split('.').pop()?.toLowerCase();
+ if(!file||(!accepted.includes(type)&&!(type===''&&['jpg','jpeg','png','webp','heic','heif'].includes(ext))))throw new Error('Выбери фотографию JPG, PNG, WebP или HEIC');
  if(file.size>maxSourceBytes)throw new Error('Фотография слишком большая для загрузки');
- let bitmap;
- try{bitmap=await createImageBitmap(file);}catch{throw new Error('Не удалось открыть изображение. Попробуй другое фото');}
+ let bitmap=null,canvas=null,original=null;
  try{
-  const canvas=document.createElement('canvas');
-  let scale=Math.min(1,maxDimension/Math.max(bitmap.width,bitmap.height));
+  if(typeof createImageBitmap==='function')try{bitmap=await createImageBitmap(file);}catch{}
+  if(!bitmap){
+   original=await photoDataURL(file);
+   bitmap=await new Promise((resolve,reject)=>{const image=new Image();image.onload=()=>resolve(image);image.onerror=()=>reject(new Error('Не удалось открыть фотографию. Для HEIC попробуй сохранить снимок в JPG'));image.src=original;});
+  }
+  const width=bitmap.naturalWidth||bitmap.width,height=bitmap.naturalHeight||bitmap.height;
+  if(!width||!height)throw new Error('Не удалось открыть фотографию');
+  canvas=document.createElement('canvas');
+  let scale=Math.min(1,maxDimension/Math.max(width,height));
   for(let i=0;i<10;i++){
-   canvas.width=Math.max(1,Math.round(bitmap.width*scale));
-   canvas.height=Math.max(1,Math.round(bitmap.height*scale));
-   const ctx=canvas.getContext('2d',{alpha:false});
-   if(!ctx)throw new Error('Браузер не поддерживает обработку фото');
-   ctx.fillStyle='#fff';ctx.fillRect(0,0,canvas.width,canvas.height);
-   ctx.drawImage(bitmap,0,0,canvas.width,canvas.height);
-   const result=canvas.toDataURL('image/webp',Math.max(.58,.82-.035*i));
-   if(!result.startsWith('data:image/webp;base64,'))throw new Error('Браузер не поддерживает сохранение WebP');
-   if(result.length<=Math.floor(maxBytes*4/3)+24)return result;
+   canvas.width=Math.max(1,Math.round(width*scale));canvas.height=Math.max(1,Math.round(height*scale));
+   const ctx=canvas.getContext('2d',{alpha:false});if(!ctx)break;
+   ctx.fillStyle='#fff';ctx.fillRect(0,0,canvas.width,canvas.height);ctx.drawImage(bitmap,0,0,canvas.width,canvas.height);
+   for(const mime of ['image/webp','image/jpeg']){
+    let result;try{result=canvas.toDataURL(mime,Math.max(.58,.82-.035*i));}catch{continue;}
+    if(result.startsWith('data:'+mime+';base64,')&&result.length<=Math.floor(maxBytes*4/3)+24)return result;
+   }
    scale*=.82;
   }
+  if(['image/jpeg','image/png','image/webp'].includes(type)&&file.size<=maxBytes)return original||await photoDataURL(file);
   throw new Error('Не удалось уменьшить фотографию. Выбери файл меньшего размера');
- }finally{bitmap.close?.();}
+ }finally{bitmap?.close?.();if(canvas){canvas.width=1;canvas.height=1;}}
+}
+function enhancePhotoPickers(root){
+ for(const input of root.querySelectorAll('.file-picker input[type=file]')){
+  if(input.closest('.localized-file-input'))continue;
+  const wrap=document.createElement('div');wrap.className='localized-file-input';input.before(wrap);wrap.append(input);
+  const label=document.createElement('span');label.className='localized-file-button';label.textContent='Выбери файл';label.setAttribute('aria-hidden','true');wrap.append(label);
+  const name=document.createElement('span');name.className='localized-file-name';name.textContent='Файл не выбран';name.setAttribute('aria-live','polite');wrap.append(name);
+  input.addEventListener('change',()=>{name.textContent=input.files?.[0]?.name||'Файл не выбран';});
+ }
 }
 async function compressSantaMemory(file){
  return compressToWebp(file,{maxDimension:1600,maxBytes:850000});
@@ -1585,7 +1602,7 @@ function santaMemorySection(event,memberView){
  if(event.status!=='finished')return '';
  return '<section class="panel santa-memory-panel" aria-label="Общее фото на память">'+
   '<div class="panel-heading-actions"><div><h2>Фото на память</h2><p class="note">Один общий снимок участников с подарками, доступный только участникам этой игры</p></div>'+
-  (!memberView?'<label class="btn btn-soft btn-small santa-memory-upload"><span data-santa-memory-label>Добавить фотографию</span><input id="santa-memory-input" type="file" accept="image/jpeg,image/png,image/webp" aria-label="Загрузить общее фото WebP"></label>':'')+
+  (!memberView?'<label class="btn btn-soft btn-small santa-memory-upload"><span data-santa-memory-label>Добавить фотографию</span><input id="santa-memory-input" type="file" accept="image/jpeg,image/png,image/webp,image/heic,image/heif,.heic,.heif" aria-label="Загрузить общее фото"></label>':'')+
   '</div><div id="santa-memory-content"><p class="note">Загружаем фотографию…</p></div></section>';
 }
 async function santaAdminPage(id,marker=lastRenderToken){return santaGamePage(id,marker);}
@@ -1616,7 +1633,7 @@ async function santaGamePage(id,marker=lastRenderToken,participantToken=null){
  <div class="panel"><div class="panel-heading-actions"><h2>Участники <span class="chip" data-santa-roster-count>${people.length}</span></h2>${!memberView&&e.status==='open'?'<div class="santa-player-actions"><button class="btn btn-soft btn-small" data-action="add-player">'+ico('plus')+' Личная ссылка</button>'+(isPreview?'':'<button class="btn btn-soft btn-small santa-invite-action" data-social-action="invite-friends">Пригласить друзей</button>')+'</div>':''}</div><div class="person-list" data-santa-roster>${people.map(p=>santaRosterPerson(p,activeGameContext)).join('')}</div>${e.status==='open'?`<div class="divider-line"></div><p class="note">Общая ссылка для всех: любой зарегистрированный пользователь сможет выбрать имя и присоединиться к игре</p><div class="share-field"><input class="input" aria-label="Ссылка-приглашение" readonly value="${attr(getLink(`/join/${e.invite_key}`))}"><button class="btn btn-dark btn-small" data-action="copy" data-url="${attr(getLink(`/join/${e.invite_key}`))}">${ico('copy')} Копировать</button></div>`:''}</div>
  <div class="panel"><div class="panel-heading-actions"><h2>Мои пожелания</h2>${!memberView||currentUser?`<button class="btn btn-soft btn-small" data-action="import-own-wishes" ${memberView?`data-key="${attr(participantToken||'')}"`:`data-id="${id}"`}>${ico('plus')} Из вишлиста</button>`:''}</div><p class="note">Твои пожелания увидит только твой тайный Санта</p>
   <div class="santa-preferences-display" id="santa-preferences-display">
-    <div data-preferences-summary>${preferenceSummary(myPrefs)}</div>
+    <div data-preferences-summary>${preferenceSummary(myPrefs,false)}</div>
     <button type="button" class="btn btn-soft btn-small" data-action="edit-santa-preferences">${ico('edit')} ${myPrefs?.wanted||myPrefs?.unwanted?'Редактировать':'Добавить пожелания'}</button>
    </div>
    <form class="form participant-preferences" id="santa-preferences-form" hidden>
@@ -1648,7 +1665,7 @@ async function santaGamePage(id,marker=lastRenderToken,participantToken=null){
    ev.preventDefault();const form=ev.currentTarget,button=form.querySelector('button');
    button.disabled=true;
    try{await api(activeGameContext.base+'/preferences',{method:'PATCH',body:readForm(form)});
-    if(form.isConnected){const summary=document.querySelector('#santa-preferences-display');if(summary){const values=readForm(form);summary.querySelector('[data-preferences-summary]').innerHTML=preferenceSummary(values);const button=summary.querySelector(':scope > button[data-action="edit-santa-preferences"]');if(button)button.innerHTML=ico('edit')+' '+(values.wanted||values.unwanted?'Редактировать':'Добавить пожелания');summary.hidden=false;}form.hidden=true;}
+    if(form.isConnected){const summary=document.querySelector('#santa-preferences-display');if(summary){const values=readForm(form);summary.querySelector('[data-preferences-summary]').innerHTML=preferenceSummary(values,false);const button=summary.querySelector(':scope > button[data-action="edit-santa-preferences"]');if(button)button.innerHTML=ico('edit')+' '+(values.wanted||values.unwanted?'Редактировать':'Добавить пожелания');summary.hidden=false;}form.hidden=true;}
     notice('Пожелания сохранены');
    }catch(err){notice(err.message,true)}finally{button.disabled=false;}
   });
@@ -1662,6 +1679,7 @@ async function santaGamePage(id,marker=lastRenderToken,participantToken=null){
     notice('Исключение добавлено');
    }catch(err){notice(err.message,true)}finally{button.disabled=false;}
   });
+ setupSantaChatLayout();
  setupGameChat(activeGameContext);
  setupSantaRoster(activeGameContext);
  if(e.status==='finished'){
@@ -2454,8 +2472,8 @@ function wishModal(edit=null){
    selectField('Приоритет','priority',[['nice','Было бы здорово'],['love','Очень хочу!']],w.priority||'nice')+
    '</div>'+
    '<div class="field"><label for="wish-file">Фотография (необязательно)</label>'+
-   '<div class="file-picker"><input id="wish-file" name="image" type="file" accept="image/png,image/jpeg,image/webp">'+
-   '<div class="field-hint">JPG, PNG или WEBP до 12 МБ. Автоматически сожмём в WebP</div></div></div>',
+   '<div class="file-picker"><input id="wish-file" name="image" type="file" accept="image/png,image/jpeg,image/webp,image/heic,image/heif,.heic,.heif">'+
+   '<div class="field-hint">JPG, PNG, WebP или HEIC до 12 МБ</div></div></div>',
   submitLabel:edit?'Сохранить':'Добавить в список',
   onSubmit:async form=>{
    const data=readForm(form);
@@ -2589,8 +2607,8 @@ async function dispatch(action,el){try{
   if(!event||event.status==='finished')return;
   modal({title:'Завершить Тайного Санту?',subtitle:event.status==='open'?'Перенесём игру в завершённые без жеребьёвки и назначения получателей':'Сохраним жеребьёвку и историю, а игру перенесём в завершённые',
    content:'<div class="field"><label for="finish-santa-photo">Общее фото с участниками и подарками (необязательно)</label>'+
-    '<div class="file-picker"><input id="finish-santa-photo" type="file" accept="image/jpeg,image/png,image/webp">'+
-    '<p class="field-hint">Можно добавить сейчас или позже. Фото автоматически сожмём в WebP</p></div></div>',
+    '<div class="file-picker"><input id="finish-santa-photo" type="file" accept="image/jpeg,image/png,image/webp,image/heic,image/heif,.heic,.heif">'+
+    '<p class="field-hint">Можно добавить сейчас или позже</p></div></div>',
    submitLabel:'Завершить игру',onSubmit:async form=>{
     const file=form.querySelector('#finish-santa-photo')?.files?.[0];
     const body=file?{image_data:await compressSantaMemory(file)}:{};

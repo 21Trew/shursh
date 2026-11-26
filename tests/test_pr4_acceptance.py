@@ -2563,13 +2563,15 @@ def test_friends_exact_search_and_qr_invite(browser_https,application,engine):
                     let correct=true;
                     for(let y=0;y<rows.length;y++)for(let x=0;x<rows.length;x++){
                       const i=4*((band+y*scale+Math.floor(scale/2))*c.width+x*scale+Math.floor(scale/2));
+                      if(Math.hypot(x-(rows.length-1)/2,y-(rows.length-1)/2)<=3)continue;
                       const v=rows[y][x]==='1'?0:255;
                       if(data[i]!==v||data[i+1]!==v||data[i+2]!==v||data[i+3]!==255)correct=false;
                     }
                     return {band,correct,branded:data[0]===249&&data[1]===231&&data[2]===163};
                 }""",rows)
                 assert pixels=={'band':104,'correct':True,'branded':True},pixels
-                assert page.locator('a[download="shursh-invite.png"]').get_attribute('href')==page.locator('#personal-invite-qr').get_attribute('src')
+                expect(page.locator('a[download="shursh-invite.png"]')).to_have_count(0)
+                assert 'max.ru/:share?text=' in page.get_by_role('link',name='MAX',exact=True).get_attribute('href')
                 assert 't.me/share/url' in page.get_by_role('link',name='Telegram',exact=True).get_attribute('href')
                 assert 'vk.com/share.php' in page.get_by_role('link',name='VK',exact=True).get_attribute('href')
                 # Capture actual new UI; generated fixture link is not a real hosted invitation.
@@ -3089,7 +3091,7 @@ def test_service_crayon_covers_footer_and_circular_gift_gallery(browser_https,en
                         dark:getComputedStyle(el.querySelector('.gift-gallery-preview-art')).filter,
                         overflow:el.scrollWidth-el.clientWidth};
                     }""")
-                    assert geometry['ordered'] and geometry['peeks'] and geometry['sameSize'] and geometry['overlap'] and geometry['hit'] and 'brightness' in geometry['dark'] and geometry['overflow']<=2,geometry
+                    assert geometry['ordered'] and geometry['peeks'] and geometry['sameSize'] and geometry['overlap'] and geometry['hit'] and geometry['dark']=='none' and geometry['overflow']<=2,geometry
                     def deck_size():
                         return dialog.evaluate("""el=>[el.offsetWidth,el.offsetHeight,el.querySelector('.gift-dialog-media').offsetWidth,el.querySelector('.gift-dialog-media').offsetHeight]""")
                     initial_size=deck_size()
@@ -3427,5 +3429,37 @@ def test_hotfix_admin_direct_reload_and_error_report(browser_https,application,m
             page.keyboard.press('Escape')
             assert page.evaluate("new Set([1,2,3,4].map(santaCardArt)).size===4&&santaCardArt(3)===santaCardArt(3)")
             ctx.close()
+        finally:
+            browser.close()
+
+
+@pytest.mark.browser
+@pytest.mark.parametrize('engine',['chromium','webkit'])
+def test_photo_fallback_and_adaptive_santa_layout(browser_https,engine):
+    with sync_playwright() as play:
+        browser=getattr(play,engine).launch(headless=True)
+        try:
+            page=browser.new_page(viewport={'width':1440,'height':900},ignore_https_errors=True,reduced_motion='reduce')
+            page.goto(browser_https+'/')
+            expect(page.locator('main h1').first).to_be_visible()
+            fallback=page.evaluate("""async()=>{
+                const source=document.createElement('canvas');source.width=64;source.height=48;
+                source.getContext('2d').fillRect(0,0,64,48);
+                const blob=await new Promise(r=>source.toBlob(r,'image/png'));
+                const native=HTMLCanvasElement.prototype.toDataURL,bitmap=window.createImageBitmap;
+                window.createImageBitmap=()=>Promise.reject(new Error('unavailable'));
+                HTMLCanvasElement.prototype.toDataURL=function(type,q){return native.call(this,type==='image/webp'?'image/png':type,q);};
+                try{return (await compressToWebp(new File([blob],'photo.png',{type:'image/png'}))).startsWith('data:image/jpeg;base64,');}
+                finally{HTMLCanvasElement.prototype.toDataURL=native;window.createImageBitmap=bitmap;}
+            }""")
+            assert fallback
+            page.evaluate("""()=>{modal({title:'Фото',content:'<div class="file-picker"><input type="file" name="image"></div>'});}""")
+            expect(page.locator('.localized-file-button')).to_have_text('Выбери файл')
+            page.keyboard.press('Escape')
+            page.evaluate("""()=>{const main=document.querySelector('main');main.innerHTML='<div class="santa-detail-layout" style="width:100%"><div><div class="panel" style="height:120px">Левый</div></div><div><div class="panel" style="height:620px">Правый</div></div></div><section class="panel" id="game-chat"><input value="черновик"></section>';setupSantaChatLayout();}""")
+            expect(page.locator('.santa-detail-layout>div:first-child>#game-chat')).to_have_count(1)
+            page.set_viewport_size({'width':390,'height':844})
+            expect(page.locator('.santa-detail-layout + #game-chat')).to_have_count(1)
+            expect(page.locator('#game-chat input')).to_have_value('черновик')
         finally:
             browser.close()

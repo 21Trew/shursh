@@ -1204,10 +1204,10 @@ class Handler(BaseHTTPRequestHandler):
             data=self.body()
             photo=data.get('image_data')
             if photo is not None:
-                if not isinstance(photo,str) or not photo.startswith('data:image/webp;base64,'):
-                    raise ApiError(400,'Фотография должна быть в формате WebP')
+                if not isinstance(photo,str):
+                    raise ApiError(400,'Неверный формат фотографии')
                 decoded=decode_image(photo)
-                if not decoded or decoded[1]!='webp' or len(decoded[0])>900_000:
+                if not decoded or len(decoded[0])>900_000:
                     raise ApiError(413,'Фото должно быть не больше 900 КБ')
             if event['status']=='finished':
                 if photo: raise ApiError(409,'Игра уже завершена. Измени фото на странице игры')

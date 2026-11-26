@@ -315,7 +315,9 @@ function socialAdminVisitDate(date,now=new Date()){
   date.toLocaleString('ru-RU',{dateStyle:'medium',timeStyle:'short'});
 }
 const ADMIN_PRESENCE_WINDOW=5*60*1000;
-function socialAdminPresenceOnline(u,now=Date.now()){
+let adminServerClockOffset=0;
+function syncAdminPresenceClock(page){const stamp=Date.parse(page.server_now);if(Number.isFinite(stamp))adminServerClockOffset=stamp-Date.now();}
+function socialAdminPresenceOnline(u,now=Date.now()+adminServerClockOffset){
  const age=now-Date.parse(u.last_seen_at);
  return u.last_seen_source==='visit'&&Number.isFinite(age)&&age>=0&&age<ADMIN_PRESENCE_WINDOW;
 }
@@ -337,6 +339,7 @@ function socialAdminVisitMarkup(u){
  return '<div class="admin-user-identity"><span class="admin-device-presence'+(online?' is-online':'')+'" data-presence-seen="'+attr(u.last_seen_at)+'" data-presence-source="'+attr(u.last_seen_source||'')+'" title="'+attr(status)+'">'+symbol+'<span class="sr-only" data-presence-status>'+esc(status)+'</span></span><span><time title="'+attr(provenance)+'" datetime="'+attr(u.last_seen_at)+'">'+esc(socialAdminVisitDate(date))+'</time></span></div>';
 }
 function socialAdminUsersMarkup(page){
+ syncAdminPresenceClock(page);
  const rows=(page.users||[]).map(u=>'<tr><td class="admin-user-cell"><a class="admin-user-identity admin-user-profile-link" href="/users/'+attr(u.id)+'" data-nav="/users/'+attr(u.id)+'" aria-label="Открыть профиль '+attr(u.name)+'"><span class="admin-user-emoji" aria-hidden="true">'+
    esc(u.avatar_emoji||'🎁')+'</span><span><strong>'+esc(u.name)+'</strong>'+
    '<small>ID: '+esc(String(u.id).slice(0,8))+'</small></span></a></td>'+
@@ -391,6 +394,7 @@ async function socialRefreshAdminPresence(){
  try{
   const page=await api('/api/admin/users?offset='+offset+'&q='+encodeURIComponent(query));
   if(epoch!==ownerSessionEpoch||requestId!==adminUsersRequestId||!root.isConnected||document.hidden||search.value.trim()!==query||root.hasAttribute('aria-busy'))return;
+  syncAdminPresenceClock(page);
   const users=new Map((page.users||[]).map(u=>[String(u.id),u]));
   for(const cell of root.querySelectorAll('[data-admin-visit-user]')){
    const user=users.get(cell.dataset.adminVisitUser);
@@ -418,6 +422,8 @@ async function socialAdminPage(marker=lastRenderToken){
 }
 async function socialAdminUsersPage(marker=lastRenderToken){
  if(!currentUser?.is_admin){errorView(new Error('Доступ только администратору'));return;}
+ await socialRefreshBadge(true);
+ if(marker!==lastRenderToken)return;
  const page=await api('/api/admin/users');
  if(marker!==lastRenderToken)return;
  ++adminUsersRequestId;
@@ -558,9 +564,16 @@ function inviteQrData(rows){
  ctx.fillStyle='#f9e7a3';ctx.fillRect(0,0,side,band);
  ctx.textBaseline='middle';ctx.font='800 38px Unbounded, sans-serif';ctx.fillStyle='#27272b';ctx.fillText('шурш',24,band/2);
  ctx.fillStyle='#e58b67';ctx.fillText('!',24+ctx.measureText('шурш').width,band/2);
- ctx.fillStyle='#fffefa';ctx.beginPath();ctx.arc(side-52,band/2,35,0,Math.PI*2);ctx.fill();
- ctx.font='36px sans-serif';ctx.textAlign='center';ctx.fillText(currentUser?.avatar_emoji||'🎁',side-52,band/2+2);
- ctx.fillStyle='#000';rows.forEach((r,y)=>{for(let x=0;x<r.length;x++)if(r[x]==='1')ctx.fillRect(x*scale,y*scale+band,scale,scale);});
+ const n=rows.length,center=(n-1)/2;
+ ctx.fillStyle='#000';rows.forEach((r,y)=>{for(let x=0;x<n;x++)if(r[x]==='1'){
+  const finder=(x<13&&y<13)||(x>=n-13&&y<13)||(x<13&&y>=n-13);
+  if(finder||x===10||y===10||typeof ctx.roundRect!=='function')ctx.fillRect(x*scale,y*scale+band,scale,scale);
+  else{ctx.beginPath();ctx.roundRect(x*scale,y*scale+band,scale,scale,2.2);ctx.fill();}
+ }});
+ const cx=(center+.5)*scale,cy=band+cx;
+ ctx.fillStyle='#fff';ctx.beginPath();ctx.arc(cx,cy,2.45*scale,0,Math.PI*2);ctx.fill();
+ ctx.fillStyle='#f9e7a3';ctx.beginPath();ctx.arc(cx,cy,2*scale,0,Math.PI*2);ctx.fill();
+ ctx.font='29px sans-serif';ctx.textAlign='center';ctx.fillText(currentUser?.avatar_emoji||'🎁',cx,cy+1);
  return canvas.toDataURL('image/png');
 }
 async function sharePersonalQr(){
@@ -571,7 +584,7 @@ async function sharePersonalQr(){
  if(navigator.share&&navigator.canShare?.({files:[file]})){
   try{await navigator.share({files:[file],title:'Шурш!'});return;}catch(e){if(e.name==='AbortError')return;}
  }
- modalRoot.querySelector('[download="shursh-invite.png"]')?.click();
+ await sharePersonalInvite();
 }
 async function socialPersonalInviteModal(){
  if(!currentUser)return loginModal();
@@ -584,11 +597,11 @@ async function socialPersonalInviteModal(){
  modal({title:'Пригласить друга',content:
   '<div class="personal-invite-card">'+
   '<img id="personal-invite-qr" alt="QR-код приглашения от '+attr(currentUser.name||'')+'" width="208" src="'+attr(qr)+'">'+
-  '<div class="personal-invite-download"><a class="btn btn-soft btn-small" download="shursh-invite.png" href="'+attr(qr)+'">Скачать QR</a><button class="btn btn-soft btn-small" type="button" data-social-action="share-personal-qr">Поделиться QR</button></div></div>'+
+  '<div class="personal-invite-download"><button class="btn btn-soft btn-small" type="button" data-social-action="share-personal-qr">Поделиться QR</button></div></div>'+
   '<div class="field"><label for="personal-invite-link">Твоя ссылка</label><div class="share-field invite-link-row"><input class="input" aria-label="Персональная ссылка" id="personal-invite-link" readonly value="'+attr(url)+'"><button class="btn btn-soft btn-small" type="button" data-social-action="copy-personal-invite" aria-label="Копировать ссылку">'+ico('copy')+'</button></div></div>'+
   '<div class="personal-invite-social"><a class="btn btn-soft btn-small" target="_blank" rel="noopener noreferrer" href="https://t.me/share/url?url='+encodeURIComponent(url)+'">Telegram</a>'+
-  '<a class="btn btn-soft btn-small" target="_blank" rel="noopener noreferrer" href="https://vk.com/share.php?url='+encodeURIComponent(url)+'">VK</a></div>'+
-  '<p class="note">Дружба только по согласию. Новая подтверждённая регистрация засчитывается один раз</p>',
+  '<a class="btn btn-soft btn-small" target="_blank" rel="noopener noreferrer" href="https://vk.com/share.php?url='+encodeURIComponent(url)+'">VK</a><a class="btn btn-soft btn-small" target="_blank" rel="noopener noreferrer" href="https://max.ru/:share?text='+encodeURIComponent(url)+'">MAX</a></div>'+
+  '<p class="note">Новая подтверждённая регистрация засчитывается один раз</p>',
   footer:'<div class="personal-invite-footer"><button class="text-link" type="button" data-social-action="revoke-personal-invite">Отозвать ссылку</button><button class="btn btn-dark" type="button" data-social-action="share-personal-invite">Поделиться ссылкой '+ico('arrow')+'</button></div>'});
  modalRoot.querySelector('.modal')?.classList.add('personal-invite-modal');
 }

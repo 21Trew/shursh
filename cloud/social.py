@@ -184,7 +184,7 @@ def handle(handler, method, path, con):
                  ORDER BY p.created_at DESC,p.id DESC LIMIT ? OFFSET ?''',
                  (*args,25,offset)).fetchall()
         return 200,{'users':[dict(row) for row in rows],
-                    'total':total,'offset':offset,'limit':25},None
+                    'total':total,'offset':offset,'limit':25,'server_now':con.execute('SELECT clock_timestamp() AS t').fetchone()['t']},None
 
     if path == '/api/profile/me' and method in ('GET','PATCH'):
         user=handler.auth(con)

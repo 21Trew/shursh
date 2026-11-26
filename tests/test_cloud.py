@@ -2334,8 +2334,8 @@ def test_santa_finish_can_store_optional_webp_atomically(application):
         call(owner,'POST',f'/api/santas/{eid}/participants',{'name':label},201)
     call(owner,'POST',f'/api/santas/{eid}/draw',{},200)
     endpoint=f'/api/santas/{eid}/finish'
-    wrong=call(owner,'POST',endpoint,{'image_data':PNG},400)
-    assert 'WebP' in wrong.json['error']
+    wrong=call(owner,'POST',endpoint,{'image_data':'data:image/jpeg;base64,not-valid'},400)
+    assert wrong.json['error']
     assert call(owner,'GET',f'/api/santas/{eid}').json['event']['status']=='drawn'
     webp='data:image/webp;base64,UklGRm4AAABXRUJQVlA4IGIAAABwAgCdASoQABAAAoBCJbACdH8D2HQYpXUXjD8AAP77IWDmzt26izyt8eYKFcTtb3XnAkGE+9epPGxyqy+v1gLcFDH4nfz/zkEhMSQ/HhVx/d+JHYr9yBD/Rbv3+sws+CAAAA=='
     finished=call(owner,'POST',endpoint,{'image_data':webp},200).json
@@ -3415,7 +3415,7 @@ def test_friend_invites_search_full_names_privacy_and_qr(application):
         assert call(a,'POST','/api/friend-invites/me',{}).json==invite
         code=invite['path'].split('/')[-1]
         assert len(code)==24 and invite['url']==BASE+invite['path']
-        qr=qrcode.QRCode(error_correction=qrcode.constants.ERROR_CORRECT_M,border=4,box_size=1)
+        qr=qrcode.QRCode(error_correction=qrcode.constants.ERROR_CORRECT_H,border=4,box_size=1)
         qr.add_data(invite['url']);qr.make(fit=True)
         assert invite['qr']==[''.join('1' if bit else '0' for bit in row) for row in qr.get_matrix()]
         guest=application.test_client()
