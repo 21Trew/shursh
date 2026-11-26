@@ -1065,7 +1065,7 @@ def test_browser_santa_invites_draw_and_private_reveals(browser_http):
             expect(owner).to_have_url(re.compile(r'/santa/\d+$'))
             eid = owner.url.rsplit('/', 1)[-1]
             assert owner.locator('.error-page').count()==0, owner.locator('.error-page p').all_inner_texts()
-            invite = owner.locator('input[aria-label="Ссылка-приглашение"]').input_value()
+            invite = owner.locator('.santa-share [data-action="copy"]').get_attribute('data-url')
             assert invite.startswith(browser_http + '/join/')
 
             members = []
@@ -1198,7 +1198,7 @@ def test_browser_card_clicks_and_santa_settings(browser_http):
             expect(owner).to_have_url(re.compile(r'/santa/\d+'))
             eid=owner.url.rsplit('/',1)[-1]
             assert owner.locator('.error-page').count()==0, owner.locator('.error-page p').all_inner_texts()
-            invite=owner.locator('input[aria-label="Ссылка-приглашение"]').input_value()
+            invite=owner.locator('.santa-share [data-action="copy"]').get_attribute('data-url')
             owner.goto(invite)
             expect(owner.locator('.invite-card')).to_contain_text('Ты уже участвуешь')
             expect(owner.locator('#join-form')).to_have_count(0)

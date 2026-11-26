@@ -100,6 +100,16 @@ def request_friend(con, user, other, *, invitation=False):
 
 def handle(handler, method, path, con):
     """Return an API response triple or None for non-social endpoints."""
+    qr_match=re.fullmatch(r'/api/invites/([A-Za-z0-9_-]{1,128})/qr',path)
+    if qr_match and method=='GET':
+        event=con.execute("SELECT id FROM santa_events WHERE invite_key=? AND status='open'",(qr_match.group(1),)).fetchone()
+        if not event: raise ApiError(404,'Приглашение недействительно')
+        origin=('https://'+handler.request.host) if os.getenv('VERCEL') else handler.request.host_url.rstrip('/')
+        url=origin+'/join/'+qr_match.group(1)
+        import qrcode
+        qr=qrcode.QRCode(error_correction=qrcode.constants.ERROR_CORRECT_H,border=4,box_size=1)
+        qr.add_data(url);qr.make(fit=True)
+        return 200,{'url':url,'qr':[''.join('1' if bit else '0' for bit in row) for row in qr.get_matrix()]},None
     if path=='/api/friend-invites/me' and method in ('POST','DELETE'):
         user=handler.auth(con)
         referrals.require_ready(con)

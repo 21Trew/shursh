@@ -23,7 +23,7 @@ async function socialRefreshBadge(force=false){
 setInterval(()=>{if(typeof currentUser!=='undefined')socialRefreshBadge();},120000);
 document.addEventListener('visibilitychange',()=>{if(!document.hidden)socialRefreshBadge(true);});
 
-const socialEmojiChoices=["🎁","🎄","🐱","🦊","🐻","🐼","🐸","🦄","🐰","🧸","✨","🌸","🌼","🌙","⭐","🎮","🎨","📚","🎵","🚀","☕","🍓","💚","❤️","🦦","🐶","🐈","🐧","🐨","🦉","🦋","🌈","🍒","🍋","🍄","🍀","🌻","🍩","🍪","🧁","🎧","🎬","🪴","🛹","🪐","🔥","💜","💛"];
+const socialEmojiChoices=["🐱","🐈","🐶","🦊","🐻","🐼","🐸","🦄","🐰","🦦","🐧","🐨","🦉","🦋","❤️","💚","💜","💛","✨","⭐","🌙","🌈","🔥","🪐","🚀","🌸","🌼","🌻","🍀","🍄","🪴","🎄","🍓","🍒","🍋","☕","🍩","🍪","🧁","🎁","🧸","🎮","🎨","📚","🎵","🎧","🎬","🛹"];
 function socialAvatar(p,extra=''){
  return '<span class="avatar emoji-avatar '+extra+'" aria-hidden="true">'+esc(p.avatar_emoji||'🎁')+'</span>';
 }
@@ -478,6 +478,7 @@ document.addEventListener('click',async e=>{
  const action=target.dataset.socialAction,uid=target.dataset.userId,actionPath=currentPath();
  target.disabled=true;
  try{
+  if(action==='santa-invite-qr'){await socialSantaInviteQr(target.dataset.code);return;}
   if(action==='personal-invite'){await socialPersonalInviteModal();return;}
   if(action==='copy-personal-invite'){await copyPersonalInvite(target);return;}
   if(action==='share-personal-invite'){await sharePersonalInvite(target);return;}
@@ -587,9 +588,9 @@ function inviteQrData(rows){
   ctx.fillStyle='#000';rounded((x+2)*scale,(y+2)*scale+band,3*scale,3*scale,scale*.3);
  }
  const cx=(center+.5)*scale,cy=band+cx;
- ctx.fillStyle='#fff';ctx.beginPath();ctx.arc(cx,cy,3.25*scale,0,Math.PI*2);ctx.fill();
- ctx.fillStyle='#f9e7a3';ctx.beginPath();ctx.arc(cx,cy,2.8*scale,0,Math.PI*2);ctx.fill();
- ctx.font='42px sans-serif';ctx.textAlign='center';ctx.fillText(currentUser?.avatar_emoji||'🎁',cx,cy+1);
+ ctx.fillStyle='#fff';ctx.beginPath();ctx.arc(cx,cy,4.7*scale,0,Math.PI*2);ctx.fill();
+ ctx.fillStyle='#e8dcf5';ctx.beginPath();ctx.arc(cx,cy,4.15*scale,0,Math.PI*2);ctx.fill();
+ ctx.font='63px sans-serif';ctx.textAlign='center';ctx.fillText(currentUser?.avatar_emoji||'🎁',cx,cy+1);
  return canvas.toDataURL('image/png');
 }
 async function sharePersonalQr(){
@@ -605,6 +606,23 @@ async function sharePersonalQr(){
  }
  await sharePersonalInvite();
 }
+function inviteShareButtons(url,personal=false,code=''){
+ const e=encodeURIComponent(url);
+ return '<div class="personal-invite-social" role="group" aria-label="Поделиться приглашением">'+
+ '<button class="btn btn-small" type="button" '+(personal?'id="personal-invite-link" data-invite-url="'+attr(url)+'" data-social-action="copy-personal-invite"':'data-action="copy" data-url="'+attr(url)+'"')+'>'+ico('copy')+' Ссылка</button>'+
+ '<button class="btn btn-small" type="button" '+(personal?'data-social-action="share-personal-qr"':'data-social-action="santa-invite-qr" data-code="'+attr(code)+'"')+'><span aria-hidden="true">▦</span> QR</button>'+
+ '<a class="btn btn-small" target="_blank" rel="noopener noreferrer" href="https://t.me/share/url?url='+e+'"><span aria-hidden="true">➤</span> Telegram</a>'+
+ '<a class="btn btn-small" target="_blank" rel="noopener noreferrer" href="https://vk.com/share.php?url='+e+'"><span aria-hidden="true">↗</span> VK</a>'+
+ '<a class="btn btn-small" target="_blank" rel="noopener noreferrer" href="https://max.ru/:share?text='+e+'"><span aria-hidden="true">✦</span> MAX</a></div>';
+}
+async function socialSantaInviteQr(code){
+ const marker=lastRenderToken;
+ if(isPreview){notice('QR доступен на сайте',true);return;}
+ const data=await api('/api/invites/'+encodeURIComponent(code)+'/qr');
+ if(marker!==lastRenderToken)return;
+ modal({title:'Приглашение в игру',content:'<div class="personal-invite-card"><img id="personal-invite-qr" alt="QR-код приглашения в игру" src="'+attr(inviteQrData(data.qr))+'"></div>'+inviteShareButtons(data.url,false,code)});
+ modalRoot.querySelector('.modal')?.classList.add('personal-invite-modal');
+}
 async function socialPersonalInviteModal(){
  if(!currentUser)return loginModal();
  const epoch=ownerSessionEpoch,marker=lastRenderToken;
@@ -612,17 +630,8 @@ async function socialPersonalInviteModal(){
  if(epoch!==ownerSessionEpoch||marker!==lastRenderToken)return;
  const url=new URL(data.path,location.origin).href;
  if(url!==data.url)throw new Error('Адрес приглашения не совпадает с сайтом');
- const qr=inviteQrData(data.qr);
- modal({title:'Пригласить друга',content:
-  '<div class="personal-invite-card"><img id="personal-invite-qr" alt="QR-код приглашения от '+attr(currentUser.name||'')+'" width="244" src="'+attr(qr)+'"></div>'+
-  '<div class="personal-invite-social" role="group" aria-label="Поделиться приглашением">'+
-  '<button class="btn btn-soft btn-small" type="button" id="personal-invite-link" data-invite-url="'+attr(url)+'" data-social-action="copy-personal-invite">Ссылка '+ico('copy')+'</button>'+
-  '<button class="btn btn-soft btn-small" type="button" data-social-action="share-personal-qr">QR</button>'+
-  '<a class="btn btn-soft btn-small" target="_blank" rel="noopener noreferrer" href="https://t.me/share/url?url='+encodeURIComponent(url)+'">Telegram</a>'+
-  '<a class="btn btn-soft btn-small" target="_blank" rel="noopener noreferrer" href="https://vk.com/share.php?url='+encodeURIComponent(url)+'">VK</a><a class="btn btn-soft btn-small" target="_blank" rel="noopener noreferrer" href="https://max.ru/:share?text='+encodeURIComponent(url)+'">MAX</a></div>'+
-  '<div class="personal-invite-count"><span>По твоей ссылке зарегистрировались</span><strong data-referral-count>'+Number(data.referral_count||0)+'</strong></div>'+
-  '<p class="note">Учитываются только подтверждённые регистрации</p>',
-  footer:'<div class="personal-invite-footer"><button class="text-link" type="button" data-social-action="revoke-personal-invite">Отозвать ссылку</button></div>'});
+ modal({title:'Пригласить друга',content:'<div class="personal-invite-card"><img id="personal-invite-qr" alt="QR-код приглашения от '+attr(currentUser.name||'')+'" width="244" src="'+attr(inviteQrData(data.qr))+'"></div>'+inviteShareButtons(url,true),
+ footer:'<div class="personal-invite-footer"><button class="text-link" type="button" data-social-action="revoke-personal-invite">Отозвать ссылку</button></div>'});
  modalRoot.querySelector('.modal')?.classList.add('personal-invite-modal');
 }
 async function copyPersonalInvite(){

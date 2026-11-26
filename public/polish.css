@@ -1207,3 +1207,22 @@ input[type="checkbox"]:not(.shursh-checkbox input):checked::after{content:"✓";
 .list-cover{position:relative;overflow:hidden}
 .list-cover .wishlist-cover-art.custom-wishlist-cover,.friend-stack-list .wishlist-cover-art.custom-wishlist-cover{padding:0}
 .detail-art .wishlist-cover-art.custom-wishlist-cover{position:relative;border-radius:16px;overflow:hidden}
+
+/* Profile, invitations and shared photo polish */
+.profile-name-visibility{grid-template-columns:minmax(0,1fr) auto;align-items:center;gap:7px}
+.profile-name-visibility>.field{display:contents}
+.profile-name-visibility>.field>label{grid-column:1;grid-row:1}
+.profile-name-visibility>.field>input{grid-column:1/-1;grid-row:2}
+.profile-name-visibility>.shursh-checkbox{grid-column:2;grid-row:1;min-height:32px;font-size:12px;gap:5px;margin:0;white-space:nowrap}
+.emoji-grid{grid-template-columns:repeat(8,minmax(0,1fr));gap:7px}
+.emoji-grid .emoji-choice{aspect-ratio:1;min-height:0;width:100%;height:auto;padding:0;line-height:1;font-size:clamp(22px,4vw,30px)}
+@media(max-width:760px){.emoji-grid,.profile-edit-modal .emoji-grid{grid-template-columns:repeat(6,minmax(0,1fr));gap:5px}.profile-edit-modal .emoji-choice{height:auto;min-height:0;aspect-ratio:1}.profile-name-visibility>.shursh-checkbox{font-size:11px}}
+.personal-invite-card{background:#e8dcf5}
+.personal-invite-social>.btn{border-radius:11px;background:#f9e7a3;border:1px solid #e4c978;color:#302b24;min-height:44px}
+.personal-invite-social>.btn:hover{background:#f2d783}
+.santa-share{margin-top:20px;display:grid;gap:12px}
+.feedback-options{display:flex;align-items:center;gap:12px;justify-content:space-between}
+.feedback-options .shursh-checkbox{min-width:0;font-size:clamp(11px,3.3vw,14px);gap:6px;white-space:nowrap;margin:0}
+.santa-memory-wrap{position:relative}.santa-memory-view{width:100%;border:0;background:transparent;padding:0;display:block;cursor:zoom-in}
+.santa-memory-menu{position:absolute;top:10px;right:10px;z-index:2}.santa-memory-menu summary{list-style:none;background:#fffefa;border:1px solid var(--border);width:44px;height:44px;border-radius:12px;display:grid;place-items:center;cursor:pointer;font-size:24px}.santa-memory-menu summary::-webkit-details-marker{display:none}.santa-memory-menu>div{position:absolute;right:0;top:48px;display:grid;min-width:145px;background:#fffefa;border:1px solid var(--border);border-radius:12px;padding:4px;box-shadow:0 6px 24px #0002}.santa-memory-menu button{background:transparent;border:0;text-align:left;padding:10px;border-radius:8px}.santa-memory-menu button:hover{background:#f5e8d0}
+.modal.santa-memory-modal{width:min(96vw,1100px);max-width:96vw}.santa-memory-full{width:100%;max-height:70dvh;object-fit:contain}.santa-memory-modal-actions{justify-content:flex-end}

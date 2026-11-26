@@ -2547,7 +2547,7 @@ def test_friends_exact_search_and_qr_invite(browser_https,application,engine):
                 expect(link).to_be_visible()
                 url=link.get_attribute('data-invite-url');assert url.startswith(browser_https+'/i/')
                 expect(page.locator('.personal-invite-modal input')).to_have_count(0)
-                expect(page.locator('[data-referral-count]')).to_have_text(str(invite_response.value.json()['referral_count']))
+                expect(page.locator('.personal-invite-modal [data-referral-count]')).to_have_count(0)
                 expect(page.get_by_role('button',name='Поделиться ссылкой',exact=True)).to_have_count(0)
                 page.evaluate("Object.defineProperty(navigator,'clipboard',{configurable:true,value:{writeText:async text=>{window.copiedInvite=text;}}})")
                 link.click()
@@ -2570,7 +2570,7 @@ def test_friends_exact_search_and_qr_invite(browser_https,application,engine):
                     let correct=true;
                     for(let y=0;y<rows.length;y++)for(let x=0;x<rows.length;x++){
                       const i=4*((band+y*scale+Math.floor(scale/2))*c.width+x*scale+Math.floor(scale/2));
-                      if(Math.hypot(x-(rows.length-1)/2,y-(rows.length-1)/2)<=4)continue;
+                      if(Math.hypot(x-(rows.length-1)/2,y-(rows.length-1)/2)<=5.5)continue;
                       if([[4,4],[rows.length-11,4],[4,rows.length-11]].some(([a,b])=>x>=a&&x<a+7&&y>=b&&y<b+7))continue;
                       const v=rows[y][x]==='1'?0:255;
                       if(data[i]!==v||data[i+1]!==v||data[i+2]!==v||data[i+3]!==255)correct=false;

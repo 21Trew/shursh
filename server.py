@@ -691,7 +691,7 @@ class Handler(BaseHTTPRequestHandler):
     def santa_memory(self,con,event_id,method,personal_link=False,member=False):
         event=con.execute('SELECT owner_id,status FROM santa_events WHERE id=?',(event_id,)).fetchone()
         if not event: raise ApiError(404,'Игра не найдена')
-        user=None if personal_link else (self.auth(con) if method=='PUT' else self.user(con))
+        user=None if personal_link else (self.auth(con) if method in ('PUT','DELETE') else self.user(con))
         owner=bool(user and user['id']==event['owner_id'])
         belongs=bool(user and con.execute(
             'SELECT 1 FROM participants WHERE event_id=? AND user_id=?',
@@ -703,8 +703,11 @@ class Handler(BaseHTTPRequestHandler):
         if method=='GET':
             item=con.execute('SELECT image_data,updated_at FROM santa_memories WHERE event_id=?',(event_id,)).fetchone()
             return 200,{'memory':dict(item) if item else None,'can_edit':owner},None
-        if method!='PUT' or not owner:
-            raise ApiError(403,'Загрузить общее фото может только организатор')
+        if not owner or method not in ('PUT','DELETE'):
+            raise ApiError(403,'Изменить общее фото может только организатор')
+        if method=='DELETE':
+            con.execute('DELETE FROM santa_memories WHERE event_id=?',(event_id,))
+            return 200,{'ok':True},None
         data=self.body()
         image=data.get('image_data')
         if not isinstance(image,str) or not image:
@@ -975,7 +978,7 @@ class Handler(BaseHTTPRequestHandler):
                         (eid,user['id'],user['name'],now()))
             return 201,{'id':eid},None
         match=re.fullmatch(r'/api/santas/(\d+)/memory',path)
-        if match and method in ('GET','PUT'):
+        if match and method in ('GET','PUT','DELETE'):
             return self.santa_memory(con,int(match.group(1)),method)
         match=re.fullmatch(r'/api/participant/([A-Za-z0-9_-]+)/memory',path)
         if match and method=='GET':
