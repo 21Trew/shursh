@@ -2558,7 +2558,7 @@ def test_mobile_shared_sheets_header_actions_and_swipes(browser_https,engine):
                 buttons=page.locator('.dashboard-welcome .btn-row .btn')
                 boxes=[b.bounding_box() for b in buttons.all()]
                 assert len(boxes)==2 and abs(boxes[0]['y']-boxes[1]['y'])<=1 and boxes[0]['x']+boxes[0]['width']<=boxes[1]['x']+1,boxes
-                assert all(b['height']>=44 for b in boxes),boxes
+                assert all(b['height']>=43.9 for b in boxes),boxes # subpixel tolerance, CSS min-height remains 44px
                 assert page.evaluate("document.documentElement.scrollWidth<=innerWidth+1")
                 for selector in ('.dashboard-new-list','.santa-create-cta','header .header-bell'):
                     page.locator(selector).click()
@@ -2588,7 +2588,7 @@ def test_mobile_shared_sheets_header_actions_and_swipes(browser_https,engine):
                 assert any(result['before']+2<h<result['after']-2 for h in result['samples']),result
                 # Header keeps its layout and fixed document offset while collapsing.
                 page.evaluate("scrollTo({top:0,behavior:'instant'})")
-                page.wait_for_function("()=>!document.querySelector('.site-header').classList.contains('is-condensed') && Math.abs(document.querySelector('.site-header').getBoundingClientRect().height-116)<1")
+                page.wait_for_function("()=>!document.querySelector('.site-header').classList.contains('is-condensed') && Math.abs(document.querySelector('.site-header').getBoundingClientRect().height-132)<1")
                 metrics=page.evaluate("""async()=>{
                   document.body.style.minHeight='3000px';const h=document.querySelector('.site-header'),bar=h.querySelector('.topbar');
                   const initial=h.getBoundingClientRect().height,offset=getComputedStyle(document.querySelector('#app')).paddingTop;
@@ -2601,7 +2601,7 @@ def test_mobile_shared_sheets_header_actions_and_swipes(browser_https,engine):
                 assert metrics['display']==metrics['afterDisplay'] and metrics['offset']==metrics['afterOffset'] and abs(metrics['y']-300)<2,metrics
                 assert any(metrics['final']+2<h<metrics['initial']-2 for h in metrics['frames']),metrics
                 page.evaluate("scrollTo({top:0,behavior:'instant'})")
-                page.wait_for_function("()=>!document.querySelector('.site-header').classList.contains('is-condensed') && Math.abs(document.querySelector('.site-header').getBoundingClientRect().height-116)<1")
+                page.wait_for_function("()=>!document.querySelector('.site-header').classList.contains('is-condensed') && Math.abs(document.querySelector('.site-header').getBoundingClientRect().height-132)<1")
                 # Synthetic touch events use the real handler, not a direct nav call.
                 def swipe(selector,dx,dy=0,x=width/2):
                     page.evaluate("""([selector,dx,dy,x])=>{

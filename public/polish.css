@@ -895,12 +895,12 @@ input[type="checkbox"]:not(.shursh-checkbox input):checked::after{content:"✓";
 /* Mobile interaction pass: one geometry for every sheet; a stable header grid
    never switches layout modes during a transition. */
 @media(max-width:760px){
- #app:has(.site-header .nav){padding-top:116px}
- .site-header:has(.nav){height:116px;min-height:62px;overflow:hidden;transition:height .28s cubic-bezier(.2,.7,.2,1),box-shadow .24s ease}
+ #app:has(.site-header .nav){padding-top:132px}
+ .site-header:has(.nav){height:132px;min-height:62px;overflow:hidden;transition:height .28s cubic-bezier(.2,.7,.2,1),box-shadow .24s ease}
  .site-header:has(.nav).is-condensed{height:62px}
  .site-header:has(.nav) .topbar,.site-header:has(.nav).is-condensed .topbar{
   display:grid;grid-template-columns:minmax(0,1fr) auto;grid-template-rows:62px 54px;
-  height:116px!important;min-height:116px!important;padding:0!important;gap:0;align-items:center;align-content:start;
+  height:132px!important;min-height:132px!important;padding:0!important;gap:0;align-items:center;align-content:start;
  }
  .site-header:has(.nav) .topbar .logo,.site-header:has(.nav).is-condensed .topbar .logo{font-size:25px;justify-self:start}
  .site-header:has(.nav) .header-actions{grid-column:2;grid-row:1}
@@ -911,7 +911,7 @@ input[type="checkbox"]:not(.shursh-checkbox input):checked::after{content:"✓";
   transition:opacity .22s ease,transform .28s cubic-bezier(.2,.7,.2,1),visibility 0s;
  }
  .site-header:has(.nav).is-condensed .nav{opacity:0;transform:translateY(-7px);visibility:hidden;pointer-events:none;transition:opacity .22s ease,transform .28s cubic-bezier(.2,.7,.2,1),visibility 0s .28s}
- .site-header .topbar:has(.nav-scroll-more-right)::after,.site-header .topbar:has(.nav-scroll-more-left)::before{bottom:3px!important}
+ .site-header .topbar:has(.nav-scroll-more-right)::after,.site-header .topbar:has(.nav-scroll-more-left)::before{bottom:0!important}
  #page-view>main{touch-action:pan-y pinch-zoom}
  #page-view :is(.game-gifts-track,.game-chat-messages,.admin-users-table-scroll){touch-action:auto}
  .dashboard-page{padding-top:18px;padding-bottom:36px}
