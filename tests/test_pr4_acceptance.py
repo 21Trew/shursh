@@ -2244,10 +2244,15 @@ def test_chat_incremental_history_and_cleanup(browser_https,application,engine):
             page.evaluate("""()=>{const button=document.querySelector('[data-chat-older]');button.click();button.click();}""")
             expect(page.locator('.chat-message')).to_have_count(65)
             assert len(older_requests)==1
+            # Visibility refresh reschedules the timer only after the delta
+            # response is consumed and merged. Wait for that observable
+            # completion rather than assuming 150ms is sufficient.
+            previous_timer=page.evaluate('gameChatTimer')
             with page.expect_response(lambda r:delta_pattern.search(r.url) is not None):
                 held[0].continue_()
             page.unroute(delta_pattern)
-            page.wait_for_timeout(150)
+            page.wait_for_function('(previous)=>gameChatTimer!==null&&gameChatTimer!==previous',
+                                   arg=previous_timer,timeout=5000)
             assert page.evaluate("chatLast===document.querySelector('.chat-message:last-child')")
             with db.transaction(write=True) as con:
                 con.execute("INSERT INTO santa_messages(event_id,sender_id,room,message,created_at) VALUES(?,?,'general',?,now())",(eid,pid,'perf-live-new'))
@@ -2640,7 +2645,6 @@ def test_mobile_shared_sheets_header_actions_and_swipes(browser_https,engine):
                 ctx.close()
         finally:browser.close()
 
-
 @pytest.mark.browser
 @pytest.mark.parametrize('engine', ['chromium','webkit'])
 def test_landing_crayon_art_responsive_motion_and_decoding(browser_https, engine):
@@ -2665,10 +2669,19 @@ def test_landing_crayon_art_responsive_motion_and_decoding(browser_https, engine
                     expect(page.locator('.hero-copy h1')).to_contain_text('Подарки, о которых',timeout=10000)
                     expect(page.locator('img[data-art]')).to_have_count(12)
                     assert set(page.locator('img[data-art]').evaluate_all('(imgs)=>imgs.map(i=>i.dataset.art)')) == expected
-                    # Scroll each lazy image into the viewport before waiting for decode.
-                    for image in page.locator('img[data-art]').all():
-                        image.scroll_into_view_if_needed()
-                        image.evaluate('(img)=>img.decode()')
+                    # Hero layers are eagerly requested and move continuously.
+                    # Do not use an actionability check on an animated element.
+                    # Scroll only the static lazy illustrations; preserve native lazy loading.
+                    for image in page.locator('img[data-art][loading="lazy"]').all():
+                        image.evaluate("(img)=>img.scrollIntoView({block:'center',behavior:'instant'})")
+                        image.evaluate("""img=>Promise.race([
+                            img.decode(),new Promise((_,reject)=>setTimeout(
+                                ()=>reject(Error('WebP decode timeout: '+img.dataset.art)),8000))
+                        ])""")
+                    page.evaluate("""()=>Promise.race([
+                        Promise.all([...document.querySelectorAll('.hero-stage img')].map(img=>img.decode())),
+                        new Promise((_,reject)=>setTimeout(()=>reject(Error('Hero WebP decode timeout')),8000))
+                    ])""")
                     page.evaluate("scrollTo({top:0,behavior:'instant'})")
                     metrics = page.evaluate("""() => {
                       const imgs=[...document.querySelectorAll('img[data-art]')];
