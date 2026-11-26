@@ -986,3 +986,16 @@ input[type="checkbox"]:not(.shursh-checkbox input):checked::after{content:"✓";
 /* The decorative blob extends beyond the card. Clip its paint without creating
    an internal scroll container (scrollIntoView/focus must not hide the copy). */
 .showcase{overflow:clip}
+
+/* Font-independent eight-spoke decorations. U+2733 is emoji-capable on
+   mobile Safari; the geometry below never invokes a system emoji font.
+   Keep the existing size, color, spacing and CTA stacking rules. */
+.bubble-gift::before,.marquee-inner span::before,.final-cta::after{
+ content:"";display:inline-block;width:1em;height:1em;
+ background-color:currentColor;pointer-events:none;
+ clip-path:polygon(44% 0,56% 0,56% 35.5%,81% 10.5%,89.5% 19%,64.5% 44%,
+  100% 44%,100% 56%,64.5% 56%,89.5% 81%,81% 89.5%,56% 64.5%,
+  56% 100%,44% 100%,44% 64.5%,19% 89.5%,10.5% 81%,35.5% 56%,
+  0 56%,0 44%,35.5% 44%,10.5% 19%,19% 10.5%,44% 35.5%);
+}
+.bubble-gift::before,.marquee-inner span::before{vertical-align:-.12em}

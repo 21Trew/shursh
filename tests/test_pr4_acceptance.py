@@ -2722,6 +2722,35 @@ def test_landing_crayon_art_responsive_motion_and_decoding(browser_https, engine
                     assert showcase['contained'], (engine,width,showcase)
                     if width<=760:
                         assert showcase['ordered'] and 0<=showcase['gap']<=60, (engine,width,showcase)
+                    # Decorative U+2733 previously rendered as a green system
+                    # emoji on iOS. Geometry, not font fallback, must paint all
+                    # three sites, including the large final CTA decoration.
+                    ornaments = page.evaluate("""() => {
+                      const selectors=[['.bubble-gift','::before'],
+                        ['.marquee-inner span','::before'],['.final-cta','::after']];
+                      return selectors.flatMap(([selector,pseudo])=>
+                        [...document.querySelectorAll(selector)].map(el=>{
+                          const s=getComputedStyle(el,pseudo);
+                          const visible=el.getClientRects().length>0;
+                          return {selector,visible,content:s.content,clip:s.clipPath,
+                            background:s.backgroundColor,color:s.color,
+                            width:parseFloat(s.width),height:parseFloat(s.height),
+                            position:s.position,pointerEvents:s.pointerEvents};
+                        }));
+                    }""")
+                    assert len(ornaments)==6, (engine,width,ornaments)
+                    for mark in ornaments:
+                        assert mark['content'] in ('""',"''"), (engine,width,mark)
+                        assert mark['clip'].startswith('polygon('), (engine,width,mark)
+                        assert mark['background']==mark['color'], (engine,width,mark)
+                        assert mark['pointerEvents']=='none', (engine,width,mark)
+                        if mark['visible']:
+                            assert mark['width']>0 and abs(mark['width']-mark['height'])<1, (engine,width,mark)
+                        if mark['selector']=='.final-cta':
+                            assert mark['position']=='absolute', (engine,width,mark)
+                    # The large background ornament must not intercept the CTA.
+                    page.locator('.final-cta button').click(trial=True)
+                    page.evaluate("scrollTo({top:0,behavior:'instant'})")
                     assert metrics['overflow']<=2, (engine,width,metrics)
                     assert metrics['layers']==4 and metrics['labels']==2 and metrics['svgArt']==0
                     for item in metrics['images']:
@@ -2754,6 +2783,7 @@ def test_landing_crayon_art_responsive_motion_and_decoding(browser_https, engine
                     folder.mkdir(parents=True,exist_ok=True)
                     page.screenshot(path=str(folder/f'{engine}-{width}-full.png'),full_page=True)
                     page.locator('.hero-visual').screenshot(path=str(folder/f'{engine}-{width}-hero.png'))
+                    page.locator('.final-cta').screenshot(path=str(folder/f'{engine}-{width}-cta.png'))
                 finally:
                     context.close()
         finally:
