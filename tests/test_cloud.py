@@ -2714,7 +2714,7 @@ def test_browser_ux_fixes_avatar_gift_placeholder_and_admin_directory(browser_ht
             expect(page.get_by_role('dialog',name='Изменить аватарку')).to_be_visible()
             page.keyboard.press('Escape')
             page.goto(browser_http+'/admin')
-            expect(page.locator('.admin-hub-card')).to_have_count(2)
+            expect(page.locator('.admin-hub-card')).to_have_count(3)
             assert page.locator('.social-stat-grid').count()==0
             assert page.locator('.admin-users-table').count()==0
             page.locator('.admin-hub-users').click()
@@ -3652,3 +3652,41 @@ def test_profile_nickname_privacy_and_cover_feedback_preferences(application,mon
         assert next(x for x in call(owner,'GET','/api/admin/feedback').json['items'] if x['id']==item['id'])['site_notified']
     finally:
         call(owner,'PATCH','/api/profile/me',{'handle':'','last_name':'','patronymic':'','show_full_name':False,'discoverable':True,'notify_system':original})
+
+
+def test_admin_detail_visibility_and_audit(application,monkeypatch):
+    from cloud import db
+    monkeypatch.setenv('SHURSH_ADMIN_EMAILS','owner@example.test')
+    manager=login(application)
+    member=login(application,'other@example.test')
+    uid=str(IDS['other@example.test'])
+    lid, wid, key=make_list(member)
+    path='/api/admin/users/'+uid
+    try:
+        for category in ('wishlists','gifts','referrals','organized','joined','discoverable'):
+            call(member,'POST',path+'/'+category,{},403)
+            call(application.test_client(),'POST',path+'/'+category,{},401)
+            result=call(manager,'POST',path+'/'+category,{}).json
+            assert result['profile']['id']==uid
+            assert len(result['items'])<=25
+            assert all(not set(x)&{'share_key','invite_key','access_hash','email','image_path','shop_url','assignment'} for x in result['items'])
+        assert any(x['id']==wid for x in call(manager,'POST',path+'/gifts',{}).json['items'])
+        assert call(manager,'POST',path+'/gifts?offset=10000',{}).json['items']==[]
+        call(manager,'POST',path+'/gifts?offset=-1',{},400)
+        before=call(manager,'POST',path+'/discoverable',{}).json['profile']['discoverable']
+        call(member,'PATCH',path+'/discoverable',{'current_password':'valid-password','discoverable':not before},403)
+        call(manager,'PATCH',path+'/discoverable',{'current_password':'wrong-password','discoverable':not before},401)
+        assert call(manager,'POST',path+'/discoverable',{}).json['profile']['discoverable']==before
+        call(manager,'PATCH',path+'/discoverable',{'current_password':'valid-password','discoverable':not before})
+        assert call(manager,'POST',path+'/discoverable',{}).json['profile']['discoverable']==(not before)
+        call(member,'GET','/api/admin/audit',status=403)
+        logs=call(manager,'GET','/api/admin/audit?audience=admins').json['items']
+        event=next(x for x in logs if x['event']=='admin.visibility_changed')
+        detail=call(manager,'GET','/api/admin/audit/'+str(event['id'])).json['event']
+        assert detail['before_visible']==before and detail['after_visible']!=before
+        assert detail['target_id']==uid
+        assert 'password' not in str(detail) and 'valid-password' not in str(logs)
+        assert any(x['event']=='gift.created' for x in call(manager,'GET','/api/admin/audit?audience=users').json['items'])
+    finally:
+        with db.transaction(write=True) as con:
+            con.execute('UPDATE profiles SET discoverable=true WHERE id=?',(uid,))

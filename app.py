@@ -13,7 +13,7 @@ from pathlib import Path
 from flask import Flask, Response, request, send_from_directory, redirect
 from werkzeug.exceptions import RequestEntityTooLarge
 
-from cloud import db, auth, password_policy, activity
+from cloud import db, auth, password_policy, activity, audit
 from cloud.backend import CloudRequest, serialize, valid_auth_email
 from server import ApiError, LIMIT_BYTES
 
@@ -143,6 +143,40 @@ def api(route):
         if path == '/api/auth/resend' and request.method == 'POST':
             result=handler.resend_confirmation()
             return response(result[1],result[0],result[2])
+        visibility=re.fullmatch(r'/api/admin/users/([0-9a-fA-F-]{36})/discoverable',path)
+        if visibility and request.method=='PATCH':
+            # Verify administrator before upstream auth, and again in a fresh
+            # session snapshot before the atomic mutation and audit write.
+            uid=audit.user_id(visibility.group(1))
+            data=handler.body();password=data.get('current_password');value=data.get('discoverable')
+            if not isinstance(password,str) or not 8<=len(password)<=200 or not isinstance(value,bool):
+                raise ApiError(400,'Укажи видимость и текущий пароль')
+            with db.transaction() as con:
+                actor=handler.is_site_admin(con)
+                audit.require_ready(con)
+                audit.visibility_target(con,uid)
+            handler.throttled('admin-visibility',8,600)
+            handler.throttled('admin-visibility:'+str(actor['id']),5,600)
+            db.close_request_connection()
+            try:
+                verified=auth.auth_request('login',email=actor['email'],password=password)
+                if str((verified.get('user') or {}).get('id'))!=str(actor['id']) or not verified.get('access_token'):
+                    raise ApiError(401,'Текущий пароль неверный')
+            except ApiError as exc:
+                if exc.status in (400,401,403):
+                    with db.transaction(write=True) as con:
+                        fresh=CloudRequest(request).is_site_admin(con)
+                        audit.record(con,fresh,'admin.visibility_rejected',target=uid,category='discoverable',success=False,required=True)
+                    raise ApiError(401,'Текущий пароль неверный') from None
+                raise
+            with db.transaction(write=True) as con:
+                fresh=CloudRequest(request).is_site_admin(con)
+                if fresh['id']!=actor['id']: raise ApiError(403,'Недостаточно прав')
+                audit.require_ready(con)
+                old=audit.visibility_target(con,uid)
+                con.execute('UPDATE profiles SET discoverable=? WHERE id=?',(value,uid))
+                audit.record(con,fresh,'admin.visibility_changed',target=uid,category='discoverable',before=old['discoverable'],after=value,required=True)
+            return response({'ok':True,'discoverable':value})
         if path in ('/api/account/email','/api/account/password') and request.method=='POST':
             handler.throttled('account-update',8,600)
             data=handler.body()
@@ -177,6 +211,7 @@ def api(route):
             prepared=handler.prepare_confirmation()
             with db.transaction(write=True,rate_limit=True) as con:
                 result=handler.finish_auth(con,prepared)
+                audit.record(con,result[1].get('user'),'auth.confirmed')
             activity.record_successful_visit(request,result[1].get('user'),app.logger)
             return response(result[1],result[0],result[2])
         if path in ('/api/register','/api/login') and request.method=='POST':
@@ -188,6 +223,7 @@ def api(route):
                       (request.get_json(silent=True) or {}).get('remember') is True)
             with db.transaction(write=True,rate_limit=True) as con:
                 result=handler.finish_auth(con,prepared,remember=path=='/api/login' and remember)
+                audit.record(con,result[1].get('user'),'auth.login')
             activity.record_successful_visit(request,result[1].get('user'),app.logger)
             if native_login:
                 destination='/' if landing.startswith('/p/') else landing
@@ -222,7 +258,12 @@ def api(route):
         # business lock while waiting for Supabase Auth over the network.
         separate = path in ('/api/register','/api/login','/api/logout')
         with db.transaction(write=write,rate_limit=separate) as con:
-            result = handler.handle_api('GET' if request.method=='HEAD' else request.method,path,con)
+            method='GET' if request.method=='HEAD' else request.method
+            if path=='/api/logout' and method=='POST': handler.user(con)
+            result=audit.handle(handler,method,path,con) if path.startswith('/api/admin/') else None
+            if result is None:
+                result=handler.handle_api(method,path,con)
+                if write: audit.after_mutation(con,handler,method,path,result)
         if (request.method=='GET' and path in ('/api/me','/api/dashboard')
                 and request.headers.get('X-Shursh-Visit')=='1' and result[0]==200):
             activity.record_successful_visit(request,result[1].get('user'),app.logger)
@@ -284,7 +325,7 @@ def frontend(route=''):
     if route in LANDING_ART_ASSETS:
         return send_from_directory(ROOT/'public',route)
     # Serve only known app routes; never include the simulator or repository files.
-    if route in ('','index.html','lists','santas','friends','profile','notifications','admin','admin/users','admin/feedback') or re.fullmatch(r'(?:list|santa)/[0-9]{1,16}|(?:w|r|join|p)/[A-Za-z0-9_-]{1,128}|join/p/[A-Za-z0-9_-]{43}|i/[A-Za-z0-9_-]{24}|users/[0-9a-fA-F-]{36}',route):
+    if route in ('','index.html','lists','santas','friends','profile','notifications','admin','admin/users','admin/feedback','admin/audit') or re.fullmatch(r'(?:list|santa)/[0-9]{1,16}|(?:w|r|join|p)/[A-Za-z0-9_-]{1,128}|join/p/[A-Za-z0-9_-]{43}|i/[A-Za-z0-9_-]{24}|users/[0-9a-fA-F-]{36}',route):
         # Reuse the per-browser token across tabs. Never use the session cookie
         # as a CSRF token. HTML is no-store; the meta value is same-origin only.
         csrf=request.cookies.get('__Host-shursh_login_csrf','')

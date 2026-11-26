@@ -339,6 +339,55 @@ function socialAdminVisitMarkup(u){
  const online=socialAdminPresenceOnline(u),status=online?'В сети: активность за последние 5 минут':'Нет недавней активности';
  return '<div class="admin-user-identity"><span class="admin-device-presence'+(online?' is-online':'')+'" data-presence-seen="'+attr(u.last_seen_at)+'" data-presence-source="'+attr(u.last_seen_source||'')+'" title="'+attr(status)+'">'+symbol+'<span class="sr-only" data-presence-status>'+esc(status)+'</span></span><span><time title="'+attr(provenance)+'" datetime="'+attr(u.last_seen_at)+'">'+esc(socialAdminVisitDate(date))+'</time></span></div>';
 }
+const adminCategories={wishlists:'Вишлисты',gifts:'Подарки',referrals:'Рефы',organized:'Свои Санты',joined:'Участие',discoverable:'В поиске'};
+function adminCountCell(u,key,value){
+ return '<td><button type="button" class="admin-count-button" data-social-action="admin-details" data-user-id="'+attr(u.id)+'" data-category="'+key+'" data-admin-count="'+key+'" aria-label="'+attr(adminCategories[key]+': '+u.name)+'">'+esc(value)+'</button></td>';
+}
+async function socialAdminDetails(uid,category,offset=0){
+ const marker=lastRenderToken,epoch=ownerSessionEpoch;
+ if(!Object.hasOwn(adminCategories,category))return;
+ const data=await api('/api/admin/users/'+encodeURIComponent(uid)+'/'+category+'?offset='+offset,{method:'POST',body:{}});
+ if(marker!==lastRenderToken||epoch!==ownerSessionEpoch)return;
+ const title=adminCategories[category],p=data.profile;
+ if(category==='discoverable'){
+  modal({title:'Видимость в поиске',subtitle:p.name,content:shurshCheckbox('discoverable','Показывать в поиске',p.discoverable)+field('Пароль администратора','current_password','Текущий пароль','password','',true,'autocomplete="current-password" maxlength="200"')+'<p class="note">Действие будет записано в журнал</p>',submitLabel:'Подтвердить',onSubmit:async form=>{
+   const password=form.elements.current_password.value;form.elements.current_password.value='';
+   await api('/api/admin/users/'+encodeURIComponent(uid)+'/discoverable',{method:'PATCH',body:{current_password:password,discoverable:form.elements.discoverable.checked}});
+   notice('Видимость обновлена');const root=document.querySelector('[data-admin-users-content]');if(root)await socialLoadAdminUsers(Number(root.dataset.adminOffset||0));
+  }});return;
+ }
+ const list=data.items.map(x=>'<div class="admin-detail-row"><strong>'+esc(x.title)+'</strong><span class="note">'+esc([x.context,x.status, x.created_at?socialAdminVisitDate(new Date(x.created_at)):null].filter(Boolean).join(' · '))+'</span></div>').join('');
+ const pager='<div class="btn-row admin-detail-pager">'+
+  '<button type="button" class="btn btn-soft btn-small" data-social-action="admin-details" data-user-id="'+attr(uid)+'" data-category="'+category+'" data-offset="'+Math.max(0,offset-25)+'"'+(offset?'':' disabled')+'>Назад</button>'+
+  '<button type="button" class="btn btn-soft btn-small" data-social-action="admin-details" data-user-id="'+attr(uid)+'" data-category="'+category+'" data-offset="'+(offset+25)+'"'+(data.more?'':' disabled')+'>Вперёд</button></div>';
+ modal({title,subtitle:p.name,content:'<div class="admin-detail-list">'+(list||'<p class="note">Пока нет записей</p>')+'</div>',footer:pager});
+}
+const adminEventNames={'auth.login':'Вход в аккаунт','auth.confirmed':'Подтверждён аккаунт','auth.logout':'Выход из аккаунта','wishlist.created':'Создан вишлист','wishlist.updated':'Изменён вишлист','wishlist.deleted':'Удалён вишлист','gift.created':'Добавлен подарок','gift.updated':'Изменён подарок','gift.deleted':'Удалён подарок','santa.created':'Создан Тайный Санта','santa.updated':'Изменена игра','santa.deleted':'Удалена игра','santa.drawn':'Проведена жеребьёвка','santa.finished':'Завершена игра','santa.photo_saved':'Сохранено фото','santa.photo_deleted':'Удалено фото','santa.joined':'Вступление в игру','profile.updated':'Изменён профиль','friend.requested':'Запрос в друзья','friend.updated':'Изменена заявка в друзья','friend.removed':'Удалён друг','feedback.created':'Создано обращение','feedback.updated':'Изменено обращение','invite.revoked':'Отозвано приглашение','admin.user_details':'Просмотр сведений пользователя','admin.visibility_changed':'Изменена видимость профиля','admin.visibility_rejected':'Неудачное подтверждение пароля'};
+let adminAuditRequest=0;
+async function socialLoadAudit(audience='admins',offset=0){
+ const root=document.querySelector('[data-admin-audit-content]');if(!root)return;
+ const request=++adminAuditRequest;root.setAttribute('aria-busy','true');
+ try{
+  const data=await api('/api/admin/audit?audience='+audience+'&offset='+offset);
+  if(!root.isConnected||request!==adminAuditRequest)return;
+  for(const tab of document.querySelectorAll('[data-audit-tab]')){const active=tab.dataset.auditTab===audience;tab.setAttribute('aria-selected',String(active));tab.classList.toggle('active',active);}
+  root.innerHTML='<div class="admin-audit-list">'+(data.items.map(x=>'<button type="button" class="admin-audit-row" data-social-action="admin-audit-event" data-id="'+attr(x.id)+'"><span><strong>'+esc(adminEventNames[x.event]||x.event)+'</strong><small>'+esc(x.actor_name||'Удалённый пользователь')+'</small></span><span class="note">'+esc(socialAdminVisitDate(new Date(x.created_at)))+' · '+(x.success?'Успешно':'Отклонено')+'</span></button>').join('')||'<p class="note">Пока нет событий</p>')+'</div>'+
+  '<div class="admin-users-pager"><span>Страница '+(Math.floor(offset/25)+1)+'</span><div class="btn-row"><button type="button" class="btn btn-soft btn-small" data-social-action="admin-audit-page" data-audience="'+audience+'" data-offset="'+Math.max(0,offset-25)+'"'+(offset?'':' disabled')+'>Назад</button><button type="button" class="btn btn-soft btn-small" data-social-action="admin-audit-page" data-audience="'+audience+'" data-offset="'+(offset+25)+'"'+(data.more?'':' disabled')+'>Вперёд</button></div></div>';
+ }catch(error){if(root.isConnected&&request===adminAuditRequest)root.innerHTML='<p class="note">'+esc(error.message)+'</p>';}
+ finally{if(root.isConnected&&request===adminAuditRequest)root.removeAttribute('aria-busy');}
+}
+async function socialAdminAuditPage(marker=lastRenderToken){
+ if(!currentUser?.is_admin){errorView(new Error('Доступ только администратору'));return;}
+ if(marker!==lastRenderToken)return;
+ shell('<main class="container page social-page admin-page"><div class="admin-section-back"><a href="/admin" data-nav="/admin" class="text-link">'+ico('back',18)+' Все разделы</a></div><div class="page-hero"><div><h1>Журнал событий</h1><p>Действия за последние 90 дней</p></div></div><section class="panel"><div class="admin-audit-tabs" role="tablist"><button type="button" role="tab" aria-selected="true" class="active" data-audit-tab="admins" data-social-action="admin-audit-page" data-audience="admins">Админы</button><button type="button" role="tab" aria-selected="false" data-audit-tab="users" data-social-action="admin-audit-page" data-audience="users">Пользователи</button></div><div data-admin-audit-content aria-live="polite"></div></section></main>');
+ await socialLoadAudit();
+}
+async function socialAdminAuditEvent(id){
+ const marker=lastRenderToken,epoch=ownerSessionEpoch;const {event:x}=await api('/api/admin/audit/'+encodeURIComponent(id));
+ if(marker!==lastRenderToken||epoch!==ownerSessionEpoch)return;
+ const rows=[['Событие',adminEventNames[x.event]||x.event],['Дата',new Date(x.created_at).toLocaleString('ru-RU')],['Инициатор',x.actor_name||'Удалённый пользователь'],['ID инициатора',x.actor_id],['Пользователь',x.target_name],['ID пользователя',x.target_id],['Категория',adminCategories[x.category]],['ID объекта',x.object_id],['Результат',x.success?'Успешно':'Отклонено'],['До',x.before_visible===null?null:x.before_visible?'Виден':'Скрыт'],['После',x.after_visible===null?null:x.after_visible?'Виден':'Скрыт']];
+ modal({title:'Подробности события',content:rows.filter(([,v])=>v!==null&&v!==undefined).map(([k,v])=>'<div class="admin-detail-row"><small>'+esc(k)+'</small><strong>'+esc(v)+'</strong></div>').join(''),footer:'<button type="button" class="btn btn-soft" data-close>Закрыть</button>'});
+}
 function socialAdminUsersMarkup(page){
  syncAdminPresenceClock(page);
  const rows=(page.users||[]).map(u=>'<tr><td class="admin-user-cell"><a class="admin-user-identity admin-user-profile-link" href="/users/'+attr(u.id)+'" data-nav="/users/'+attr(u.id)+'" aria-label="Открыть профиль '+attr(u.name)+'"><span class="admin-user-emoji" aria-hidden="true">'+
@@ -346,8 +395,7 @@ function socialAdminUsersMarkup(page){
    '<small>ID: '+esc(String(u.id).slice(0,8))+'</small></span></a></td>'+
    '<td>'+(u.handle?'@'+esc(u.handle):'<span class="muted">—</span>')+'</td>'+
    '<td><time datetime="'+attr(u.created_at)+'">'+esc(new Date(u.created_at).toLocaleString('ru-RU',{dateStyle:'medium',timeStyle:'short'}))+'</time></td>'+
-   '<td data-admin-visit-user="'+attr(u.id)+'">'+socialAdminVisitMarkup(u)+'</td><td>'+Number(u.wishlists_count||0)+'</td><td data-admin-count="gifts">'+Number(u.gifts_count||0)+'</td><td data-admin-count="referrals">'+Number(u.referral_count||0)+'</td><td>'+Number(u.organized_games||0)+'</td>'+
-   '<td>'+Number(u.joined_games||0)+'</td><td>'+(u.discoverable?'Виден':'Скрыт')+'</td></tr>').join('');
+   '<td data-admin-visit-user="'+attr(u.id)+'">'+socialAdminVisitMarkup(u)+'</td>'+adminCountCell(u,'wishlists',Number(u.wishlists_count||0))+adminCountCell(u,'gifts',Number(u.gifts_count||0))+adminCountCell(u,'referrals',Number(u.referral_count||0))+adminCountCell(u,'organized',Number(u.organized_games||0))+adminCountCell(u,'joined',Number(u.joined_games||0))+adminCountCell(u,'discoverable',u.discoverable?'Виден':'Скрыт')+'</tr>').join('');
  const from=page.total?Number(page.offset)+1:0;
  const to=Math.min(Number(page.offset)+Number(page.limit),Number(page.total));
  return '<div class="admin-users-table-scroll"><table class="admin-users-table"><thead><tr>'+
@@ -420,6 +468,7 @@ async function socialAdminPage(marker=lastRenderToken){
   '<a class="panel admin-hub-card admin-hub-feedback" href="/admin/feedback" data-nav="/admin/feedback">'+
   '<div class="admin-hub-card-top"><span class="admin-hub-icon">'+ico('mail',25)+'</span><span class="admin-hub-arrow">'+ico('arrow')+'</span></div>'+
   '<strong>Обращения</strong><p>Вопросы, ошибки и предложения пользователей</p><span class="admin-hub-metric">'+Number(stats.new_feedback||0)+' новых</span></a>'+
+  '<a class="panel admin-hub-card admin-hub-audit" href="/admin/audit" data-nav="/admin/audit"><div class="admin-hub-card-top"><span class="admin-hub-icon">'+ico('info',25)+'</span><span class="admin-hub-arrow">'+ico('arrow')+'</span></div><strong>Журнал событий</strong><p>Действия администраторов и пользователей</p></a>'+
   '</div></main>');
 }
 async function socialAdminUsersPage(marker=lastRenderToken){
@@ -501,6 +550,9 @@ document.addEventListener('click',async e=>{
   }
   if(action==='edit-profile'){await socialEditProfileModal();return;}
   if(action==='edit-avatar'){await socialEditAvatarModal();return;}
+  if(action==='admin-details'){await socialAdminDetails(uid,target.dataset.category,Number(target.dataset.offset)||0);return;}
+  if(action==='admin-audit-page'){await socialLoadAudit(target.dataset.audience,Number(target.dataset.offset)||0);return;}
+  if(action==='admin-audit-event'){await socialAdminAuditEvent(target.dataset.id);return;}
   if(action==='admin-users-next'||action==='admin-users-prev'){await socialLoadAdminUsers(Number(target.dataset.offset)||0);return;}
    if(action==='change-email'){await socialAccountModal('email');return;}
    if(action==='change-password'){await socialAccountModal('password');return;}
