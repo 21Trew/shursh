@@ -3504,6 +3504,7 @@ def test_referral_verified_confirmation_exactly_once_and_revocation(application,
             results=list(pool.map(concurrent_confirm,range(2)))
         assert sum(r.get('invite_path')=='/i/'+invite for r in results)==1
         assert count(owner)==initial+1 and count(other)==initial_other
+        assert call(owner,'GET','/api/friends').json['referral_count']==initial+1
         assert 'invite_path' not in confirm('referral-a@example.test')
         assert count(owner)==initial+1
         current=call(owner,'POST','/api/friend-invites/me',{}).json

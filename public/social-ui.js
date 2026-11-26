@@ -71,7 +71,7 @@ async function socialFriendsPage(marker=lastRenderToken,snapshot=null){
   (data.friends.length?data.friends.map(u=>socialUserCard(u,
     '<button class="btn btn-soft btn-small" data-social-action="unfriend" data-user-id="'+attr(u.id)+'">Убрать</button>')).join(''):
     '<p class="note">Пока никого нет. Найди друга и отправь заявку</p>')+'</section>'+
-  (data.invites_enabled?'<section class="panel"><h2>Приглашённые друзья</h2><p class="note">'+Number(data.referral_count||0)+' подтверждённых регистраций по твоей ссылке</p>'+socialInviteButton()+'</section>':'')+
+  (data.invites_enabled?'<section class="panel"><h2>Приглашённые друзья</h2><p class="note">'+Number(data.referral_count||0)+' подтверждённых регистраций по твоей ссылке</p></section>':'')+
   (data.outgoing.length?'<section class="panel"><h2>Отправленные заявки</h2>'+
     data.outgoing.map(u=>socialUserCard(u,'<div class="social-request-actions"><span class="chip">Ожидает ответа</span><button class="btn btn-soft btn-small" data-social-action="cancel" data-user-id="'+attr(u.id)+'">Отменить</button></div>')).join('')+'</section>':'')+
   '</main>');

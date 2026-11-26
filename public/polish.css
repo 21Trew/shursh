@@ -1252,3 +1252,6 @@ input[type="checkbox"]:not(.shursh-checkbox input):checked::after{content:"✓";
 @media (hover:none),(pointer:coarse){.santa-memory-menu{opacity:1;pointer-events:auto}}
 @media(max-width:480px){.profile-session-row{flex-wrap:wrap}.profile-sessions .panel-heading-actions{align-items:flex-start;flex-wrap:wrap}}
 @media(prefers-reduced-motion:reduce){.santa-memory-menu{transition:none}}
+
+.profile-edit-modal #modal-form input:not([type=hidden]):not([type=checkbox]){min-height:54px}
+.personal-invite-social>.btn.share-vk{color:#102637}.personal-invite-social>.btn.share-vk svg{color:#fff}

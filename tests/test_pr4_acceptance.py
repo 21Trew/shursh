@@ -2531,6 +2531,8 @@ def test_friends_exact_search_and_qr_invite(browser_https,application,engine):
                 ctx=browser.new_context(ignore_https_errors=True,viewport={'width':390,'height':844})
                 page=ctx.new_page();page.goto(browser_https+'/');browser_login(page,landing='identity')
                 page.evaluate("nav('/friends')")
+                expect(page.get_by_role('heading',name='Приглашённые друзья')).to_be_visible()
+                expect(page.get_by_role('button',name='Пригласить друга')).to_have_count(1)
                 search=page.locator('#social-search-form input[name=q]')
                 search.fill('@qrother');page.locator('#social-search-form button').click()
                 result=page.locator('#social-search-results')
@@ -3131,8 +3133,10 @@ def test_service_crayon_covers_footer_and_circular_gift_gallery(browser_https,en
                     expect(dialog).to_have_attribute('aria-label','Третий')
                     dialog.locator('.gift-gallery-next').click()
                     expect(dialog).to_have_attribute('aria-label','Первый')
+                    page.evaluate("window.adjacentGiftImage=document.querySelector('.gift-gallery-next .gift-dialog-image')")
                     page.keyboard.press('ArrowRight')
                     expect(dialog).to_have_attribute('aria-label','Второй')
+                    assert page.evaluate("window.adjacentGiftImage===document.querySelector('.gift-dialog-media .gift-dialog-image')")
                     assert deck_size()==initial_size
                     page.evaluate("""()=>{
                       const target=document.querySelector('.gift-gallery .gift-dialog-media');
@@ -3531,6 +3535,22 @@ def test_profile_feedback_and_inline_santa_polish(browser_https,application,engi
             page=browser.new_page(ignore_https_errors=True,viewport={'width':390,'height':844})
             page.goto(browser_https+'/')
             browser_login(page)
+            from test_cloud import login,call
+            secondary=login(application)
+            secondary_id=next(s['id'] for s in call(secondary,'GET','/api/profile/me').json['sessions'] if s['current'])
+            page.evaluate("nav('/profile',{force:true})")
+            expect(page.get_by_role('heading',name='Активные сеансы')).to_be_visible()
+            expect(page.get_by_role('heading',name='Приглашённые друзья')).to_have_count(0)
+            expect(page.locator('.profile-session-row .chip-green')).to_have_count(1)
+            revoke=page.locator('[data-session-id="'+secondary_id+'"]')
+            expect(revoke).to_be_visible()
+            page.once('dialog',lambda dialog:dialog.accept())
+            revoke.click()
+            expect(revoke).to_have_count(0)
+            assert call(secondary,'GET','/api/me').json['user'] is None
+            page.locator('.profile-avatar-edit').click()
+            expect(page.locator('.emoji-grid [data-avatar-pick]')).to_have_count(48)
+            page.keyboard.press('Escape')
             page.evaluate("contactDeveloperModal()")
             expect(page.locator('[name=reply_email]')).to_be_checked()
             page.locator('label.shursh-checkbox').filter(has=page.locator('[name=reply_email]')).click()
@@ -3568,6 +3588,22 @@ def test_profile_feedback_and_inline_santa_polish(browser_https,application,engi
             page.locator('.ui-calendar-toolbar [data-shift="-1"]').click()
             page.locator('.ui-calendar-day[data-date="2027-02-13"]').click()
             expect(page.locator('[data-santa-date-input]')).to_have_value('2027-02-13')
+            eid=page.evaluate("async()=> (await api('/api/santas',{method:'POST',body:{title:'QR regression'}})).id")
+            page.evaluate("id=>nav('/santa/'+id,{force:true})",eid)
+            for brand in ('telegram','vk','max'):
+                expect(page.locator('.santa-share .share-'+brand+' svg path')).to_have_count(1)
+            url=page.locator('.santa-share [data-action=copy]').get_attribute('data-url')
+            page.locator('.santa-share [data-social-action=santa-invite-qr]').click()
+            expect(page.locator('.personal-invite-modal #personal-invite-qr')).to_be_visible()
+            expect(page.locator('.personal-invite-modal .personal-invite-social')).to_have_count(0)
+            expect(page.locator('.personal-invite-modal .modal-fixed-footer')).to_have_count(0)
+            import base64,io,zxingcpp
+            from PIL import Image
+            qr=page.locator('.personal-invite-modal #personal-invite-qr')
+            decoded=zxingcpp.read_barcode(Image.open(io.BytesIO(base64.b64decode(qr.get_attribute('src').split(',',1)[1]))))
+            assert decoded and decoded.text==url
+            page.keyboard.press('Escape')
+            page.evaluate("id=>api('/api/santas/'+id,{method:'DELETE',body:{}})",eid)
         finally:
             browser.close()
 
