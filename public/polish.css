@@ -924,7 +924,7 @@ input[type="checkbox"]:not(.shursh-checkbox input):checked::after{content:"✓";
  .dashboard-welcome h1{margin:8px 0 10px}
  .dashboard-welcome p{margin-bottom:14px}
  .dashboard-welcome .btn-row{display:grid;grid-template-columns:minmax(0,1.12fr) minmax(0,1fr);gap:8px}
- .dashboard-welcome .btn-row .btn{min-width:0;width:100%;min-height:44px;padding:7px 5px;font-size:clamp(11px,3.2vw,14px);line-height:1.2;gap:4px;white-space:normal}
+ .dashboard-welcome .btn-row .btn{min-width:0;width:100%;min-height:44px;padding:7px 5px;font-size:clamp(11px,3.2vw,14px);line-height:1.2;gap:4px;white-space:normal;transform:none}
  .dashboard-welcome .btn-row .btn .icon{width:15px;height:15px;flex:0 0 15px}
  .page{padding-top:16px;padding-bottom:36px}
  .page-hero{margin-bottom:16px;gap:10px}

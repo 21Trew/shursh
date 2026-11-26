@@ -2687,6 +2687,7 @@ def test_mobile_shared_sheets_header_actions_and_swipes(browser_https,engine):
                 })""")
                 assert len(boxes)==2 and abs(boxes[0]['y']-boxes[1]['y'])<=1 and boxes[0]['x']+boxes[0]['width']<=boxes[1]['x']+1,boxes
                 assert all(b['height']>=43.9 for b in boxes),boxes # subpixel tolerance, CSS min-height remains 44px
+                assert buttons.evaluate_all("els=>els.every(el=>getComputedStyle(el).transform==='none')")
                 assert page.evaluate("document.documentElement.scrollWidth<=innerWidth+1")
                 for selector in ('.dashboard-new-list','.santa-create-cta','header .header-bell'):
                     page.locator(selector).click()
@@ -2784,7 +2785,8 @@ def test_mobile_shared_sheets_header_actions_and_swipes(browser_https,engine):
                 # Exercise a cached owner-tab transition in addition to guest routes.
                 page.evaluate("notice('Только на странице Санты')")
                 expect(page.locator('#toast-root .toast')).to_have_text('Только на странице Санты')
-                page.locator('.site-header .nav a[data-nav="/lists"]').click()
+                # A genuine new touch resets the swipe compatibility-click guard.
+                page.locator('.site-header .nav a[data-nav="/lists"]').tap()
                 expect(page).to_have_url(re.compile(r'/lists$'))
                 expect(page.locator('.toast')).to_have_count(0)
                 page.evaluate("notice('Только на странице вишлистов')")
