@@ -118,8 +118,8 @@ async function socialProfilePage(uid,marker=lastRenderToken,byHandle=false){
 function socialSessionsMarkup(data){
  if(!Array.isArray(data.sessions))return '';
  const otherCount=data.sessions.filter(s=>!s.current).length;
- return '<section class="panel profile-sessions"><div class="panel-heading-actions"><h2>Активные сеансы</h2>'+
- (otherCount?'<button type="button" class="btn btn-soft btn-small" data-social-action="revoke-other-sessions">Завершить остальные</button>':'')+'</div>'+
+ return '<section class="panel profile-sessions"><div class="panel-heading-actions"><h2>Активные сеансы</h2><div class="btn-row"><button type="button" class="btn btn-soft btn-small" data-social-action="refresh-sessions">Обновить</button>'+
+ (otherCount?'<button type="button" class="btn btn-soft btn-small" data-social-action="revoke-other-sessions">Завершить остальные</button>':'')+'</div></div>'+
  '<p class="note">Здесь можно завершить вход на других устройствах</p><div class="profile-session-list">'+
  data.sessions.map(s=>'<div class="profile-session-row"><div><strong>'+(s.current?'Текущий сеанс':'Другой сеанс')+'</strong><small>Вход: '+esc(new Date(s.created_at).toLocaleString('ru-RU'))+'</small><small>Действует до: '+esc(new Date(s.expires_at*1000).toLocaleString('ru-RU'))+'</small></div>'+
  (s.current?'<span class="chip chip-green">Этот сеанс</span>':'<button type="button" class="btn btn-soft btn-small" data-social-action="revoke-session" data-session-id="'+attr(s.id)+'">Завершить</button>')+'</div>').join('')+'</div></section>';
@@ -560,6 +560,10 @@ document.addEventListener('click',async e=>{
    await api('/api/notifications/read-all',{method:'POST',body:{}});
    notificationModalUnread=0;const time=new Date().toISOString();notificationModalItems.forEach(x=>{if(!x.read_at)x.read_at=time;});
    renderNotificationModalTab();socialUnreadLast=0;void socialRefreshBadge(true);return;
+  }
+  if(action==='refresh-sessions'){
+   dropOwnerRead('/api/profile/me');clearOwnerTabViews(['/profile']);
+   if(currentPath()===actionPath)await socialOwnProfilePage();return;
   }
   if(action==='revoke-session'||action==='revoke-other-sessions'){
    if(!confirm(action==='revoke-session'?'Завершить этот сеанс?':'Завершить все сеансы, кроме текущего?'))return;
