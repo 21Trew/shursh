@@ -3060,7 +3060,7 @@ def test_service_crayon_covers_footer_and_circular_gift_gallery(browser_https,en
                     # Load the real versioned WebP resources via the shared service
                     # renderer and verify decoding, rather than only inspecting URLs.
                     decoded=page.evaluate("""async()=>{
-                      const names=wishlistCoverArt.concat('santa');
+                      const names=['step-gift','camera','cup','ticket','step-list','step-share','hero-gift','hero-mail','hero-mascot','privacy','santa'];
                       return await Promise.all(names.map(async name=>{
                         const holder=document.createElement('div');
                         holder.innerHTML=serviceArt(name);
