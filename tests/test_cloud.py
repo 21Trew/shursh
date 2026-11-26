@@ -2715,7 +2715,7 @@ def test_browser_ux_fixes_avatar_gift_placeholder_and_admin_directory(browser_ht
             expect(page).to_have_url(re.compile('/admin/users'))
             expect(page.locator('.admin-users-table')).to_be_visible()
             expect(page.locator('.admin-users-panel .panel-heading-actions .chip')).to_have_count(0)
-            expect(page.locator('.admin-users-table th')).to_have_text(['Игрок','Ник','Регистрация','Последний визит','Вишлисты','Свои Санты','Участие','В поиске'])
+            expect(page.locator('.admin-users-table th')).to_have_text(['Игрок','Ник','Регистрация','Последний визит','Вишлисты','Подарки','Рефы','Свои Санты','Участие','В поиске'])
             visit=page.locator('.admin-users-table tbody tr').filter(has_text='Owner').locator('td').nth(3)
             expect(visit.get_by_role('img',name='Linux',exact=True)).to_be_visible()
             expect(visit.locator('svg title')).to_have_text('Linux')

@@ -13,7 +13,7 @@ NOTIFY_KIND_FIELD={
  'wishlist_new':'notify_gifts','wish_new':'notify_gifts','wish_request':'notify_gifts',
  'reservation_anonymous':'notify_gifts'
 }
-PROFILE_EMOJIS = frozenset(["🎁","🎄","🐱","🦊","🐻","🐼","🐸","🦄","🐰","🧸","✨","🌸","🌼","🌙","⭐","🎮","🎨","📚","🎵","🚀","☕","🍓","💚"])
+PROFILE_EMOJIS = frozenset(["🎁","🎄","🐱","🦊","🐻","🐼","🐸","🦄","🐰","🧸","✨","🌸","🌼","🌙","⭐","🎮","🎨","📚","🎵","🚀","☕","🍓","💚","❤️","🦦","🐶","🐈","🐧","🐨","🦉","🦋","🌈","🍒","🍋","🍄","🍀","🌻","🍩","🍪","🧁","🎧","🎬","🪴","🛹","🪐","🔥","💜","💛"])
 from server import ApiError, req, optional, token_hash
 from cloud import referrals
 

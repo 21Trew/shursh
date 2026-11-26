@@ -650,11 +650,11 @@ function modal({title,subtitle='',content='',onSubmit=null,onError=null,submitLa
  // Fields focus on the first intentional click; avoid noisy autofocus rings.
 }
 function contactDeveloperModal(){
- modal({title:'Написать разработчику',subtitle:'Есть идея, вопрос или нашли ошибку? Напишите прямо здесь',
-  content:field('Как к вам обращаться','name','Ваше имя','text',currentUser?.name||'',true,'maxlength="80"')+
+ modal({title:'Написать разработчику',subtitle:'Есть идея, вопрос или найдена ошибка? Пиши прямо здесь',
+  content:field('Как к тебе обращаться','name','Твоё имя','text',currentUser?.name||'',true,'maxlength="80"')+
    field('Почта для ответа','email','name@example.com','email',currentUser?.email||'',true,'maxlength="200"')+
    selectField('Тема','topic',[['idea','Предложение'],['bug','Ошибка'],['question','Вопрос'],['other','Другое']],'idea')+
-   textArea('Сообщение','message','Расскажите подробнее…')+
+   textArea('Сообщение','message','Расскажи подробнее…')+
    '<p class="field-hint">Сообщение получит разработчик. Ответим на указанную почту</p>',
   submitLabel:'Отправить',onSubmit:async form=>{
    await api('/api/feedback',{method:'POST',body:readForm(form)});

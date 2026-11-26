@@ -23,7 +23,7 @@ async function socialRefreshBadge(force=false){
 setInterval(()=>{if(typeof currentUser!=='undefined')socialRefreshBadge();},120000);
 document.addEventListener('visibilitychange',()=>{if(!document.hidden)socialRefreshBadge(true);});
 
-const socialEmojiChoices=["🎁","🎄","🐱","🦊","🐻","🐼","🐸","🦄","🐰","🧸","✨","🌸","🌼","🌙","⭐","🎮","🎨","📚","🎵","🚀","☕","🍓","💚"];
+const socialEmojiChoices=["🎁","🎄","🐱","🦊","🐻","🐼","🐸","🦄","🐰","🧸","✨","🌸","🌼","🌙","⭐","🎮","🎨","📚","🎵","🚀","☕","🍓","💚","❤️","🦦","🐶","🐈","🐧","🐨","🦉","🦋","🌈","🍒","🍋","🍄","🍀","🌻","🍩","🍪","🧁","🎧","🎬","🪴","🛹","🪐","🔥","💜","💛"];
 function socialAvatar(p,extra=''){
  return '<span class="avatar emoji-avatar '+extra+'" aria-hidden="true">'+esc(p.avatar_emoji||'🎁')+'</span>';
 }
