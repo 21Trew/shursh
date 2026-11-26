@@ -660,12 +660,12 @@ def test_webkit_mobile_six_tabs_and_create_flows(browser_https):
                     assert page.evaluate("document.querySelector('header')===window.__uiHeader")
                     page.screenshot(path=str(out/f"route-{path.strip('/') or 'home'}.png"),
                                     full_page=True,animations="disabled")
-                # Long profile modal on mobile: centered with safe viewport margins.
+                # Long profile modal: edge-to-edge bottom sheet.
                 page.locator('header .nav [data-nav="/profile"]').click()
                 page.locator('[data-social-action="edit-profile"]').click()
                 expect(page.locator(".modal")).to_be_visible()
                 bbox=page.locator(".modal").bounding_box()
-                assert bbox and bbox["y"]>=11 and bbox["y"]+bbox["height"]<=832,bbox
+                assert bbox and bbox["y"]>=11 and abs(bbox["y"]+bbox["height"]-844)<=1 and abs(bbox["x"])<=1 and abs(bbox["width"]-width)<=1,bbox
                 page.screenshot(path=str(out/"profile-dialog.png"),
                                 full_page=False,animations="disabled")
                 page.keyboard.press("Escape")
@@ -1197,21 +1197,15 @@ def test_cookie_notice_responsive_alignment_chromium_and_webkit(browser_https):
                         assert metrics["docWidth"]<=width+2,("horizontal overflow",engine,width,metrics)
                         assert metrics["buttonHeight"]>=44,("touch target",engine,width,metrics)
                         assert all(not line["overflow"] for line in metrics["lines"]),(engine,width,metrics)
-                        assert all(abs(line["height"]-line["lineHeight"])<=2
-                                   for line in metrics["lines"]),(engine,width,metrics)
+                        assert all(line["height"]>=line["lineHeight"]-2 for line in metrics["lines"]),(engine,width,metrics)
                         assert metrics["textAlign"]=="left" and metrics["justifyItems"]=="start",(engine,width,metrics)
                         assert all(abs(line["left"]-metrics["textLeft"])<=1
                                    for line in metrics["lines"]),(engine,width,metrics)
-                        if width<=400:
-                            assert metrics["flexDirection"]=="column",(engine,width,metrics)
-                            assert abs(metrics["buttonCenterX"]-metrics["centerX"])<=1,(engine,width,metrics)
-                            assert abs(metrics["textCenterX"]-metrics["centerX"])<=1,(engine,width,metrics)
-                            assert metrics["buttonCenterY"]>metrics["textCenterY"],(engine,width,metrics)
-                        else:
-                            assert metrics["flexDirection"]=="row",(engine,width,metrics)
-                            assert abs(metrics["textCenterY"]-metrics["buttonCenterY"])<=1,(engine,width,metrics)
-                            expected=metrics["textWidth"]+metrics["buttonWidth"]+metrics["gap"]
-                            assert abs(metrics["contentWidth"]-expected)<=2,(engine,width,metrics)
+                        assert metrics["flexDirection"]=="row",(engine,width,metrics)
+                        assert abs(metrics["textCenterY"]-metrics["buttonCenterY"])<=1,(engine,width,metrics)
+                        assert metrics["buttonLeft"]>=metrics["textLeft"]+metrics["textWidth"]-1,(engine,width,metrics)
+                        expected=metrics["textWidth"]+metrics["buttonWidth"]+metrics["gap"]
+                        assert abs(metrics["contentWidth"]-expected)<=2,(engine,width,metrics)
                         notice.screenshot(path=str(output/f"{engine}-{width}-banner.png"),
                                           animations="disabled")
                         if width in (320,390,401,430,768):
@@ -2546,3 +2540,90 @@ def test_friends_exact_search_and_qr_invite(browser_https,application,engine):
         call(other,'PATCH','/api/profile/me',{'name':'Other','handle':''})
         with db.transaction(write=True) as con:
             con.execute('DELETE FROM friendships WHERE user_low=? AND user_high=?',(aid,bid))
+
+
+@pytest.mark.browser
+@pytest.mark.parametrize('engine',['chromium','webkit'])
+def test_mobile_shared_sheets_header_actions_and_swipes(browser_https,engine):
+    out=OUTPUT/'mobile-interactions';out.mkdir(parents=True,exist_ok=True)
+    with sync_playwright() as play:
+        browser=getattr(play,engine).launch(headless=True)
+        try:
+            for width,height in ((320,568),(390,844),(760,844)):
+                ctx=browser.new_context(viewport={'width':width,'height':height},has_touch=True,
+                    is_mobile=True,ignore_https_errors=True,reduced_motion='no-preference')
+                page=ctx.new_page()
+                page.goto(browser_https+'/');browser_login(page)
+                page.wait_for_function("()=>ownerWarmupReady",timeout=15000)
+                buttons=page.locator('.dashboard-welcome .btn-row .btn')
+                boxes=[b.bounding_box() for b in buttons.all()]
+                assert len(boxes)==2 and abs(boxes[0]['y']-boxes[1]['y'])<=1 and boxes[0]['x']+boxes[0]['width']<=boxes[1]['x']+1,boxes
+                assert all(b['height']>=44 for b in boxes),boxes
+                assert page.evaluate("document.documentElement.scrollWidth<=innerWidth+1")
+                for selector in ('.dashboard-new-list','.santa-create-cta','header .header-bell'):
+                    page.locator(selector).click()
+                    dialog=page.locator('.modal')
+                    expect(dialog).to_be_visible()
+                    page.wait_for_function("()=>document.querySelector('.modal')?.getAnimations().length===0")
+                    rect=dialog.bounding_box()
+                    assert abs(rect['x'])<=1 and abs(rect['width']-width)<=1 and abs(rect['y']+rect['height']-height)<=1,rect
+                    assert rect['y']>=-1,rect
+                    page.screenshot(path=str(out/f"{engine}-{width}-{selector.split()[-1].replace('.','')}.png"),animations='disabled')
+                    page.keyboard.press('Escape')
+                    expect(dialog).to_have_count(0)
+                # Shared shell height increases and settles; close is not a delayed display:none.
+                result=page.evaluate("""async()=>{
+                  modal({title:'Размер',content:'<div id="motion-content" style="height:30px"></div>'});
+                  await new Promise(r=>setTimeout(r,350));
+                  const dialog=document.querySelector('.modal'),before=dialog.getBoundingClientRect().height;
+                  document.querySelector('#motion-content').style.height='150px';
+                  const samples=[];const start=performance.now();
+                  while(performance.now()-start<400){await new Promise(requestAnimationFrame);samples.push(dialog.getBoundingClientRect().height);}
+                  const after=dialog.getBoundingClientRect().height;
+                  closeModal();const closing=dialog.isConnected&&dialog.closest('[data-backdrop]').inert;
+                  await new Promise(r=>setTimeout(r,330));
+                  return {before,after,samples,closing,removed:!dialog.isConnected};
+                }""")
+                assert result['after']>result['before']+50 and result['closing'] and result['removed'],result
+                assert any(result['before']+2<h<result['after']-2 for h in result['samples']),result
+                # Header keeps its layout and fixed document offset while collapsing.
+                metrics=page.evaluate("""async()=>{
+                  document.body.style.minHeight='3000px';const h=document.querySelector('.site-header'),bar=h.querySelector('.topbar');
+                  const initial=h.getBoundingClientRect().height,offset=getComputedStyle(document.querySelector('#app')).paddingTop;
+                  const display=getComputedStyle(bar).display;scrollTo({top:300,behavior:'instant'});
+                  const frames=[],start=performance.now();
+                  while(performance.now()-start<420){await new Promise(requestAnimationFrame);frames.push(h.getBoundingClientRect().height);}
+                  return {initial,frames,final:h.getBoundingClientRect().height,display,afterDisplay:getComputedStyle(bar).display,offset,afterOffset:getComputedStyle(document.querySelector('#app')).paddingTop,y:scrollY};
+                }""")
+                assert metrics['initial']>metrics['final']+30 and abs(metrics['final']-62)<2,metrics
+                assert metrics['display']==metrics['afterDisplay'] and metrics['offset']==metrics['afterOffset'] and abs(metrics['y']-300)<2,metrics
+                assert any(metrics['final']+2<h<metrics['initial']-2 for h in metrics['frames']),metrics
+                page.evaluate("scrollTo({top:0,behavior:'instant'})")
+                page.wait_for_function("()=>!document.querySelector('.site-header').classList.contains('is-condensed')")
+                # Synthetic touch events use the real handler, not a direct nav call.
+                def swipe(selector,dx,dy=0,x=width/2):
+                    page.evaluate("""([selector,dx,dy,x])=>{
+                      const target=document.querySelector(selector);if(!target)throw Error(selector);
+                      const y=160,id=5;
+                      const touch=(a,b)=>({identifier:id,clientX:a,clientY:b,target});
+                      for(const [name,active,changed] of [['touchstart',[touch(x,y)],[touch(x,y)]],['touchmove',[touch(x+dx,y+dy)],[touch(x+dx,y+dy)]],['touchend',[],[touch(x+dx,y+dy)]]]){
+                       const e=new Event(name,{bubbles:true});Object.defineProperties(e,{touches:{value:active},changedTouches:{value:changed}});target.dispatchEvent(e);
+                      }
+                    }""",[selector,dx,dy,x])
+                swipe('.dashboard-welcome p',-100)
+                expect(page).to_have_url(re.compile(r'/lists$'))
+                expect(page.locator('[data-wishlist-view="mine"]')).to_have_attribute('aria-selected','true')
+                swipe('#wishlist-view-content',-100)
+                expect(page.locator('[data-wishlist-view="friends"]')).to_have_attribute('aria-selected','true')
+                swipe('#wishlist-view-content',100)
+                expect(page.locator('[data-wishlist-view="mine"]')).to_have_attribute('aria-selected','true')
+                swipe('main h1',-90,110)
+                expect(page).to_have_url(re.compile(r'/lists$'))
+                swipe('main h1',-100,0,10)
+                expect(page).to_have_url(re.compile(r'/lists$'))
+                swipe('main h1',-100)
+                expect(page).to_have_url(re.compile(r'/santas$'))
+                swipe('#santa-state-panel',-100)
+                expect(page.locator('[data-santa-state="finished"]')).to_have_attribute('aria-selected','true')
+                ctx.close()
+        finally:browser.close()

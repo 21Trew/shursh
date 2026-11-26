@@ -80,6 +80,62 @@ function restoreOwnerTab(path){
  return true;
 }
 
+// Touch only. Native vertical scrolling and horizontally scrollable controls
+// always win; never intercept OS back gestures at screen edges.
+let pageSwipe=null;
+const swipeExcluded='input,textarea,select,button,a,[contenteditable], [role="slider"],.ui-select,.ui-calendar-popover,.game-gifts-track,.game-chat-messages,.admin-users-table-scroll,.nav,.cookie-notice';
+function swipeScrollable(node,limit){
+ for(let el=node;el&&el!==limit;el=el.parentElement){
+  if(el.scrollWidth>el.clientWidth+3&&/auto|scroll/.test(getComputedStyle(el).overflowX))return true;
+ }
+ return false;
+}
+document.addEventListener('touchstart',event=>{
+ pageSwipe=null;
+ if(event.touches.length!==1||!matchMedia('(max-width:760px)').matches||!currentUser)return;
+ const t=event.touches[0],target=event.target instanceof Element?event.target:null;
+ if(!target||target.closest(swipeExcluded)||t.clientX<24||t.clientX>innerWidth-24)return;
+ const dialog=target.closest('.modal');
+ if(modalRoot.firstElementChild&&!dialog)return;
+ const surface=dialog||target.closest('#page-view > main');
+ if(!surface||swipeScrollable(target,surface))return;
+ const groups=[...surface.querySelectorAll('.wishlist-view-tabs,.santa-state-tabs,.notification-tabs,.game-chat-tabs')];
+ let local=null;
+ for(const group of groups){
+  const active=group.querySelector('[aria-selected="true"],[aria-pressed="true"]');
+  const panel=active?.getAttribute('aria-controls');
+  if(group.contains(target)||(panel&&document.getElementById(panel)?.contains(target))||
+     (group.matches('.game-chat-tabs')&&target.closest('#game-chat'))){local=group;break;}
+ }
+ if(dialog&&!local)return;
+ pageSwipe={x:t.clientX,y:t.clientY,id:t.identifier,start:performance.now(),surface,local,path:currentPath(),cancelled:false};
+},{passive:true});
+document.addEventListener('touchmove',event=>{
+ if(!pageSwipe)return;
+ const t=[...event.touches].find(v=>v.identifier===pageSwipe.id);
+ if(!t||event.touches.length!==1||Math.abs(t.clientY-pageSwipe.y)>Math.abs(t.clientX-pageSwipe.x)*.85+12)pageSwipe.cancelled=true;
+},{passive:true});
+document.addEventListener('touchcancel',()=>{pageSwipe=null;},{passive:true});
+document.addEventListener('touchend',event=>{
+ const s=pageSwipe;pageSwipe=null;
+ if(!s||s.cancelled||!s.surface.isConnected||s.path!==currentPath()||performance.now()-s.start>850)return;
+ const t=[...event.changedTouches].find(v=>v.identifier===s.id);if(!t)return;
+ const dx=t.clientX-s.x,dy=t.clientY-s.y;
+ if(Math.abs(dx)<65||Math.abs(dx)<Math.abs(dy)*1.7)return;
+ const dir=dx<0?1:-1;
+ if(s.local){
+  const tabs=[...s.local.querySelectorAll('button[aria-selected],button[aria-pressed]')].filter(b=>!b.disabled&&!b.hidden);
+  const i=tabs.findIndex(b=>b.getAttribute('aria-selected')==='true'||b.getAttribute('aria-pressed')==='true');
+  if(i>=0&&tabs[i+dir])tabs[i+dir].click();
+  return;
+ }
+ if(!ownerTab(s.path)||s.path==='/notifications')return;
+ const links=[...app.querySelectorAll('.site-header .nav a[data-nav]')];
+ const i=links.findIndex(a=>a.dataset.nav===s.path);
+ if(i<0||!links[i+dir])return;
+ nav(links[i+dir].dataset.nav);
+},{passive:true});
+
 function nav(path,{force=false}={}){
  if(currentPath()===path&&!force)return;
  stopGameLifecycle();
@@ -132,7 +188,7 @@ function cacheableOwnerRead(path){
   /^\/api\/(?:lists|santas)\/\d+$/.test(path));
 }
 function resetOwnerSession(){
- clearOwnerDataCache();currentUser=null;renderStarted=false;closeModal();loading();void render();
+ clearOwnerDataCache();currentUser=null;renderStarted=false;closeModal({immediate:true});loading();void render();
 }
 function verifyOwnerViewer(response,identity){
  // Local standalone server does not supply the cloud UI/version header.
@@ -424,6 +480,27 @@ async function startupApi(path){
 function notice(message,error=false){const n=document.createElement('div');n.className='toast'+(error?' error':'');n.textContent=message;document.getElementById('toast-root').replaceChildren(n);clearTimeout(toastTimeout);toastTimeout=setTimeout(()=>n.remove(),4500);}
 async function clipboard(value){try{await navigator.clipboard.writeText(value);notice('Ссылка скопирована!');}catch{modal({title:'Скопируй ссылку',content:`<div class="field"><label>Ссылка</label><input class="input" autofocus readonly value="${attr(value)}" onclick="this.select()"></div>`});}}
 let modalContentObserver=null,authModalMotion=null,authModalFrame=0;
+let modalEntrance=[],modalExit=null;
+const motionReduced=()=>matchMedia('(prefers-reduced-motion: reduce)').matches;
+function cancelModalEntrance(){for(const a of modalEntrance.splice(0))a.cancel();}
+function finishModalExit(){
+ if(!modalExit)return;
+ const exit=modalExit;modalExit=null;
+ for(const a of exit.animations)a.cancel();
+ if(exit.backdrop.isConnected)exit.backdrop.remove();
+ if(!modalRoot.firstElementChild)document.body.style.overflow='';
+}
+function animateModalEntrance(backdrop,dialog){
+ if(motionReduced()||!dialog.animate)return;
+ const mobile=matchMedia('(max-width:760px)').matches;
+ modalEntrance=[
+  backdrop.animate([{opacity:0},{opacity:1}],{duration:200,easing:'ease-out'}),
+  dialog.animate([{transform:mobile?'translateY(100%)':'translateY(12px) scale(.985)'},{transform:'none'}],
+    {duration:280,easing:'cubic-bezier(.2,.75,.2,1)'})
+ ];
+ const batch=modalEntrance;
+ Promise.allSettled(batch.map(a=>a.finished)).then(()=>{if(modalEntrance===batch)modalEntrance=[];});
+}
 function stopAuthModalMotion(){
  if(authModalFrame)cancelAnimationFrame(authModalFrame);
  authModalFrame=0;
@@ -451,6 +528,7 @@ function animateAuthModalHeight(dialog,from){
  animation.onfinish=()=>{if(authModalMotion===motion)stopAuthModalMotion();};
 }
 function modal({title,subtitle='',content='',onSubmit=null,onError=null,submitLabel='Сохранить',size='normal',footer='',authScreen='',nativeSubmit=false }){
+ finishModalExit();cancelModalEntrance();
  const priorDialog=modalRoot.querySelector('.modal');
  if(modalRoot.querySelector('.notification-dialog')){
   const bell=app.querySelector('.header-bell');if(bell)setAttrIfChanged(bell,'aria-expanded','false');
@@ -488,49 +566,33 @@ function modal({title,subtitle='',content='',onSubmit=null,onError=null,submitLa
   dialog.append(footerRail);
  }
  enhanceSelects(modalRoot);enhanceCalendars(modalRoot);
- // Animate actual content-height changes instead of repeatedly forcing a layout on scroll.
- if(authScreen){
-  // Keep the backdrop and dialog identity; never keep old credential fields.
-  if(reuseAuth){
-   animateAuthModalHeight(dialog,oldHeight);
-   if(!matchMedia('(prefers-reduced-motion: reduce)').matches&&dialog.animate){
-    for(const region of dialog.querySelectorAll('.modal-fixed-header,.modal-scroll-area,.modal-fixed-footer'))
-     region.animate([{opacity:.55,transform:'translateY(4px)'},{opacity:1,transform:'translateY(0)'}],
-      {duration:200,easing:'ease-out'});
-   }
-   if(restoreDialogFocus)dialog.focus({preventScroll:true});
+ // The same bounded height animation serves every dialog, not only Auth.
+ if(reuseAuth){
+  if(!motionReduced()&&dialog.animate){
+   for(const region of dialog.querySelectorAll('.modal-fixed-header,.modal-scroll-area,.modal-fixed-footer'))
+    region.animate([{opacity:.55,transform:'translateY(4px)'},{opacity:1,transform:'translateY(0)'}],
+     {duration:200,easing:'ease-out'});
   }
-  let lastNatural=dialog.getBoundingClientRect().height;
-  if(authModalMotion?.dialog===dialog)lastNatural=authModalMotion.target;
+  if(restoreDialogFocus)dialog.focus({preventScroll:true});
+ }
+ if(oldHeight)animateAuthModalHeight(dialog,oldHeight);
+ let lastNatural=authModalMotion?.dialog===dialog?authModalMotion.target:dialog.getBoundingClientRect().height;
+ let viewport=innerWidth+':'+innerHeight;
+ if(typeof ResizeObserver==='function'){
   modalContentObserver=new ResizeObserver(()=>{
    if(!scroller.isConnected||authModalFrame)return;
    authModalFrame=requestAnimationFrame(()=>{
-    authModalFrame=0;if(!dialog.isConnected||!scroller.isConnected)return;
+    authModalFrame=0;if(!dialog.isConnected||!scroller.isConnected||modalExit)return;
+    const nextViewport=innerWidth+':'+innerHeight;
+    if(nextViewport!==viewport){viewport=nextViewport;stopAuthModalMotion();lastNatural=dialog.getBoundingClientRect().height;return;}
     const from=authModalMotion?.dialog===dialog?dialog.getBoundingClientRect().height:lastNatural;
     animateAuthModalHeight(dialog,from);
     lastNatural=authModalMotion?.dialog===dialog?authModalMotion.target:dialog.getBoundingClientRect().height;
    });
   });
-  for(const region of dialog.querySelectorAll('.modal-fixed-header,.modal-fixed-footer,.modal-subtitle,#modal-form'))
-   modalContentObserver.observe(region);
- }else if(!matchMedia('(prefers-reduced-motion: reduce)').matches&&typeof dialog.animate==='function'){
-  let priorHeight=oldHeight||dialog.getBoundingClientRect().height;
-  const animateTo=current=>{
-   if(!dialog.isConnected)return;
-   const next=dialog.getBoundingClientRect().height;
-   if(Math.abs(next-current)>7)dialog.animate(
-    [{height:current+'px'},{height:next+'px'}],
-    {duration:230,easing:'cubic-bezier(.2,.7,.2,1)'});
-   priorHeight=next;
-  };
-  if(oldHeight)requestAnimationFrame(()=>animateTo(oldHeight));
-  let queued=false;
-  modalContentObserver=new MutationObserver(()=>{
-   if(queued)return;queued=true;
-   requestAnimationFrame(()=>{queued=false;if(dialog.isConnected)animateTo(priorHeight);});
-  });
-  modalContentObserver.observe(scroller,{childList:true,characterData:true,subtree:true});
+  for(const region of dialog.querySelectorAll('.modal-fixed-header,.modal-fixed-footer,.modal-subtitle,#modal-form'))modalContentObserver.observe(region);
  }
+ if(!priorDialog)animateModalEntrance(dialog.parentElement,dialog);
  document.body.style.overflow='hidden';const bd=modalRoot.querySelector('[data-backdrop]');if(!reuseAuth)bd.addEventListener('click',e=>{if(e.target===bd)closeModal()});modalRoot.querySelectorAll('[data-close]').forEach(b=>b.addEventListener('click',closeModal));
  if(onSubmit){modalRoot.querySelector('form').addEventListener('submit',async e=>{if(nativeSubmit){if(e.defaultPrevented)return;const password=e.currentTarget.elements.password;if(password)password.type='password';return;}e.preventDefault();const btn=e.currentTarget.querySelector('[type=submit]')||modalRoot.querySelector('.modal-fixed-footer [type=submit]');if(btn.disabled)return;btn.disabled=true;const submitted=e.currentTarget;try{await onSubmit(submitted);if(modalRoot.querySelector('form')===submitted)closeModal();}catch(err){if(onError){if(submitted.isConnected)onError(err,submitted);}else notice(err.message,true)}finally{if(btn.isConnected)btn.disabled=false;}});}
  // No delayed autofocus: it can steal focus while the user types in the
@@ -550,7 +612,32 @@ function contactDeveloperModal(){
   }});
  const message=modalRoot.querySelector('#fld-message');if(message){message.required=true;message.minLength=5;message.maxLength=3000;}
 }
-function closeModal(){const wasNotifications=!!modalRoot.querySelector('.notification-dialog');if(wasNotifications){notificationModalItems=[];notificationModalMore=false;notificationModalUnread=0;}stopAuthModalMotion();for(const input of modalRoot.querySelectorAll('input'))suggestionObservers.get(input)?.disconnect();modalContentObserver?.disconnect();modalContentObserver=null;closeCalendar();closeUiSelect();modalRoot.replaceChildren();document.body.style.overflow='';if(wasNotifications){const bell=app.querySelector('.header-bell');if(bell){setAttrIfChanged(bell,'aria-expanded','false');bell.focus({preventScroll:true});}}}
+function closeModal({immediate=false}={}){
+ if(modalExit){if(immediate)finishModalExit();return;}
+ const backdrop=modalRoot.querySelector('.modal-backdrop'),dialog=backdrop?.querySelector('.modal');
+ if(!backdrop)return;
+ const wasNotifications=!!modalRoot.querySelector('.notification-dialog');
+ if(wasNotifications){notificationModalItems=[];notificationModalMore=false;notificationModalUnread=0;}
+ const transform=dialog?getComputedStyle(dialog).transform:'none';
+ const opacity=getComputedStyle(backdrop).opacity;
+ const height=dialog?.getBoundingClientRect().height;
+ cancelModalEntrance();stopAuthModalMotion();
+ for(const input of modalRoot.querySelectorAll('input'))suggestionObservers.get(input)?.disconnect();
+ modalContentObserver?.disconnect();modalContentObserver=null;closeCalendar();closeUiSelect();
+ if(wasNotifications){const bell=app.querySelector('.header-bell');if(bell){setAttrIfChanged(bell,'aria-expanded','false');bell.focus({preventScroll:true});}}
+ if(immediate||motionReduced()||!dialog?.animate){backdrop.remove();document.body.style.overflow='';return;}
+ // Do not leave controls or credentials interactive during a closing transition.
+ backdrop.inert=true;backdrop.setAttribute('aria-hidden','true');
+ dialog.style.setProperty('--auth-dialog-height',height+'px');dialog.classList.add('auth-height-motion');
+ const mobile=matchMedia('(max-width:760px)').matches;
+ const animations=[
+  backdrop.animate([{opacity},{opacity:0}],{duration:210,easing:'ease-in',fill:'both'}),
+  dialog.animate([{transform},{transform:mobile?'translateY(100%)':'translateY(12px) scale(.985)'}],{duration:230,easing:'cubic-bezier(.4,0,.8,.4)',fill:'both'})
+ ];
+ const exit={backdrop,animations};modalExit=exit;
+ Promise.allSettled(animations.map(a=>a.finished)).then(()=>{if(modalExit===exit)finishModalExit();});
+}
+
 document.addEventListener('keydown',e=>{if(e.key==='Escape'){if(activeCalendar){e.preventDefault();closeCalendar(true);}else if(uiSelectOpen){e.preventDefault();closeUiSelect(true);}else closeModal();}});
 document.addEventListener('click',e=>{
  const picker=e.target.closest('input[type="date"]');
@@ -809,6 +896,9 @@ function syncNavigationSelection(path=currentPath()){
   if(selected)setAttrIfChanged(link,'aria-current',href===path?'page':'location');
   else if(link.hasAttribute('aria-current'))link.removeAttribute('aria-current');
  }
+ const active=app.querySelector('.site-header .nav [aria-current]');
+ const rail=active?.parentElement;
+ if(rail&&matchMedia('(max-width:760px)').matches){const x=active.offsetLeft-rail.offsetLeft; if(x<rail.scrollLeft||x+active.offsetWidth>rail.scrollLeft+rail.clientWidth)rail.scrollLeft=Math.max(0,x-(rail.clientWidth-active.offsetWidth)/2);}
  const bell=app.querySelector('.header-bell');
  if(bell&&bell.classList.contains('active')!==(path==='/notifications'))bell.classList.toggle('active',path==='/notifications');
 }

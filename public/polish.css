@@ -179,12 +179,12 @@
 @media(max-width:760px){
  .friend-stack-grid,.shared-santa-grid{grid-template-columns:1fr}
  .friend-stack-cards{grid-template-columns:repeat(2,minmax(0,1fr))}
- .modal-backdrop{padding:max(12px,env(safe-area-inset-top)) 12px max(12px,env(safe-area-inset-bottom))!important;
-  align-items:center!important;justify-content:center!important;overflow:hidden!important}
- .modal-backdrop .modal,.modal-backdrop .wish-edit-modal{width:min(540px,100%)!important;height:auto!important;
-  max-width:100%!important;max-height:calc(100dvh - 24px - env(safe-area-inset-top) - env(safe-area-inset-bottom))!important;
-  border-radius:24px!important;border:1px solid #e7dece!important;margin:auto!important;padding-bottom:0!important;
-  box-shadow:0 16px 60px rgba(25,22,27,.24)!important;display:flex!important;flex-direction:column!important}
+ .modal-backdrop{padding:0!important;align-items:flex-end!important;justify-content:center!important;overflow:hidden!important}
+ .modal-backdrop .modal,.modal-backdrop .wish-edit-modal{width:100%!important;height:auto!important;
+  max-width:100%!important;max-height:calc(100dvh - max(12px,env(safe-area-inset-top)))!important;
+  border-radius:24px 24px 0 0!important;border-inline:0!important;border-bottom:0!important;margin:0!important;padding-bottom:0!important;
+  box-shadow:0 -14px 45px rgba(25,22,27,.18)!important;display:flex!important;flex-direction:column!important}
+ .modal:not(:has(>.modal-fixed-footer))>.modal-scroll-area{padding-bottom:max(22px,env(safe-area-inset-bottom))}
  .modal-backdrop .wish-edit-modal .modal-scroll-area{flex:1 1 auto;min-height:0}
  .gift-dialog-layout{grid-template-columns:1fr;gap:14px}
  .gift-dialog-media{min-height:150px;max-height:220px}
@@ -347,7 +347,7 @@
  .modal-backdrop.notification-popover .modal-scroll-area{padding-block:16px 18px}
 }
 @media(max-width:760px){
- .modal-backdrop.notification-popover .modal{position:relative!important;top:auto!important;right:auto!important;margin:auto!important}
+ .modal-backdrop.notification-popover .modal{position:relative!important;top:auto!important;right:auto!important;margin:0!important}
  .notification-tabs{gap:2px;justify-content:flex-start}
  .notification-tabs button{padding:10px 7px;font-size:12px}
  .shared-santa-grid{grid-template-columns:1fr}
@@ -699,7 +699,12 @@ input[type="checkbox"]:not(.shursh-checkbox input):checked::after{content:"✓";
 .santa-detail-layout .person-actions .btn .icon{width:20px;height:20px;stroke:currentColor}
 .santa-detail-layout .person-actions [data-tooltip]::after{content:attr(data-tooltip);position:absolute;left:50%;bottom:calc(100% + 7px);transform:translateX(-50%);width:max-content;max-width:220px;background:#27272b;color:#fff;font-size:11px;line-height:1.3;font-weight:750;text-align:center;white-space:normal;padding:7px 10px;border-radius:9px;opacity:0;pointer-events:none;z-index:11}
 .santa-detail-layout .person-actions [data-tooltip]:hover::after,.santa-detail-layout .person-actions [data-tooltip]:focus-visible::after{opacity:1}
-@media(max-width:400px){.cookie-notice{width:max-content;max-width:calc(100vw - 20px);left:50%;flex-direction:column;gap:8px}.cookie-notice button{min-height:38px;width:100%}.cookie-message{font-size:12px}}
+@media(max-width:760px){
+ .cookie-notice{width:max-content;max-width:calc(100vw - 20px);left:50%;flex-direction:row;gap:8px;padding-inline:10px}
+ .cookie-notice button{flex:0 0 auto;width:auto;min-height:44px;padding-inline:10px}
+ .cookie-notice>.cookie-message{flex:1 1 auto;min-width:0;font-size:12px}
+ .cookie-message>span{white-space:normal;overflow-wrap:anywhere}
+}
 /* Cookie acknowledgment must meet the shared 44px touch-target threshold. */
 .cookie-notice{padding-inline:14px}
 .cookie-notice button{min-height:44px}
@@ -816,9 +821,9 @@ input[type="checkbox"]:not(.shursh-checkbox input):checked::after{content:"✓";
 /* The shared auth shell interpolates height even on mobile, where the general
    modal rule forces auto height. Other dialog types remain unchanged. */
 @property --auth-dialog-height{syntax:"<length>";inherits:false;initial-value:0px}
-.modal-backdrop .modal[data-auth-screen].auth-height-motion{height:var(--auth-dialog-height)!important;flex:0 0 auto}
+.modal-backdrop .modal.auth-height-motion{height:var(--auth-dialog-height)!important;flex:0 0 auto}
 .modal[data-auth-screen]:focus{outline:none}
-@media(prefers-reduced-motion:reduce){.modal-backdrop .modal[data-auth-screen].auth-height-motion{height:auto!important}}
+@media(prefers-reduced-motion:reduce){.modal-backdrop .modal.auth-height-motion{height:auto!important}}
 
 /* A single interpolated scalar spans the four clipped tracks. Each track
    displays its own slice; there are no pauses between segment boundaries. */
@@ -885,4 +890,49 @@ input[type="checkbox"]:not(.shursh-checkbox input):checked::after{content:"✓";
  .modal[data-auth-screen]>.modal-fixed-footer .form-actions + .modal-foot{
   margin-top:10px;
  }
+}
+
+/* Mobile interaction pass: one geometry for every sheet; a stable header grid
+   never switches layout modes during a transition. */
+@media(max-width:760px){
+ #app:has(.site-header .nav){padding-top:116px}
+ .site-header:has(.nav){height:116px;min-height:62px;overflow:hidden;transition:height .28s cubic-bezier(.2,.7,.2,1),box-shadow .24s ease}
+ .site-header:has(.nav).is-condensed{height:62px}
+ .site-header:has(.nav) .topbar,.site-header:has(.nav).is-condensed .topbar{
+  display:grid;grid-template-columns:minmax(0,1fr) auto;grid-template-rows:62px 54px;
+  height:116px!important;min-height:116px!important;padding:0!important;gap:0;align-items:center;align-content:start;
+ }
+ .site-header:has(.nav) .topbar .logo,.site-header:has(.nav).is-condensed .topbar .logo{font-size:25px;justify-self:start}
+ .site-header:has(.nav) .header-actions{grid-column:2;grid-row:1}
+ .site-header:has(.nav) .header-actions .btn-ghost,.site-header:has(.nav).is-condensed .header-actions .btn-ghost{font-size:0;gap:0;padding:9px;min-width:44px}
+ .site-header:has(.nav) .nav,.site-header:has(.nav).is-condensed .nav{
+  grid-column:1/-1;grid-row:2;position:relative;top:auto;left:auto;display:flex;min-width:0;width:100%;height:54px;
+  padding:4px 4px 6px;visibility:visible;opacity:1;transform:translateY(0);
+  transition:opacity .22s ease,transform .28s cubic-bezier(.2,.7,.2,1),visibility 0s;
+ }
+ .site-header:has(.nav).is-condensed .nav{opacity:0;transform:translateY(-7px);visibility:hidden;pointer-events:none;transition:opacity .22s ease,transform .28s cubic-bezier(.2,.7,.2,1),visibility 0s .28s}
+ .site-header .topbar:has(.nav-scroll-more-right)::after,.site-header .topbar:has(.nav-scroll-more-left)::before{bottom:3px!important}
+ #page-view>main{touch-action:pan-y pinch-zoom}
+ #page-view :is(.game-gifts-track,.game-chat-messages,.admin-users-table-scroll){touch-action:auto}
+ .dashboard-page{padding-top:18px;padding-bottom:36px}
+ .dashboard-page .dashboard-section,.dashboard-page .dashboard-section:first-of-type{margin-top:22px}
+ .dashboard-section-head{margin-bottom:12px;gap:10px}
+ .dashboard-empty{min-height:0;padding:16px;gap:12px}
+ .dashboard-welcome{padding:18px 14px}
+ .dashboard-welcome h1{margin:8px 0 10px}
+ .dashboard-welcome p{margin-bottom:14px}
+ .dashboard-welcome .btn-row{display:grid;grid-template-columns:minmax(0,1.12fr) minmax(0,1fr);gap:8px}
+ .dashboard-welcome .btn-row .btn{min-width:0;width:100%;min-height:44px;padding:7px 5px;font-size:clamp(11px,3.2vw,14px);line-height:1.2;gap:4px;white-space:normal}
+ .dashboard-welcome .btn-row .btn .icon{width:15px;height:15px;flex:0 0 15px}
+ .page{padding-top:16px;padding-bottom:36px}
+ .page-hero{margin-bottom:16px;gap:10px}
+ .social-page{gap:14px}
+ .wishlist-view-tabs{margin-bottom:14px}
+ .wishlist-filters{margin-bottom:12px}
+ .santa-detail-layout{gap:12px}
+ .modal>.modal-fixed-footer .form-actions{gap:8px}
+ .modal>.modal-fixed-footer .form-actions .btn{min-height:44px}
+}
+@media(prefers-reduced-motion:reduce){
+ .site-header:has(.nav),.site-header:has(.nav) .nav,.site-header:has(.nav).is-condensed .nav{transition:none!important}
 }
