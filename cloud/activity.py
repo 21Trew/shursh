@@ -23,20 +23,21 @@ def platform_family(headers):
     return 'unknown'
 
 
-def record_successful_visit(request, user, logger):
+def record_successful_visit(request, user, logger, *, heartbeat=False):
     if not user:
         return
     # Capture server time; client cannot provide a timestamp or another UID.
     seen = datetime.now(timezone.utc)
     try:
         # Independent write after the business transaction; no global write lock.
-        # This runs once on a real bootstrap or successful authentication,
-        # never on polling or normal warm navigation.
+        # Bootstrap and authentication are immediate; heartbeat writes reuse the
+        # existing visible-tab notification poll and are capped per user.
         with db.transaction(write=True,rate_limit=True) as con:
             con.execute("""INSERT INTO admin_user_activity(user_id,last_seen_at,last_platform)
                 VALUES(?,?,?) ON CONFLICT(user_id) DO UPDATE SET
                 last_seen_at=excluded.last_seen_at,last_platform=excluded.last_platform
-                WHERE admin_user_activity.last_seen_at<excluded.last_seen_at""",
+                WHERE admin_user_activity.last_seen_at<excluded.last_seen_at"""+
+                (" AND admin_user_activity.last_seen_at<=excluded.last_seen_at-interval '60 seconds'" if heartbeat else ''),
                 (user['id'],seen,platform_family(request.headers)))
     except Exception as exc:
         # An optional admin metric must never prevent sign-in or page opening.
