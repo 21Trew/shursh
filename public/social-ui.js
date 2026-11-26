@@ -435,6 +435,7 @@ document.addEventListener('click',async e=>{
  target.disabled=true;
  try{
   if(action==='personal-invite'){await socialPersonalInviteModal();return;}
+  if(action==='enable-hidden-personal-invite'){await api('/api/profile/me',{method:'PATCH',body:{allow_friend_invites:true}});clearOwnerTabViews(['/profile']);await socialPersonalInviteModal();return;}
   if(action==='copy-personal-invite'){await copyPersonalInvite(target);return;}
   if(action==='share-personal-invite'){await sharePersonalInvite(target);return;}
   if(action==='share-personal-qr'){await sharePersonalQr();return;}
@@ -540,7 +541,14 @@ async function sharePersonalQr(){
 async function socialPersonalInviteModal(){
  if(!currentUser)return loginModal();
  const epoch=ownerSessionEpoch,marker=lastRenderToken;
- const data=await api('/api/friend-invites/me',{method:'POST',body:{}});
+ let data;
+ try{data=await api('/api/friend-invites/me',{method:'POST',body:{}});}
+ catch(err){
+  if(epoch!==ownerSessionEpoch||marker!==lastRenderToken)return;
+  if(err.status!==403||err.message!=='Разреши приглашения в настройках профиля')throw err;
+  modal({title:'Пригласить друга',content:'<p>Твой профиль скрыт из поиска. Можно создать личную ссылку: тебя увидят только те, кому она доступна</p><p class="note">Профиль останется скрытым из поиска. Приглашения можно отключить в настройках профиля или отозвать ссылку</p>',footer:'<div class="form-actions"><button type="button" class="btn btn-dark" data-social-action="enable-hidden-personal-invite">Создать ссылку</button></div>'});
+  return;
+ }
  if(epoch!==ownerSessionEpoch||marker!==lastRenderToken)return;
  const url=new URL(data.path,location.origin).href;
  if(url!==data.url)throw new Error('Адрес приглашения не совпадает с сайтом');
