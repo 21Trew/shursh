@@ -2615,8 +2615,12 @@ def test_mobile_shared_sheets_header_actions_and_swipes(browser_https,engine):
                     assert b['x']+b['width']<=h['x']+h['width'],(h,b)
                     area=dialog.locator('.modal-scroll-area')
                     before=header.bounding_box()
+                    footer=dialog.locator('.modal-fixed-footer')
+                    foot_before=footer.bounding_box() if footer.count() else None
                     area.evaluate("el=>el.scrollTop=el.scrollHeight")
                     assert abs(header.bounding_box()['y']-before['y'])<=1
+                    if foot_before:
+                        assert abs(footer.bounding_box()['y']-foot_before['y'])<=1
                     area.evaluate("el=>el.scrollTop=0")
                     page.screenshot(path=str(out/f"{engine}-{width}-{selector.split()[-1].replace('.','')}.png"),animations='disabled')
                     page.keyboard.press('Escape')
@@ -2970,7 +2974,7 @@ def test_service_crayon_covers_footer_and_circular_gift_gallery(browser_https,en
                     expect(page.locator('.modal')).to_have_count(0)
                     page.evaluate("loginModal()")
                     expect(page.locator('[name=remember]')).to_be_checked()
-                    page.locator('[name=remember]').uncheck()
+                    page.locator('label.shursh-checkbox').filter(has=page.locator('[name=remember]')).click()
                     expect(page.locator('[name=remember]')).not_to_be_checked()
                     page.keyboard.press('Escape')
                     expect(page.locator('.modal')).to_have_count(0)
