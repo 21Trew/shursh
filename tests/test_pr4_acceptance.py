@@ -2244,10 +2244,15 @@ def test_chat_incremental_history_and_cleanup(browser_https,application,engine):
             page.evaluate("""()=>{const button=document.querySelector('[data-chat-older]');button.click();button.click();}""")
             expect(page.locator('.chat-message')).to_have_count(65)
             assert len(older_requests)==1
+            # Visibility refresh reschedules the timer only after the delta
+            # response is consumed and merged. Wait for that observable
+            # completion rather than assuming 150ms is sufficient.
+            previous_timer=page.evaluate('gameChatTimer')
             with page.expect_response(lambda r:delta_pattern.search(r.url) is not None):
                 held[0].continue_()
             page.unroute(delta_pattern)
-            page.wait_for_timeout(150)
+            page.wait_for_function('(previous)=>gameChatTimer!==null&&gameChatTimer!==previous',
+                                   arg=previous_timer,timeout=5000)
             assert page.evaluate("chatLast===document.querySelector('.chat-message:last-child')")
             with db.transaction(write=True) as con:
                 con.execute("INSERT INTO santa_messages(event_id,sender_id,room,message,created_at) VALUES(?,?,'general',?,now())",(eid,pid,'perf-live-new'))

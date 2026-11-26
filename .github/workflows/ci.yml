@@ -36,6 +36,7 @@ jobs:
       - run: python -m pytest -vv --durations=0 --durations-min=0 tests/test_preview_isolation.py
       - run: python -m pytest -vv --durations=0 --durations-min=0 tests/test_product_metadata.py tests/test_product_sources.py
       - run: python -m pytest -vv --durations=0 --durations-min=0 tests/test_password_policy.py
+      - run: python -m pytest -vv --durations=0 --durations-min=0 tests/test_ci_ui_shards.py
 
   frontend-syntax:
     runs-on: ubuntu-latest
@@ -140,7 +141,7 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        shard: [soak-chromium, soak-webkit, ui-0, ui-1, ui-2, ui-3]
+        shard: [soak-chromium, soak-webkit, ui-0, ui-1, ui-2]
     services:
       postgres:
         image: postgres:17
@@ -162,7 +163,9 @@ jobs:
       - uses: actions/checkout@v4
         with:
           persist-credentials: false
+      # The source/cascade checks are identical on every shard; run them once.
       - uses: actions/setup-python@v5
+        if: matrix.shard == 'ui-0'
         with:
           python-version: '3.13'
           cache: pip
@@ -171,16 +174,20 @@ jobs:
             requirements-dev.txt
             tools/requirements-ui.txt
       - run: python -m pip install -r tools/requirements-ui.txt
+        if: matrix.shard == 'ui-0'
       - name: UI source rule registry is synchronized
+        if: matrix.shard == 'ui-0'
         run: python tools/ui_audit.py --check
       - name: CSS cascade winners unchanged after refactor
+        if: matrix.shard == 'ui-0'
         run: python tools/css_effective_check.py --check
       # Official image bakes both browsers and their system libraries.
       # Match the pinned Python package version; avoid slow per-run apt mirrors.
       # Host networking preserves the existing localhost-only disposable DB guard.
       - name: Pull pinned Playwright Python image
         run: docker pull mcr.microsoft.com/playwright/python:v1.56.0-noble
-      - uses: actions/cache@v4
+      - uses: actions/cache/restore@v4
+        id: docker_pip_cache
         with:
           path: ~/.cache/shursh-playwright-pip
           key: playwright-pip-noble-1.56.0-${{ hashFiles('requirements.txt', 'requirements-dev.txt', 'tools/requirements-ui.txt') }}
@@ -213,6 +220,12 @@ jobs:
             artifacts/ci-timing/
           if-no-files-found: warn
           retention-days: 7
+      # One cache writer avoids competing saves on cold runs.
+      - uses: actions/cache/save@v4
+        if: success() && matrix.shard == 'ui-0' && steps.docker_pip_cache.outputs.cache-hit != 'true'
+        with:
+          path: ~/.cache/shursh-playwright-pip
+          key: ${{ steps.docker_pip_cache.outputs.cache-primary-key }}
 
   pr4-ui-acceptance:
     runs-on: ubuntu-latest
