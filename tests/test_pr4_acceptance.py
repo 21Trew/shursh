@@ -2514,8 +2514,8 @@ def test_performance_soak_real_polling_session_and_retention(browser_https, appl
 
 
 def assert_invite_branding(container):
-    expected={'telegram':('rgb(34, 158, 217)','rgb(16, 38, 55)'),
-              'vk':('rgb(0, 119, 255)','rgb(13, 0, 26)'),
+    expected={'telegram':('rgb(19, 121, 173)','rgb(255, 255, 255)'),
+              'vk':('rgb(0, 98, 214)','rgb(255, 255, 255)'),
               'max':('rgb(71, 26, 255)','rgb(255, 255, 255)')}
     for brand,(background,foreground) in expected.items():
         link=container.locator('.share-'+brand)
@@ -2530,6 +2530,14 @@ def assert_invite_branding(container):
             const css=getComputedStyle(el),a=luminance(css.color),b=luminance(css.backgroundColor);
             return (Math.max(a,b)+.05)/(Math.min(a,b)+.05)>=4.5;
         }""")
+        # The white label and mark must stay legible in interactive states too.
+        link.hover()
+        expect(link).to_have_css('background-color',background)
+        expect(link).to_have_css('color',foreground)
+        link.focus()
+        expect(link).to_have_css('background-color',background)
+        expect(link).to_have_css('color',foreground)
+        link.evaluate("el=>el.blur()")
         assert link.evaluate("el=>el.scrollWidth<=el.clientWidth+1")
         if brand=='max':
             assert link.locator('svg path').get_attribute('d').startswith('M508.211 878.328')

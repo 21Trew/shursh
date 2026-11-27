@@ -91,6 +91,24 @@ def serialize(value):
     raise TypeError('Unsupported response value')
 
 
+# Fixed-window quota, shared by every worker. Once a bucket is saturated,
+# rejected calls must not generate another heap tuple or overflow the counter.
+# A delayed request from an older bucket is rejected rather than resetting a
+# newer bucket's quota. The conflict predicate is checked under the row lock.
+RATE_LIMIT_SQL = """INSERT INTO app_rate_limits(key_hash,bucket,hits) VALUES(?,?,1)
+    ON CONFLICT(key_hash) DO UPDATE SET hits=CASE WHEN app_rate_limits.bucket=excluded.bucket
+    THEN app_rate_limits.hits+1 ELSE 1 END,bucket=excluded.bucket
+    WHERE app_rate_limits.bucket<excluded.bucket OR
+        (app_rate_limits.bucket=excluded.bucket AND app_rate_limits.hits<?)
+    RETURNING hits"""
+
+
+def consume_rate_limit(con, key, bucket, limit):
+    if limit < 1:
+        raise ValueError('Rate limit must be positive')
+    return con.execute(RATE_LIMIT_SQL, (key,bucket,limit)).fetchone() is not None
+
+
 class CloudRequest(Handler):
     owner_profile_table = 'profiles'
 
@@ -153,12 +171,10 @@ class CloudRequest(Handler):
         bucket = int(time.time()) // window
         # Independent transaction so failed API requests also count.
         with db.transaction(write=True, rate_limit=True) as con:
-            row = con.execute('''INSERT INTO app_rate_limits(key_hash,bucket,hits) VALUES(?,?,1)
-                ON CONFLICT(key_hash) DO UPDATE SET hits=CASE WHEN app_rate_limits.bucket=excluded.bucket
-                THEN app_rate_limits.hits+1 ELSE 1 END,bucket=excluded.bucket RETURNING hits''', (key,bucket)).fetchone()
+            allowed = consume_rate_limit(con,key,bucket,limit)
             # Do not acquire other request keys while holding this key's row lock.
             # Expired buckets can be pruned by a separate maintenance job.
-        if row['hits'] > limit:
+        if not allowed:
             raise ApiError(429, 'Слишком много попыток. Попробуй немного позже')
 
     def resend_confirmation(self):
