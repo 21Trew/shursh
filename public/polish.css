@@ -776,11 +776,7 @@ input[type="checkbox"]:not(.shursh-checkbox input):checked::after{content:"✓";
 @media(prefers-reduced-motion:reduce){
  .loading-help{animation-duration:1ms}
 }
-@media(max-width:760px){
- body:has(.cookie-notice) #page-view>main.page{
-  min-height:calc(100dvh - 70px);
- }
-}
+/* Consent is an overlay and must never change page height. */
 
 /* Authentication forms: local feedback without interruptive toast/modal loops. */
 #modal-form .field input[aria-invalid="true"]{
@@ -947,12 +943,13 @@ input[type="checkbox"]:not(.shursh-checkbox input):checked::after{content:"✓";
  .site-header .nav,.site-header.is-condensed .nav{transition:none!important}
 }
 
-/* Modal notifications are a real flex row, never a fixed overlay. Keep the
-   header/footer actionable; long messages scroll within their bounded row. */
+/* Modal feedback is anchored above the action footer without moving the sheet.
+   Its layer does not intercept clicks on form controls. */
 .modal-toast-rail,#toast-root:empty{display:none}
 .modal>.modal-toast-rail:not(:empty){
- display:block;flex:0 0 auto;min-width:0;max-height:min(112px,24dvh);
- padding:6px 20px 0;overflow:auto;overscroll-behavior:contain;
+ display:block;position:absolute;inset:auto 12px calc(var(--toast-footer-height,0px) + 8px);
+ z-index:6;min-width:0;max-height:min(112px,24dvh,var(--toast-body-height,112px));
+ overflow:auto;overscroll-behavior:contain;pointer-events:none;
 }
 #toast-root:not(:empty){display:block;position:fixed;right:max(28px,env(safe-area-inset-right));bottom:max(28px,env(safe-area-inset-bottom));width:max-content;max-width:calc(100vw - 32px);z-index:1100;pointer-events:none}
 #toast-root>.toast{position:relative;inset:auto;max-width:min(460px,calc(100vw - 32px));margin:0;pointer-events:none;overflow-wrap:anywhere;max-height:40dvh;overflow:hidden}
@@ -1098,10 +1095,7 @@ body:has(.scroll-to-top.is-visible) #toast-root{bottom:max(84px,calc(env(safe-ar
  .site-header:has(.nav) .nav,.site-header:has(.nav).is-condensed .nav{transition:none!important}
 }
 
-/* Mobile consent stays in normal flow: no overlay on page controls or keyboard. */
-@media(max-width:760px){
- #app>.cookie-notice{position:relative;inset:auto;transform:none;z-index:auto;margin:10px auto;max-width:calc(100% - 20px)}
-}
+/* Shared bottom feedback: consent is out of flow at every breakpoint. */
 
 /* Equal-size Santa deck. The full preview art is positioned against the gallery,
    not the narrow clickable side rail; the center occludes the two cards. */
@@ -1268,3 +1262,76 @@ body:has(.scroll-to-top.is-visible) #toast-root{bottom:max(84px,calc(env(safe-ar
 
 .profile-edit-modal #modal-form input:not([type=hidden]):not([type=checkbox]){min-height:54px}
 .personal-invite-social>.btn.share-vk svg{color:#fff}
+
+/* Mobile-first spacing and bottom overlays: retain the reviewed component cascade. */
+:root{--notice-cookie-height:0px;--notice-visual-bottom:0px;--notice-gap:12px}
+#app>.cookie-notice{position:fixed;inset:auto auto calc(max(var(--notice-gap),env(safe-area-inset-bottom)) + var(--notice-visual-bottom)) 50%;transform:translateX(-50%);z-index:120;margin:0;pointer-events:none}
+#app>.cookie-notice button{pointer-events:auto}
+body:has(#modal-root .modal-backdrop) #app>.cookie-notice{display:none}
+html:has(.cookie-notice){scroll-padding-bottom:calc(var(--notice-cookie-height) + 2 * var(--notice-gap) + env(safe-area-inset-bottom))}
+#toast-root:not(:empty){bottom:calc(max(28px,env(safe-area-inset-bottom)) + var(--notice-cookie-height) + var(--notice-visual-bottom))}
+body:has(.scroll-to-top.is-visible) #toast-root{bottom:calc(max(84px,env(safe-area-inset-bottom) + 60px) + var(--notice-cookie-height) + var(--notice-visual-bottom))}
+.scroll-to-top{bottom:calc(max(25px,env(safe-area-inset-bottom)) + var(--notice-cookie-height) + var(--notice-visual-bottom))}
+.pwa-install{display:none;border:0;border-radius:6px;background:transparent;color:#655681;font-weight:850;text-decoration:underline;text-underline-offset:3px;text-decoration-color:#cab9e1;cursor:pointer}
+.pwa-install:hover{background:#eee5fa;color:#3e3159}
+html.pwa-install-available .pwa-install{display:inline-flex;align-items:center;min-height:44px;max-width:100%;margin-top:4px;padding:0 4px;white-space:normal;text-align:left}
+@media(display-mode:standalone){html.pwa-install-available .pwa-install{display:none}}
+.section{padding-block:clamp(64px,6vw,96px)}
+.section-intro{margin-bottom:clamp(24px,3vw,40px)}
+.page{padding-block:clamp(32px,4vw,48px) 64px}
+.page-hero{margin-bottom:28px}
+.footer{padding-block:36px 30px;gap:20px}
+@media(max-width:760px){
+ #app>.cookie-notice{max-width:calc(100% - 20px)}
+ #toast-root:not(:empty){right:max(12px,env(safe-area-inset-right));bottom:calc(max(12px,env(safe-area-inset-bottom)) + var(--notice-cookie-height) + var(--notice-visual-bottom))}
+ body:has(.scroll-to-top.is-visible) #toast-root{bottom:calc(max(76px,env(safe-area-inset-bottom) + 60px) + var(--notice-cookie-height) + var(--notice-visual-bottom))}
+ .hero{padding-block:32px 36px}
+ .hero-copy{padding-bottom:0}
+ .hero-description{margin-bottom:20px}
+ .hero-note{margin-top:14px}
+ .hero-visual{margin-top:8px}
+ .section{padding-block:44px}
+ .section-intro{margin-bottom:20px}
+ .showcase{padding:24px 18px;gap:16px}
+ .final-cta{min-height:0;padding:28px 20px}
+ .footer{padding-block:28px 24px;gap:14px}
+ .page{padding-block:16px 28px}
+ .page-hero{margin-bottom:16px}
+ .dashboard-page{padding-block:18px 28px}
+ .modal>.modal-scroll-area{padding:16px 16px 18px}
+ .modal>.modal-fixed-footer{padding:10px 16px max(10px,env(safe-area-inset-bottom))}
+ .site-header .nav a{min-height:44px}
+}
+@media(max-width:760px),(hover:none){
+ body:has(#page-view :is(input,textarea,[contenteditable="true"]):focus) #app>.cookie-notice{display:none}
+}
+@media(max-width:350px){.hero{padding-block:24px 28px}.section{padding-block:36px}.showcase{padding:20px 14px}}
+.pwa-help{display:grid;gap:16px}.pwa-help p{line-height:1.55}.pwa-help strong{display:inline-block;margin-bottom:4px}
+
+/* Let content determine page height; a short page can still keep the footer at the viewport edge. */
+#app:has(>#page-view){min-height:100vh;min-height:100dvh;display:flex;flex-direction:column}
+#page-view{flex:1 0 auto;min-width:0}
+#page-view>main.page{min-height:0}
+
+/* CI and visual follow-up: compact short screens and preserve the gift rail. */
+.dashboard-page{padding-block:clamp(24px,4vw,40px) 48px}
+.dashboard-page .dashboard-section,.dashboard-page .dashboard-section:first-of-type{margin-top:clamp(22px,3vw,34px)}
+.blank-state{padding-block:32px}
+.santa-state-empty{padding-block:28px}
+@media(max-width:760px){
+ .dashboard-page{padding-block:18px 28px}
+ .blank-state{padding:24px 16px}
+ .santa-state-empty{padding:24px 16px}
+ .santa-list-card,.dashboard-santa-card{min-height:0;padding:16px}
+ .santa-list-card .list-bottom,.dashboard-santa-card .dashboard-card-footer{margin-top:16px;padding-top:12px}
+ .modal.gift-details-modal>.modal-fixed-footer{padding-inline-end:26px}
+}
+@media(max-width:760px) and (max-height:600px){
+ #app>.cookie-notice{padding-block:4px;padding-inline:8px;gap:8px}
+ .cookie-notice>.cookie-message{font-size:11px;line-height:1.35}
+}
+@media(max-width:350px) and (max-height:600px){
+ .hero{padding-block:16px 24px}
+ .hero h1{font-size:28px;margin-block:12px}
+ .hero-description{margin-bottom:14px;line-height:1.5}
+}

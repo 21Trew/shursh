@@ -2,13 +2,14 @@
   "$schema": "https://openapi.vercel.sh/vercel.json",
   "git": {
     "deploymentEnabled": {
-      "perf/rate-limit-sql-batch-20261127": false
+      "perf/rate-limit-sql-batch-20261127": false,
+      "feat/mobile-first-pwa-20261127": false
     }
   },
   "framework": "flask",
   "functions": {
     "app.py": {
-      "includeFiles": "{templates/*.html,public/{styles.css,fonts.css,fonts/*.woff2,art/crayon/*.webp,app.js,error-page.js,social-ui.js,santa-ui.js,password-strength-worker.js,zxcvbn-4.4.2.js,polish.css,favicon.svg,favicon.ico}}",
+      "includeFiles": "{templates/*.html,public/{styles.css,fonts.css,fonts/*.woff2,art/crayon/*.webp,app.js,error-page.js,social-ui.js,santa-ui.js,password-strength-worker.js,zxcvbn-4.4.2.js,polish.css,favicon.svg,favicon.ico,manifest.webmanifest,service-worker.js,pwa*}}",
       "excludeFiles": "{screenshots/**,tests/**,data/**,uploads/**,public/shursh-preview.html,public/preview-store.js}"
     }
   },
