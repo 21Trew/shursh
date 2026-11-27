@@ -3925,19 +3925,13 @@ def test_committed_rate_batch_metrics_and_reuse(application):
 
 
 def test_staging_rate_batch_never_bypasses_identity_check(monkeypatch):
-    from contextlib import contextmanager
     from cloud import db
     from cloud.backend import consume_committed_rate_limit
     monkeypatch.setenv('SHURSH_ENV', 'staging')
-    @contextmanager
-    def guarded_transaction(**kwargs):
-        assert kwargs == {'write': True, 'rate_limit': True}
-        raise RuntimeError('Staging database identity mismatch')
-        yield
-    monkeypatch.setattr(db, 'transaction', guarded_transaction)
-    monkeypatch.setattr(db, 'committed_rate_limit_batch',
-                        lambda *a: pytest.fail('Staging marker bypassed'))
-    with pytest.raises(RuntimeError, match='identity mismatch'):
+    monkeypatch.delenv('SHURSH_EXPECTED_SUPABASE_REF', raising=False)
+    monkeypatch.setattr(db, '_pool_for',
+                        lambda *a: pytest.fail('Invalid Staging configuration opened a pool'))
+    with pytest.raises(RuntimeError, match='Unapproved Preview'):
         consume_committed_rate_limit('a'*64, 100, 1)
 
 

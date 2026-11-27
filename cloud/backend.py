@@ -112,11 +112,8 @@ def consume_rate_limit(con, key, bucket, limit):
 def consume_committed_rate_limit(key, bucket, limit):
     if limit < 1:
         raise ValueError('Rate limit must be positive')
-    # Preserve the existing in-transaction Staging identity guard before any
-    # mutation. Do not retry/fallback after a batch error in other environments.
-    if os.environ.get('SHURSH_ENV') == 'staging':
-        with db.transaction(write=True, rate_limit=True) as con:
-            return consume_rate_limit(con, key, bucket, limit)
+    # Same batch executor in every environment; the adapter includes the
+    # mandatory server-side identity check for Staging. Never retry a failure.
     return db.committed_rate_limit_batch(RATE_LIMIT_SQL, (key, bucket, limit))
 
 

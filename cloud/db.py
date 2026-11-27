@@ -10,7 +10,7 @@ from flask import g, has_request_context
 import psycopg
 from psycopg.rows import dict_row
 from psycopg_pool import ConnectionPool
-from cloud.environment import assert_staging_target
+from cloud.environment import STAGING_REF, assert_staging_target
 
 # Project-wide write lock for the small MVP. It serializes conflicting state
 # changes across multiple serverless instances, not merely one Python process.
@@ -63,6 +63,23 @@ _TX_SETTINGS = (
     "SET LOCAL lock_timeout = '8s'"
 )
 _TX_SETTINGS_READ = "SET TRANSACTION ISOLATION LEVEL REPEATABLE READ READ ONLY; " + _TX_SETTINGS
+
+# Anonymous invoker block, no persistent function or elevated privileges.
+# The expected identity is a trusted application constant, not request data.
+# An exception aborts the explicit transaction BEFORE PostgreSQL reaches UPSERT.
+_STAGING_RATE_IDENTITY = f"""
+DO $shursh_identity$
+BEGIN
+    IF NOT EXISTS (
+        SELECT 1 FROM shursh_env.environment_identity
+        WHERE singleton = true AND environment = 'staging'
+          AND project_ref = '{STAGING_REF}'
+    ) THEN
+        RAISE EXCEPTION 'Staging database identity mismatch' USING ERRCODE = 'P0001';
+    END IF;
+END;
+$shursh_identity$
+""".strip()
 
 
 def _timed_execute(connection, statement, params=None, *, statement_count=1):
@@ -192,15 +209,21 @@ def _rate_limit_batch(connection, statement, params):
     idle = psycopg.pq.TransactionStatus.IDLE
     if not connection.autocommit or connection.info.transaction_status != idle:
         raise RuntimeError('Rate limiter requires an idle autocommit connection')
+    staging = os.environ.get('SHURSH_ENV') == 'staging'
+    settings = _TX_SETTINGS
+    expected_statuses = ('BEGIN', 'SET', 'SET', 'SET')
+    if staging:
+        settings += '; ' + _STAGING_RATE_IDENTITY
+        expected_statuses += ('DO',)
     started = time.perf_counter()
     try:
         # The statement and settings are static application SQL. ClientCursor
         # adapts values safely before sending a single simple-query message.
         with psycopg.ClientCursor(connection) as cur:
-            cur.execute('BEGIN; ' + _TX_SETTINGS + '; ' +
+            cur.execute('BEGIN; ' + settings + '; ' +
                         statement.replace('?', '%s') + '; COMMIT',
                         params, prepare=False)
-            for expected in ('BEGIN', 'SET', 'SET', 'SET'):
+            for expected in expected_statuses:
                 if cur.statusmessage != expected or not cur.nextset():
                     raise RuntimeError('Missing rate limiter transaction result')
             if cur.statusmessage not in ('INSERT 0 0', 'INSERT 0 1'):
@@ -234,18 +257,17 @@ def _rate_limit_batch(connection, statement, params):
         raise
     finally:
         if has_request_context():
-            # Preserve the existing logical statement count (3 settings +
-            # UPSERT), while recording the actual single execute call.
+            # Logical statements: settings + UPSERT + Staging identity guard.
+            # Both environments use one execute call, excluding error cleanup.
             g.sql_exec_ms = getattr(g, 'sql_exec_ms', 0.0) + (time.perf_counter() - started) * 1000
-            g.sql_exec_count = getattr(g, 'sql_exec_count', 0) + 4
+            g.sql_exec_count = getattr(g, 'sql_exec_count', 0) + 4 + int(staging)
             g.sql_exec_calls = getattr(g, 'sql_exec_calls', 0) + 1
 
 
 def committed_rate_limit_batch(statement, params):
     """Lease independently of business transactions, and return after COMMIT."""
-    # Do not let a caller accidentally bypass the Staging database marker.
-    if os.environ.get('SHURSH_ENV') == 'staging':
-        raise RuntimeError('Staging rate limiter requires database identity check')
+    # The lease still validates hosted configuration before any network call.
+    # The Staging SQL guard runs inside the same batch, before the UPSERT.
     with _lease_connection() as connection:
         try:
             return _rate_limit_batch(connection, statement, params)

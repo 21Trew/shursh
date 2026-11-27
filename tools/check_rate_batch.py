@@ -12,6 +12,7 @@ from unittest.mock import patch
 from flask import Flask, g
 import psycopg
 from cloud import db
+from cloud.environment import STAGING_REF
 from cloud.backend import RATE_LIMIT_SQL, consume_committed_rate_limit
 from tools import rate_limit_experiment as exp
 from tools import rate_limit_pooler_experiment as pooler
@@ -36,11 +37,11 @@ def read_exact(sock, count):
     return bytes(data)
 
 
-def lost_commit_ack(admin):
+def lost_commit_ack(admin, profile='production'):
     # Transparent TCP proxy: only discard the COMMIT CommandComplete and
     # all subsequent bytes. PostgreSQL has already committed; verify from
     # an independent admin socket. No synthetic driver exception.
-    key = exp.key_for('integrated-lost-commit')
+    key = exp.key_for('integrated-lost-commit', profile)
     seen = threading.Event()
     frontend = bytearray()
     with socket.socket() as listener:
@@ -105,10 +106,10 @@ def lost_commit_ack(admin):
             'connection_discarded': True, 'next_request_succeeded': True}
 
 
-def application_path(admin):
+def application_path(admin, profile='production'):
     app = Flask(__name__)
     app.teardown_request(lambda error: db.close_request_connection())
-    key = exp.key_for('integrated-nested')
+    key = exp.key_for('integrated-nested', profile)
     with app.test_request_context('/api/test'):
         try:
             with db.transaction(write=True) as business:
@@ -122,18 +123,120 @@ def application_path(admin):
         assert exp.state(admin, key)[:2] == (100, 1)
         assert g.shursh_db_connection.info.transaction_status == psycopg.pq.TransactionStatus.IDLE
     with app.test_request_context('/api/test'):
-        key = exp.key_for('integrated-metrics')
+        key = exp.key_for('integrated-metrics', profile)
         assert consume_committed_rate_limit(key, 100, 1)
         conn = g.shursh_db_connection
         assert not consume_committed_rate_limit(key, 100, 1)
-        assert g.sql_exec_count == 8 and g.sql_exec_calls == 2
+        assert g.sql_exec_count == (10 if profile == 'staging' else 8) and g.sql_exec_calls == 2
         assert g.db_connect_count == 1 and g.shursh_db_connection is conn
-    key = exp.key_for('integrated-concurrent')
+    key = exp.key_for('integrated-concurrent', profile)
     with concurrent.futures.ThreadPoolExecutor(max_workers=8) as executor:
         allowed = sum(executor.map(lambda _: consume_committed_rate_limit(key, 100, 17), range(96)))
     assert allowed == 17 and exp.state(admin, key)[:2] == (100, 17)
     return {'independent_commit': True, 'metric_counts': True, 'connection_reused': True,
             'concurrent_attempts': 96, 'concurrent_allowed': allowed}
+
+
+
+def staging_marker_gates(admin):
+    """Only on the disposable local DB; never contact hosted Staging."""
+    pooler.guard()
+    # The production marker is intentionally absent. We simulate Staging's
+    # endpoint validation only, not the database guard or the application SQL.
+    # Every quota operation still uses the real local connection lease.
+    key_new = exp.key_for('staging-guard-new')
+    key_old = exp.key_for('staging-guard-existing')
+    admin.execute('INSERT INTO app_rate_limits VALUES(%s,100,1)', (key_old,))
+    initial = exp.state(admin, key_old)
+    # A sequence is non-transactional: an INSERT trigger that executes even
+    # inside a rolled-back transaction would leave is_called=true.
+    admin.execute("""
+        CREATE SEQUENCE public.bench_guard_attempt;
+        GRANT USAGE ON SEQUENCE public.bench_guard_attempt TO shursh_backend;
+        CREATE FUNCTION public.bench_guard_probe() RETURNS trigger
+        LANGUAGE plpgsql AS $ BEGIN
+          PERFORM nextval('public.bench_guard_attempt');
+          RETURN NEW;
+        END $;
+        CREATE TRIGGER bench_guard_probe BEFORE INSERT ON app_rate_limits
+        FOR EACH ROW EXECUTE FUNCTION public.bench_guard_probe();
+    """)
+    results = {}
+    app = Flask(__name__)
+    app.teardown_request(lambda error: db.close_request_connection())
+
+    def denied(name, sqlstate):
+        for key in (key_new, key_old):
+            with app.test_request_context('/api/test'):
+                try:
+                    consume_committed_rate_limit(key, 100, 10)
+                except psycopg.Error as exc:
+                    assert exc.sqlstate == sqlstate, (name, exc.sqlstate)
+                else:
+                    raise AssertionError(('Marker failure returned a quota verdict', name))
+                assert g.sql_exec_calls == 1 and g.sql_exec_count == 5
+            assert exp.state(admin, key_new) is None
+            assert exp.state(admin, key_old) == initial
+            assert admin.execute('SELECT is_called FROM public.bench_guard_attempt').fetchone() == (False,)
+        results[name] = {'sqlstate': sqlstate, 'new_row_absent': True,
+                         'existing_row_unchanged': True, 'upsert_not_reached': True}
+
+    # Patch ONLY the hosted endpoint check because the fixture is localhost.
+    # The original production/preview configuration guard remains covered by
+    # test_preview_isolation and the pre-checkout integration regression test.
+    with patch.dict(os.environ, {'SHURSH_ENV': 'staging'}), patch.object(db, 'assert_staging_target'):
+        try:
+            denied('missing_schema', '42P01')
+            admin.execute('CREATE SCHEMA shursh_env; REVOKE ALL ON SCHEMA shursh_env FROM PUBLIC; GRANT USAGE ON SCHEMA shursh_env TO shursh_backend')
+            denied('missing_table', '42P01')
+            # Same column types as Staging. Deliberately allow corrupt rows
+            # here to test fail-closed even if an administrator misprovisions it.
+            admin.execute("""
+                CREATE TABLE shursh_env.environment_identity(
+                    singleton boolean PRIMARY KEY, environment text NOT NULL,
+                    project_ref text NOT NULL);
+                REVOKE ALL ON shursh_env.environment_identity FROM PUBLIC, anon, authenticated;
+                GRANT SELECT ON shursh_env.environment_identity TO shursh_backend;
+            """)
+            denied('missing_row', 'P0001')
+            admin.execute("INSERT INTO shursh_env.environment_identity VALUES(true,'staging','wrong-ref')")
+            denied('wrong_ref', 'P0001')
+            admin.execute("UPDATE shursh_env.environment_identity SET environment='production', project_ref=%s", (STAGING_REF,))
+            denied('wrong_environment', 'P0001')
+            admin.execute("UPDATE shursh_env.environment_identity SET environment='staging', singleton=false")
+            denied('wrong_singleton', 'P0001')
+            admin.execute("UPDATE shursh_env.environment_identity SET singleton=true")
+            admin.execute('REVOKE SELECT ON shursh_env.environment_identity FROM shursh_backend')
+            denied('no_select_privilege', '42501')
+            admin.execute('GRANT SELECT ON shursh_env.environment_identity TO shursh_backend')
+            with pooler.pooled() as c:
+                with c.transaction():
+                    c.execute('SET LOCAL ROLE shursh_backend')
+                    assert c.execute("SELECT has_language_privilege(current_user, 'plpgsql', 'USAGE')").fetchone()[0]
+                    assert not c.execute("SELECT has_table_privilege(current_user, 'shursh_env.environment_identity', 'UPDATE')").fetchone()[0]
+            assert consume_committed_rate_limit(key_new, 100, 1)
+            assert not consume_committed_rate_limit(key_new, 100, 1)
+            assert exp.state(admin, key_new)[:2] == (100, 1)
+            assert admin.execute('SELECT is_called FROM public.bench_guard_attempt').fetchone() == (True,)
+            results['valid_marker'] = {'allowed': True, 'saturated_denied': True,
+                                       'durable_hits': 1, 'marker_read_only': True}
+        finally:
+            admin.execute('DROP TRIGGER bench_guard_probe ON app_rate_limits; DROP FUNCTION public.bench_guard_probe(); DROP SEQUENCE public.bench_guard_attempt')
+        # Run the existing full SQL Batch gate set again with the real marker.
+        results['security'] = exp.semantic_gates(admin, 'integrated-staging')
+        results['protocol'] = exp.protocol_counts('sql_batch', candidate, 'integrated-staging')
+        assert results['protocol'] == {'Query': 1, 'Sync': 0, 'Flush': 0, 'ReadyForQuery': 1}
+        results['reuse'] = pooler.reuse(admin, 'integrated-staging', candidate)
+        results['faults'] = pooler.faults(admin, 'integrated-staging', candidate)
+        results['application'] = application_path(admin, 'staging')
+        results['lost_commit_ack'] = lost_commit_ack(admin, 'staging')
+    # Production never relies on the marker: remove it in this fixture and
+    # prove a fresh production request still succeeds through the same executor.
+    admin.execute('DROP SCHEMA shursh_env CASCADE')
+    key = exp.key_for('production-without-marker-after-staging')
+    assert consume_committed_rate_limit(key, 100, 1)
+    results['production_without_marker'] = True
+    return results
 
 
 def main():
@@ -153,6 +256,7 @@ def main():
             report['faults'] = pooler.faults(admin, 'integrated', candidate)
             report['application'] = application_path(admin)
             report['lost_commit_ack'] = lost_commit_ack(admin)
+            report['staging'] = staging_marker_gates(admin)
         report['status'] = 'passed'
     finally:
         out.write_text(json.dumps(report, indent=2), encoding='utf-8')
