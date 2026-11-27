@@ -10,7 +10,7 @@ from flask import g, has_request_context
 import psycopg
 from psycopg.rows import dict_row
 from psycopg_pool import ConnectionPool
-from cloud.environment import assert_staging_target
+from cloud.environment import STAGING_REF, assert_staging_target
 
 # Project-wide write lock for the small MVP. It serializes conflicting state
 # changes across multiple serverless instances, not merely one Python process.
@@ -64,6 +64,23 @@ _TX_SETTINGS = (
 )
 _TX_SETTINGS_READ = "SET TRANSACTION ISOLATION LEVEL REPEATABLE READ READ ONLY; " + _TX_SETTINGS
 
+# Anonymous invoker block, no persistent function or elevated privileges.
+# The expected identity is a trusted application constant, not request data.
+# An exception aborts the explicit transaction BEFORE PostgreSQL reaches UPSERT.
+_STAGING_RATE_IDENTITY = f"""
+DO $shursh_identity$
+BEGIN
+    IF NOT EXISTS (
+        SELECT 1 FROM shursh_env.environment_identity
+        WHERE singleton = true AND environment = 'staging'
+          AND project_ref = '{STAGING_REF}'
+    ) THEN
+        RAISE EXCEPTION 'Staging database identity mismatch' USING ERRCODE = 'P0001';
+    END IF;
+END;
+$shursh_identity$
+""".strip()
+
 
 def _timed_execute(connection, statement, params=None, *, statement_count=1):
     """Aggregate timings/counts only: never retain SQL text or parameters."""
@@ -110,7 +127,7 @@ def close_request_connection():
 
 
 @contextmanager
-def transaction(write=False, *, rate_limit=False):
+def _lease_connection():
     assert_staging_target()
     dsn=os.environ.get('SHURSH_DATABASE_URL')
     if not dsn:
@@ -154,6 +171,20 @@ def transaction(write=False, *, rate_limit=False):
             g.shursh_db_connection=connection
             g.shursh_db_pool=pool
     try:
+        yield connection
+    finally:
+        # Primary checkout is returned by Flask teardown; nested leases are
+        # returned immediately after their independent transaction finishes.
+        if not retained:
+            if ephemeral:
+                connection.close()
+            else:
+                pool.putconn(connection)
+
+
+@contextmanager
+def transaction(write=False, *, rate_limit=False):
+    with _lease_connection() as connection:
         with connection.transaction():
             if not write and not rate_limit:
                 _timed_execute(connection, _TX_SETTINGS_READ, statement_count=4)
@@ -171,11 +202,84 @@ def transaction(write=False, *, rate_limit=False):
             if write and not rate_limit:
                 _timed_execute(connection, 'SELECT pg_advisory_xact_lock(%s)',(WRITE_LOCK,))
             yield DB(connection)
+
+
+def _rate_limit_batch(connection, statement, params):
+    """One simple-query exchange; never retry a possibly committed quota."""
+    idle = psycopg.pq.TransactionStatus.IDLE
+    if not connection.autocommit or connection.info.transaction_status != idle:
+        raise RuntimeError('Rate limiter requires an idle autocommit connection')
+    staging = os.environ.get('SHURSH_ENV') == 'staging'
+    settings = _TX_SETTINGS
+    expected_statuses = ('BEGIN', 'SET', 'SET', 'SET')
+    if staging:
+        settings += '; ' + _STAGING_RATE_IDENTITY
+        expected_statuses += ('DO',)
+    started = time.perf_counter()
+    try:
+        # The statement and settings are static application SQL. ClientCursor
+        # adapts values safely before sending a single simple-query message.
+        with psycopg.ClientCursor(connection) as cur:
+            cur.execute('BEGIN; ' + settings + '; ' +
+                        statement.replace('?', '%s') + '; COMMIT',
+                        params, prepare=False)
+            for expected in expected_statuses:
+                if cur.statusmessage != expected or not cur.nextset():
+                    raise RuntimeError('Missing rate limiter transaction result')
+            if cur.statusmessage not in ('INSERT 0 0', 'INSERT 0 1'):
+                raise RuntimeError('Missing rate limiter UPSERT result')
+            allowed = cur.fetchone() is not None
+            if not cur.nextset() or cur.statusmessage != 'COMMIT' or cur.nextset():
+                raise RuntimeError('Missing successful rate limiter COMMIT')
+            if connection.info.transaction_status != idle:
+                raise RuntimeError('Rate limiter transaction is not idle')
+            return allowed
+    except BaseException as exc:
+        # Only a server-confirmed SQL error permits reuse after rollback.
+        # Missing COMMIT acknowledgement or transport/protocol errors have an
+        # ambiguous outcome: discard the socket, propagate, NEVER replay.
+        try:
+            if not connection.closed:
+                status = connection.info.transaction_status
+                if (isinstance(exc, psycopg.Error) and exc.sqlstate
+                        and not exc.sqlstate.startswith('08')
+                        and exc.sqlstate not in ('40003', '57P01', '57P02', '57P03')
+                        and status in (idle, psycopg.pq.TransactionStatus.INERROR,
+                                       psycopg.pq.TransactionStatus.INTRANS)):
+                    if status != idle:
+                        connection.execute('ROLLBACK')
+                    if connection.info.transaction_status != idle:
+                        connection.close()
+                else:
+                    connection.close()
+        except BaseException:
+            connection.close()
+        raise
     finally:
-        # The primary checkout is returned by Flask teardown. Nested checkouts
-        # are returned immediately, after rollback/commit of this transaction.
-        if not retained:
-            if ephemeral:
-                connection.close()
-            else:
-                pool.putconn(connection)
+        if has_request_context():
+            # Logical statements: settings + UPSERT + Staging identity guard.
+            # Both environments use one execute call, excluding error cleanup.
+            g.sql_exec_ms = getattr(g, 'sql_exec_ms', 0.0) + (time.perf_counter() - started) * 1000
+            g.sql_exec_count = getattr(g, 'sql_exec_count', 0) + 4 + int(staging)
+            g.sql_exec_calls = getattr(g, 'sql_exec_calls', 0) + 1
+
+
+def committed_rate_limit_batch(statement, params):
+    """Lease independently of business transactions, and return after COMMIT."""
+    # The lease still validates hosted configuration before any network call.
+    # The Staging SQL guard runs inside the same batch, before the UPSERT.
+    with _lease_connection() as connection:
+        try:
+            return _rate_limit_batch(connection, statement, params)
+        except psycopg.IntegrityError as exc:
+            # The legacy DB.execute maps immediate constraints to 409, but
+            # errors at COMMIT propagate as unavailable. Only map the known
+            # non-deferrable quota table constraints, never an unknown COMMIT.
+            diag = exc.diag
+            if (diag.schema_name == 'public' and diag.table_name == 'app_rate_limits'
+                    and (diag.constraint_name in ('app_rate_limits_pkey',
+                        'app_rate_limits_key_hash_check', 'app_rate_limits_hits_check')
+                        or (exc.sqlstate == '23502' and diag.column_name in
+                            ('key_hash', 'bucket', 'hits')))):
+                raise sqlite3.IntegrityError('database constraint') from exc
+            raise

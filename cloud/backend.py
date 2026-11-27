@@ -109,6 +109,14 @@ def consume_rate_limit(con, key, bucket, limit):
     return con.execute(RATE_LIMIT_SQL, (key,bucket,limit)).fetchone() is not None
 
 
+def consume_committed_rate_limit(key, bucket, limit):
+    if limit < 1:
+        raise ValueError('Rate limit must be positive')
+    # Same batch executor in every environment; the adapter includes the
+    # mandatory server-side identity check for Staging. Never retry a failure.
+    return db.committed_rate_limit_batch(RATE_LIMIT_SQL, (key, bucket, limit))
+
+
 class CloudRequest(Handler):
     owner_profile_table = 'profiles'
 
@@ -170,10 +178,9 @@ class CloudRequest(Handler):
         key = hmac.new(secret.encode(), f'{source}:{action}'.encode(), sha256).hexdigest()
         bucket = int(time.time()) // window
         # Independent transaction so failed API requests also count.
-        with db.transaction(write=True, rate_limit=True) as con:
-            allowed = consume_rate_limit(con,key,bucket,limit)
-            # Do not acquire other request keys while holding this key's row lock.
-            # Expired buckets can be pruned by a separate maintenance job.
+        allowed = consume_committed_rate_limit(key, bucket, limit)
+        # Do not acquire other request keys while holding this key's row lock.
+        # Expired buckets can be pruned by a separate maintenance job.
         if not allowed:
             raise ApiError(429, 'Слишком много попыток. Попробуй немного позже')
 

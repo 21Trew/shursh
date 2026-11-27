@@ -3767,14 +3767,13 @@ def test_rate_limit_atomic_saturation_and_bucket_order(application):
     from hashlib import sha256
     from uuid import uuid4
     from cloud import db
-    from cloud.backend import consume_rate_limit
+    from cloud.backend import consume_rate_limit, consume_committed_rate_limit
     key=sha256(uuid4().bytes).hexdigest()
     bucket=1000
     limit=17
 
     def attempt(_):
-        with db.transaction(write=True,rate_limit=True) as con:
-            return consume_rate_limit(con,key,bucket,limit)
+        return consume_committed_rate_limit(key,bucket,limit)
 
     with ThreadPoolExecutor(max_workers=4) as pool:
         results=list(pool.map(attempt,range(96)))
@@ -3901,3 +3900,58 @@ def test_rate_limit_comparative_postgres_benchmark(application):
             wal[name]={field:plan.get(field,0) for field in ('WAL Records','WAL Bytes','WAL FPI','Tuples Inserted','Conflicting Tuples')}
     print('SHURSH_RATE_LIMIT_PERF='+json.dumps({'scope':'CI-local-PostgreSQL','limit':limit,'scenarios':report,'rejected_wal':wal},sort_keys=True))
 
+
+
+def test_committed_rate_batch_metrics_and_reuse(application):
+    from flask import g
+    from hashlib import sha256
+    from uuid import uuid4
+    from cloud import db
+    from cloud.backend import consume_committed_rate_limit
+    key = sha256(uuid4().bytes).hexdigest()
+    with application.test_request_context('/api/test'):
+        try:
+            assert consume_committed_rate_limit(key, 123, 1)
+            connection = g.shursh_db_connection
+            assert g.sql_exec_count == 4 and g.sql_exec_calls == 1
+            assert g.db_connect_count == 1
+            assert not consume_committed_rate_limit(key, 123, 1)
+            assert g.sql_exec_count == 8 and g.sql_exec_calls == 2
+            assert g.db_connect_count == 1
+            assert g.shursh_db_connection is connection
+            assert connection.info.transaction_status == psycopg.pq.TransactionStatus.IDLE
+        finally:
+            db.close_request_connection()
+
+
+def test_staging_rate_batch_never_bypasses_identity_check(monkeypatch):
+    from cloud import db
+    from cloud.backend import consume_committed_rate_limit
+    monkeypatch.setenv('SHURSH_ENV', 'staging')
+    monkeypatch.delenv('SHURSH_EXPECTED_SUPABASE_REF', raising=False)
+    monkeypatch.setattr(db, '_pool_for',
+                        lambda *a: pytest.fail('Invalid Staging configuration opened a pool'))
+    with pytest.raises(RuntimeError, match='Unapproved Preview'):
+        consume_committed_rate_limit('a'*64, 100, 1)
+
+
+def test_rate_batch_immediate_constraint_preserves_conflict(application):
+    import sqlite3
+    from cloud.backend import consume_committed_rate_limit
+    with pytest.raises(sqlite3.IntegrityError, match='database constraint'):
+        consume_committed_rate_limit('invalid', 100, 1)
+
+
+def test_rate_batch_transport_failure_returns_503_without_retry(application, monkeypatch):
+    from cloud import db, auth
+    attempts = []
+    def fail(*args):
+        attempts.append(1)
+        raise psycopg.OperationalError('simulated lost COMMIT acknowledgement')
+    monkeypatch.setattr(db, 'committed_rate_limit_batch', fail)
+    monkeypatch.setattr(auth, 'auth_request',
+                        lambda *a, **k: pytest.fail('Auth called after failed quota'))
+    res = call(application.test_client(), 'POST', '/api/login',
+               {'email':'owner@example.test','password':'valid-password'}, 503)
+    assert res.json == {'error':'Сервис временно недоступен. Повтори позже'}
+    assert attempts == [1]
