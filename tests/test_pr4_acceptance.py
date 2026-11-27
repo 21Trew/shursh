@@ -2514,33 +2514,75 @@ def test_performance_soak_real_polling_session_and_retention(browser_https, appl
 
 
 def assert_invite_branding(container):
-    expected={'telegram':('rgb(19, 121, 173)','rgb(255, 255, 255)'),
-              'vk':('rgb(0, 98, 214)','rgb(255, 255, 255)'),
-              'max':('rgb(71, 26, 255)','rgb(255, 255, 255)')}
-    for brand,(background,foreground) in expected.items():
-        link=container.locator('.share-'+brand)
-        expect(link).to_be_visible()
-        expect(link.locator('svg path')).to_have_count(1)
-        expect(link).to_have_css('background-color',background)
-        expect(link).to_have_css('color',foreground)
-        expect(link.locator('svg')).to_have_css('color','rgb(255, 255, 255)')
-        assert link.locator('svg path').evaluate("(path)=>{const b=path.getBBox();return b.width>0&&b.height>0&&getComputedStyle(path).fill==='rgb(255, 255, 255)'}")
-        assert link.evaluate("""el=>{
+    page=container.page
+    controls=container.locator('.btn')
+    expect(controls).to_have_count(5)
+    expected=[
+        ('Ссылка','rgb(249, 231, 163)','rgb(229, 213, 150)','rgb(48, 43, 36)'),
+        ('QR','rgb(249, 231, 163)','rgb(229, 213, 150)','rgb(48, 43, 36)'),
+        ('Telegram','rgb(19, 121, 173)','rgb(17, 111, 159)','rgb(255, 255, 255)'),
+        ('VK','rgb(0, 98, 214)','rgb(0, 90, 197)','rgb(255, 255, 255)'),
+        ('MAX','rgb(71, 26, 255)','rgb(65, 24, 235)','rgb(255, 255, 255)'),
+    ]
+    def contrast(control):
+        assert control.evaluate("""el=>{
             const luminance=color=>color.match(/\\d+/g).slice(0,3).map(Number).map(v=>v/255).map(v=>v<=.04045?v/12.92:((v+.055)/1.055)**2.4).reduce((s,v,i)=>s+v*[.2126,.7152,.0722][i],0);
             const css=getComputedStyle(el),a=luminance(css.color),b=luminance(css.backgroundColor);
             return (Math.max(a,b)+.05)/(Math.min(a,b)+.05)>=4.5;
         }""")
-        # The white label and mark must stay legible in interactive states too.
-        link.hover()
-        expect(link).to_have_css('background-color',background)
-        expect(link).to_have_css('color',foreground)
-        link.focus()
-        expect(link).to_have_css('background-color',background)
-        expect(link).to_have_css('color',foreground)
-        link.evaluate("el=>el.blur()")
-        assert link.evaluate("el=>el.scrollWidth<=el.clientWidth+1")
-        if brand=='max':
-            assert link.locator('svg path').get_attribute('d').startswith('M508.211 878.328')
+    def geometry():
+        return controls.evaluate_all("""els=>els.map(el=>{
+            const r=el.getBoundingClientRect(),p=el.parentElement.getBoundingClientRect();
+            return [r.x-p.x,r.y-p.y,r.width,r.height];
+        })""")
+    def check_geometry(before):
+        after=geometry()
+        assert all(abs(a-b)<=1 for row1,row2 in zip(before,after)
+                   for a,b in zip(row1,row2)),(before,after)
+    def neutral():
+        page.mouse.move(0,0)
+        controls.evaluate_all("els=>els.forEach(el=>el.blur())")
+    neutral()
+    for i,(label,background,hover,foreground) in enumerate(expected):
+        control=controls.nth(i)
+        expect(control).to_be_visible()
+        expect(control).to_have_text(label)
+        expect(control).to_have_css('background-color',background)
+        expect(control).to_have_css('color',foreground)
+        contrast(control)
+        assert control.evaluate("el=>el.scrollWidth<=el.clientWidth+1")
+        expect(control.locator('svg')).to_have_count(1)
+        if i>=2:
+            expect(control.locator('svg path')).to_have_count(1)
+            expect(control.locator('svg')).to_have_css('color','rgb(255, 255, 255)')
+            assert control.locator('svg path').evaluate("(path)=>{const b=path.getBBox();return b.width>0&&b.height>0&&getComputedStyle(path).fill==='rgb(255, 255, 255)'}")
+            if label=='MAX':
+                assert control.locator('svg path').get_attribute('d').startswith('M508.211 878.328')
+        before=geometry()
+        control.hover()
+        expect(control).to_have_css('background-color',hover)
+        expect(control).to_have_css('color',foreground)
+        expect(control).to_have_css('box-shadow','none')
+        expect(control).to_have_css('transform','none')
+        contrast(control)
+        check_geometry(before)
+        neutral()
+        # Enter focus using real keyboard navigation, independently of hover.
+        controls.nth(i-1 if i else 1).focus()
+        page.keyboard.press('Tab' if i else 'Shift+Tab')
+        expect(control).to_be_focused()
+        assert control.evaluate("el=>el.matches(':focus-visible')"),label
+        expect(control).to_have_css('background-color',hover)
+        expect(control).to_have_css('color',foreground)
+        expect(control).to_have_css('box-shadow','none')
+        assert control.evaluate("""el=>{
+            const s=getComputedStyle(el);
+            return s.outlineStyle!=='none'&&parseFloat(s.outlineWidth)>=2;
+        }"""),label
+        contrast(control)
+        check_geometry(before)
+        neutral()
+        expect(control).to_have_css('background-color',background)
 
 
 @pytest.mark.browser
@@ -2629,6 +2671,7 @@ def test_friends_exact_search_and_qr_invite(browser_https,application,engine):
                 assert_invite_branding(page.locator('.personal-invite-social'))
                 page.screenshot(path=str(output/f'{engine}-320-qr.png'),animations='disabled')
                 page.set_viewport_size({'width':1440,'height':900})
+                assert_invite_branding(page.locator('.personal-invite-social'))
                 page.screenshot(path=str(output/f'{engine}-desktop-qr.png'),animations='disabled')
                 assert page.evaluate("document.documentElement.scrollWidth<=innerWidth+1")
                 guest=browser.new_context(ignore_https_errors=True,viewport={'width':390,'height':844}).new_page()
