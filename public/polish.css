@@ -1402,3 +1402,7 @@ html.pwa-install-available .pwa-install{display:inline-flex;align-items:center;m
 @media(max-width:760px){
  html.mobile-nav-active.mobile-nav-editing #app>.cookie-notice{display:none}
 }
+
+@media(max-width:760px){
+ html.mobile-nav-active[data-mobile-nav-mode=radial]:not(.mobile-nav-open) #toast-root:not(:empty){bottom:calc(max(76px,env(safe-area-inset-bottom) + 60px) + var(--mobile-nav-offset) + var(--notice-cookie-height) + var(--notice-visual-bottom))}
+}

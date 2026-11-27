@@ -4445,6 +4445,41 @@ def test_personal_mobile_navigation_modes_drag_rotation_and_storage(browser_http
                 assert page.evaluate("window.__navTouchStarts.some(e=>!e.handle&&!e.prevented)")
             finally:
                 if client:client.detach()
+            # Keep the handle stable across the actual scroll-to-top threshold.
+            # Exercise both sides, with and without a live toast, while preserving
+            # the saved preference and real hit-testing.
+            viewport=page.locator('#page-view')
+            previous_min=viewport.evaluate('e=>e.style.minHeight')
+            viewport.evaluate("e=>e.style.minHeight='2400px'")
+            def assert_scroll_stability():
+                saved=page.evaluate("localStorage.getItem('shursh-mobile-navigation-v1')")
+                points=[]
+                for y in (439,440,441,500,441,440,439):
+                    page.evaluate('y=>scrollTo({top:y,behavior:"instant"})',y)
+                    page.wait_for_function("visible=>document.querySelector('.scroll-to-top').classList.contains('is-visible')===visible",arg=y>440)
+                    sample=handle.evaluate("""async e=>{
+                      await new Promise(r=>requestAnimationFrame(()=>requestAnimationFrame(r)));
+                      const a=e.getBoundingClientRect(),b=document.querySelector('.scroll-to-top'),c=b.getBoundingClientRect();
+                      const x=a.x+a.width/2,y=a.y+a.height/2;
+                      return {scroll:scrollY,y,hit:e.contains(document.elementFromPoint(x,y)),overlap:b.classList.contains('is-visible')&&a.right>c.left&&a.left<c.right&&a.bottom>c.top&&a.top<c.bottom};
+                    }""")
+                    assert abs(sample['scroll']-y)<=1 and sample['hit'] and not sample['overlap'],sample
+                    points.append(sample['y'])
+                assert max(points)-min(points)<=.5,points
+                assert page.evaluate("localStorage.getItem('shursh-mobile-navigation-v1')")==saved
+            try:
+                for side in ('left','right'):
+                    page.locator('[data-nav-side="'+side+'"]').click()
+                    expect(root).to_have_attribute('data-side',side)
+                    expect(page.locator('#toast-root .toast')).to_have_count(0,timeout=6500)
+                    assert_scroll_stability()
+                    page.evaluate("notice('Проверка прокрутки')")
+                    expect(page.locator('#toast-root .toast')).to_be_visible()
+                    assert_scroll_stability()
+                    expect(page.locator('#toast-root .toast')).to_have_count(0,timeout=6500)
+            finally:
+                viewport.evaluate('(e,value)=>e.style.minHeight=value',previous_min)
+                page.evaluate("scrollTo({top:0,behavior:'instant'})")
             assert not errors,errors
         finally:ctx.close();browser.close()
     (out/f'{engine}-metrics.json').write_text(json.dumps(records,indent=2),encoding='utf-8')

@@ -73,9 +73,13 @@
   const top=Math.max(36,(header?.bottom||62)+31);
   const safeBottom=parseFloat(getComputedStyle(root).paddingBottom)||0;
   let bottom=H-35-safeBottom;
-  for(const n of [document.querySelector('.cookie-notice'),document.querySelector('#toast-root:not(:empty)'),document.querySelector('.scroll-to-top.is-visible')]){
+  for(const n of [document.querySelector('.cookie-notice'),document.querySelector('#toast-root:not(:empty)')]){
    if(n&&n.getClientRects().length&&getComputedStyle(n).visibility!=='hidden')bottom=Math.min(bottom,n.getBoundingClientRect().top-32);
   }
+  // Reserve the untransformed scroll-button slot even when it is hidden.
+  // Its visibility threshold and hover animation must not move the handle.
+  const scrollButton=document.querySelector('.scroll-to-top');
+  if(!open&&scrollButton?.getClientRects().length)bottom=Math.min(bottom,scrollButton.offsetTop-35);
   return {top:Math.min(top,H-35),bottom:Math.max(Math.min(top,H-35),bottom),H};
  }
  function edgeY(){const b=bounds();return b.top+prefs.ratio*(b.bottom-b.top);}
