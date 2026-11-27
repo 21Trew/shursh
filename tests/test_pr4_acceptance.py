@@ -4195,10 +4195,14 @@ def test_personal_mobile_navigation_modes_drag_rotation_and_storage(browser_http
                         expect(handle).to_have_attribute('aria-expanded','true')
                         visible=root.locator('.mobile-nav-arc a[tabindex="0"]')
                         assert visible.count()>=3
+                        # Sample after the browser has painted the opened arc.
+                        # Bounds remain strict; include hit-testing of each item.
+                        page.evaluate("()=>new Promise(r=>requestAnimationFrame(()=>requestAnimationFrame(r)))")
                         for b in visible.all():
                             box=b.bounding_box()
                             assert box['x']>=-1 and box['x']+box['width']<=width+1 and box['y']>=-1 and box['y']+box['height']<=height+1,box
                             assert box['width']>=44 and box['height']>=44
+                            assert b.evaluate("""e=>{const r=e.getBoundingClientRect();return e.contains(document.elementFromPoint(r.x+r.width/2,r.y+r.height/2))}"""),box
                         page.screenshot(path=str(out/f'{engine}-radial-open-{width}x{height}.png'),animations='disabled')
                         page.keyboard.press('Escape')
                         expect(handle).to_have_attribute('aria-expanded','false')
@@ -4244,7 +4248,9 @@ def test_personal_mobile_navigation_modes_drag_rotation_and_storage(browser_http
             # Actual mouse drag on the open arc: movement must not navigate.
             target=root.locator('.mobile-nav-arc a[tabindex="0"]').nth(1)
             b=target.bounding_box();x=b['x']+b['width']/2;y=b['y']+b['height']/2
-            page.mouse.move(x,y);page.mouse.down();page.mouse.move(x,y+60,steps=8);page.mouse.up()
+            before_drag=center.inner_text()
+            page.mouse.move(x,y);page.mouse.down();page.mouse.move(x,y+100,steps=10);page.mouse.up()
+            assert center.inner_text()!=before_drag
             expect(page).to_have_url(re.compile('/profile$'))
             expect(handle).to_have_attribute('aria-expanded','true')
             page.keyboard.press('Escape')
@@ -4276,14 +4282,28 @@ def test_personal_mobile_navigation_modes_drag_rotation_and_storage(browser_http
                 client.send('Input.dispatchTouchEvent',{'type':'touchEnd','touchPoints':[]})
                 expect(root).to_have_attribute('data-side','left')
                 handle.tap();expect(handle).to_have_attribute('aria-expanded','true')
+                before_touch=center.inner_text()
                 b=root.locator('.mobile-nav-arc a[tabindex="0"]').nth(1).bounding_box();x=b['x']+b['width']/2;y=b['y']+b['height']/2
                 client.send('Input.dispatchTouchEvent',{'type':'touchStart','touchPoints':[{'x':x,'y':y}]})
                 for i in range(1,9):
-                    client.send('Input.dispatchTouchEvent',{'type':'touchMove','touchPoints':[{'x':x,'y':y+9*i}]})
+                    client.send('Input.dispatchTouchEvent',{'type':'touchMove','touchPoints':[{'x':x,'y':y+13*i}]})
                 client.send('Input.dispatchTouchEvent',{'type':'touchEnd','touchPoints':[]})
+                assert center.inner_text()!=before_touch
                 expect(handle).to_have_attribute('aria-expanded','true')
                 expect(page).to_have_url(re.compile('/profile$'))
-                client.detach();page.keyboard.press('Escape')
+                page.keyboard.press('Escape')
+                b=handle.bounding_box();x=b['x']+b['width']/2;y=b['y']+b['height']/2
+                client.send('Input.dispatchTouchEvent',{'type':'touchStart','touchPoints':[{'x':x,'y':y}]})
+                for i in range(1,9):
+                    client.send('Input.dispatchTouchEvent',{'type':'touchMove','touchPoints':[{'x':x+(366-x)*i/8,'y':y+(300-y)*i/8}]})
+                client.send('Input.dispatchTouchEvent',{'type':'touchEnd','touchPoints':[]})
+                expect(root).to_have_attribute('data-side','right')
+                saved=page.evaluate("JSON.parse(localStorage.getItem('shursh-mobile-navigation-v1'))")
+                assert saved['side']=='right' and 0<=saved['ratio']<=1
+                client.detach()
+                page.reload()
+                expect(root).to_have_attribute('data-side','right')
+                assert page.evaluate("JSON.parse(localStorage.getItem('shursh-mobile-navigation-v1'))")==saved
             assert not errors,errors
         finally:ctx.close();browser.close()
     (out/f'{engine}-metrics.json').write_text(json.dumps(records,indent=2),encoding='utf-8')

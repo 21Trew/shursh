@@ -1383,9 +1383,8 @@ html.pwa-install-available .pwa-install{display:inline-flex;align-items:center;m
  .mobile-nav-radial,.mobile-nav-shade,.mobile-nav-arc{position:absolute;inset:0}
  .mobile-nav-shade{background:#27272b45;pointer-events:auto}
  .mobile-nav-arc{touch-action:none;pointer-events:none}
- .mobile-nav-arc a{position:absolute;right:0;width:74px;min-height:48px;padding:4px;background:var(--paper2);border:1px solid #ded5c7;box-shadow:0 3px 12px #27272b19;pointer-events:auto;touch-action:none;will-change:transform,opacity}
- .mobile-nav[data-side=left] .mobile-nav-arc a{left:0;right:auto}
- .mobile-nav-spin{position:absolute;left:50%;transform:translateX(-50%);display:flex;align-items:center;gap:8px;background:var(--paper2);border:1px solid var(--border);border-radius:24px;padding:3px 6px;pointer-events:auto;max-width:calc(100% - 24px);z-index:2}
+ .mobile-nav-arc a{position:absolute;left:0;right:auto;width:74px;min-height:48px;padding:4px;background:var(--paper2);border:1px solid #ded5c7;box-shadow:0 3px 12px #27272b19;pointer-events:auto;touch-action:none;will-change:transform,opacity}
+  .mobile-nav-spin{position:absolute;left:50%;transform:translateX(-50%);display:flex;align-items:center;gap:8px;background:var(--paper2);border:1px solid var(--border);border-radius:24px;padding:3px 6px;pointer-events:auto;max-width:calc(100% - 24px);z-index:2}
  .mobile-nav-spin button{min-width:44px;min-height:44px;border:0;border-radius:20px;background:#eee7dc;color:var(--ink);font-weight:800}
  .mobile-nav-spin span{font-size:12px;font-weight:700;white-space:nowrap}
  .mobile-nav-open .mobile-nav-shade{touch-action:none}
@@ -1394,8 +1393,7 @@ html.pwa-install-available .pwa-install{display:inline-flex;align-items:center;m
 
 @media(max-width:760px){
  .mobile-nav{padding:env(safe-area-inset-top) env(safe-area-inset-right) env(safe-area-inset-bottom) env(safe-area-inset-left)}
- .mobile-nav-arc a{right:env(safe-area-inset-right)}
- .mobile-nav[data-side=left] .mobile-nav-arc a{left:env(safe-area-inset-left)}
+ .mobile-nav-arc a{right:auto;transition:none}
  html.mobile-nav-open .scroll-to-top{visibility:hidden}
  html.mobile-nav-open body:has(.scroll-to-top.is-visible) #toast-root{bottom:calc(max(12px,env(safe-area-inset-bottom)) + var(--notice-visual-bottom))}
 }

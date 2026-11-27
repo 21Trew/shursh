@@ -3136,6 +3136,12 @@ def test_browser_reveal_for_account_member_owner_and_guest(browser_http,applicat
                     window.__revealScroll=window.scrollY;
                 }""")
                 assert page.evaluate('window.__revealScroll>0')
+                # Playwright may adjust scroll to make the action clickable
+                # (notably the guest route after asynchronous layout). Compare
+                # the actual pre-action position, not the earlier scroll request.
+                button.evaluate("""el=>el.addEventListener('click',()=>{
+                    window.__revealScrollAtClick=window.scrollY;
+                },{capture:true,once:true})""")
                 requests=[]
                 detail_reads=[]
                 page.on('request',lambda req: detail_reads.append(True)
@@ -3157,8 +3163,12 @@ def test_browser_reveal_for_account_member_owner_and_guest(browser_http,applicat
                     && window.__revealPreferences===document.querySelector('#santa-preferences-form')""")
                 expect(page.locator('#game-chat-input')).to_have_value('Unsent draft')
                 expect(page.locator('[data-chat-room="to-recipient"]')).to_have_attribute('aria-pressed','true')
-                assert page.evaluate("""() => window.scrollY>0 && Math.abs(window.scrollY-
-                    Math.min(window.__revealScroll,document.documentElement.scrollHeight-innerHeight))<=8""")
+                scroll=page.evaluate("""() => ({
+                    before:window.__revealScroll,atClick:window.__revealScrollAtClick,
+                    after:window.scrollY,max:document.documentElement.scrollHeight-innerHeight
+                })""")
+                assert scroll['atClick']>0 and scroll['after']>0 and abs(
+                    scroll['after']-min(scroll['atClick'],scroll['max']))<=8,scroll
                 expect(page.locator('.secret-card [data-action="edit-santa-preferences"]')).to_have_count(0)
                 page.locator('[data-action="add-game-gift"]').click()
                 page.locator('#fld-title').fill('Scoped gift')

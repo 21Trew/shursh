@@ -75,15 +75,17 @@
  function edgeY(){const b=bounds();return b.top+prefs.ratio*(b.bottom-b.top);}
  function geom(){
   const b=bounds(),style=getComputedStyle(root),safeTop=parseFloat(style.paddingTop)||0,safeBottom=parseFloat(style.paddingBottom)||0;
+  const safeLeft=parseFloat(style.paddingLeft)||0,safeRight=parseFloat(style.paddingRight)||0;
+  const width=Math.min(root.clientWidth,document.documentElement.clientWidth,window.visualViewport?.width||innerWidth);
   let lower=b.H-safeBottom-8;
   const toast=document.querySelector('#toast-root:not(:empty)');
   if(toast?.getClientRects().length)lower=Math.min(lower,toast.getBoundingClientRect().top-6);
   const short=lower-safeTop<435,span=short?1.5:2.5;
-  const step=short?53:35,radius=short?88:Math.min(126,innerWidth*.39);
+  const step=short?53:35,radius=Math.min(short?88:126,Math.max(44,(width-safeLeft-safeRight)*.39));
   const margin=short?94:radius+26;
   const low=safeTop+margin,high=Math.max(low,lower-margin);
   const y=clamp(edgeY(),low,high);
-  return {y,step,radius,span,lower,safeTop};
+  return {y,step,radius,span,lower,safeTop,width,safeLeft,safeRight};
  }
  function layout(){
   if(!enabled()||root.hidden||prefs.mode!=='radial')return;
@@ -96,8 +98,10 @@
    const slot=mod(i-offset+routes.length/2,routes.length)-routes.length/2;
    const angle=slot*g.step*Math.PI/180;
    const opacity=clamp((g.span-Math.abs(slot))/.5,0,1);
-   const x=side*g.radius*Math.cos(angle),y=g.y+g.radius*Math.sin(angle);
-   a.style.top=y+'px';a.style.transform='translate('+x+'px,-50%)';a.style.opacity=String(opacity);a.style.visibility=opacity>.08?'visible':'hidden';
+   const edge=prefs.side==='left'?g.safeLeft+24:g.width-g.safeRight-24;
+   const x=clamp(edge+side*g.radius*Math.cos(angle),g.safeLeft+37,g.width-g.safeRight-37);
+   const y=clamp(g.y+g.radius*Math.sin(angle),g.safeTop+24,g.lower-24);
+   a.style.left=x+'px';a.style.top=y+'px';a.style.transform='translate(-50%,-50%)';a.style.opacity=String(opacity);a.style.visibility=opacity>.08?'visible':'hidden';
    a.style.pointerEvents=opacity>.7?'auto':'none';a.tabIndex=opacity>.7?0:-1;
   }
   const spin=root.querySelector('.mobile-nav-spin');
@@ -139,7 +143,7 @@
   function frame(t){if(!open)return;const u=clamp((t-t0)/170,0,1);offset=start+(to-start)*(1-Math.pow(1-u,3));layout();if(u<1)animation=requestAnimationFrame(frame);else{animation=0;offset=mod(to,routes.length);layout();if(focus)focusCenter();}}
   animation=requestAnimationFrame(frame);
  }
- const angle=e=>{const g=geom(),style=getComputedStyle(root),inset=parseFloat(prefs.side==='left'?style.paddingLeft:style.paddingRight)||0,x=prefs.side==='left'?e.clientX:innerWidth-e.clientX;return Math.atan2(e.clientY-g.y,x-24-inset)*180/Math.PI;};
+ const angle=e=>{const g=geom(),x=prefs.side==='left'?e.clientX-g.safeLeft:g.width-g.safeRight-e.clientX;return Math.atan2(e.clientY-g.y,x-24)*180/Math.PI;};
  root.addEventListener('pointerdown',e=>{
   if(!e.isPrimary||e.button!==0||root.hidden)return;
   suppress=false;const h=e.target.closest('.mobile-nav-handle');
