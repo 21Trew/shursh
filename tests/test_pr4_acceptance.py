@@ -2513,34 +2513,125 @@ def test_performance_soak_real_polling_session_and_retention(browser_https, appl
             browser.close()
 
 
-def assert_invite_branding(container):
-    expected={'telegram':('rgb(19, 121, 173)','rgb(255, 255, 255)'),
-              'vk':('rgb(0, 98, 214)','rgb(255, 255, 255)'),
-              'max':('rgb(71, 26, 255)','rgb(255, 255, 255)')}
-    for brand,(background,foreground) in expected.items():
-        link=container.locator('.share-'+brand)
-        expect(link).to_be_visible()
-        expect(link.locator('svg path')).to_have_count(1)
-        expect(link).to_have_css('background-color',background)
-        expect(link).to_have_css('color',foreground)
-        expect(link.locator('svg')).to_have_css('color','rgb(255, 255, 255)')
-        assert link.locator('svg path').evaluate("(path)=>{const b=path.getBBox();return b.width>0&&b.height>0&&getComputedStyle(path).fill==='rgb(255, 255, 255)'}")
-        assert link.evaluate("""el=>{
+def assert_invite_branding(container,hover_evidence=None):
+    page=container.page
+    controls=container.locator('.btn')
+    expect(controls).to_have_count(5)
+    expected=[
+        ('Ссылка','rgb(249, 231, 163)','rgb(229, 213, 150)','rgb(48, 43, 36)'),
+        ('QR','rgb(249, 231, 163)','rgb(229, 213, 150)','rgb(48, 43, 36)'),
+        ('Telegram','rgb(19, 121, 173)','rgb(17, 111, 159)','rgb(255, 255, 255)'),
+        ('VK','rgb(0, 98, 214)','rgb(0, 90, 197)','rgb(255, 255, 255)'),
+        ('MAX','rgb(71, 26, 255)','rgb(65, 24, 235)','rgb(255, 255, 255)'),
+    ]
+    def contrast(control):
+        assert control.evaluate("""el=>{
             const luminance=color=>color.match(/\\d+/g).slice(0,3).map(Number).map(v=>v/255).map(v=>v<=.04045?v/12.92:((v+.055)/1.055)**2.4).reduce((s,v,i)=>s+v*[.2126,.7152,.0722][i],0);
             const css=getComputedStyle(el),a=luminance(css.color),b=luminance(css.backgroundColor);
             return (Math.max(a,b)+.05)/(Math.min(a,b)+.05)>=4.5;
         }""")
-        # The white label and mark must stay legible in interactive states too.
-        link.hover()
-        expect(link).to_have_css('background-color',background)
-        expect(link).to_have_css('color',foreground)
-        link.focus()
-        expect(link).to_have_css('background-color',background)
-        expect(link).to_have_css('color',foreground)
-        link.evaluate("el=>el.blur()")
-        assert link.evaluate("el=>el.scrollWidth<=el.clientWidth+1")
-        if brand=='max':
-            assert link.locator('svg path').get_attribute('d').startswith('M508.211 878.328')
+    def geometry():
+        return controls.evaluate_all("""els=>els.map(el=>{
+            const r=el.getBoundingClientRect(),p=el.parentElement.getBoundingClientRect();
+            return [r.x-p.x,r.y-p.y,r.width,r.height];
+        })""")
+    def check_geometry(before):
+        after=geometry()
+        assert all(abs(a-b)<=1 for row1,row2 in zip(before,after)
+                   for a,b in zip(row1,row2)),(before,after)
+    def neutral():
+        page.mouse.move(0,0)
+        controls.evaluate_all("els=>els.forEach(el=>el.blur())")
+    neutral()
+    # Navigation may have just mounted an animated main. Hover is a pointer
+    # interaction with a stable, visible control, not a race with route entry.
+    page.evaluate("document.fonts.ready")
+    page.wait_for_function("""()=>[...document.querySelectorAll('#page-view > main,.site-header')]
+        .every(el=>el.getAnimations().every(a=>a.playState!=='running'&&!a.pending))""")
+    controls.first.evaluate("""el=>el.parentElement.scrollIntoView(
+        {block:'center',inline:'nearest',behavior:'instant'})""")
+    page.wait_for_function("""()=>[...document.querySelectorAll('#page-view > main,.site-header')]
+        .every(el=>el.getAnimations().every(a=>a.playState!=='running'&&!a.pending))""")
+    # Require stable viewport geometry and hit-testing over consecutive frames.
+    # Do not force the hover or bypass a real covering element.
+    assert controls.first.evaluate("""el=>new Promise(resolve=>{
+        const group=el.parentElement,start=performance.now();
+        let previous='',stable=0;
+        function frame(){
+            const nodes=[...group.querySelectorAll('.btn')];
+            const rects=nodes.map(n=>n.getBoundingClientRect());
+            const signature=JSON.stringify(rects.map(r=>[r.x,r.y,r.width,r.height]));
+            const hit=nodes.length===5&&nodes.every((n,i)=>{
+                const r=rects[i];
+                return n.contains(document.elementFromPoint(r.x+r.width/2,r.y+r.height/2));
+            });
+            stable=hit&&signature===previous?stable+1:0;previous=signature;
+            if(stable>=3){resolve(true);return;}
+            if(performance.now()-start>3000){resolve(false);return;}
+            requestAnimationFrame(frame);
+        }
+        requestAnimationFrame(frame);
+    })"""),'Invitation controls must be stable and reachable before hover'
+    assert controls.evaluate_all("""els=>{
+        const r=els.map(el=>el.getBoundingClientRect());
+        return r.length===5&&r.every((v,i)=>Math.abs(v.top-r[0].top)<=1&&
+            (!i||v.left>=r[i-1].right-1));
+    }"""),'All five invite buttons must occupy one row without overlap'
+    for i,(label,background,hover,foreground) in enumerate(expected):
+        control=controls.nth(i)
+        expect(control).to_be_visible()
+        expect(control).to_have_text(label)
+        expect(control).to_have_css('background-color',background)
+        expect(control).to_have_css('color',foreground)
+        contrast(control)
+        dimensions=control.evaluate("""el=>{
+            const r=el.getBoundingClientRect();
+            return {client:el.clientWidth,scroll:el.scrollWidth,width:r.width,height:r.height,
+                    left:r.left,right:r.right,viewport:innerWidth};
+        }""")
+        assert dimensions['scroll']<=dimensions['client']+1,(label,dimensions)
+        assert dimensions['height']>=44,(label,dimensions)
+        assert dimensions['left']>=-1 and dimensions['right']<=dimensions['viewport']+1,(label,dimensions)
+        if container.evaluate("el=>el.matches('.santa-share')"):
+            assert dimensions['width']>=44,(label,dimensions)
+        expect(control.locator('svg')).to_have_count(1)
+        if i>=2:
+            expect(control.locator('svg path')).to_have_count(1)
+            expect(control.locator('svg')).to_have_css('color','rgb(255, 255, 255)')
+            assert control.locator('svg path').evaluate("(path)=>{const b=path.getBBox();return b.width>0&&b.height>0&&getComputedStyle(path).fill==='rgb(255, 255, 255)'}")
+            if label=='MAX':
+                assert control.locator('svg path').get_attribute('d').startswith('M508.211 878.328')
+        before=geometry()
+        control.hover()
+        expect(control).to_have_css('background-color',hover)
+        assert control.evaluate("""el=>{
+            const r=el.getBoundingClientRect();
+            return el.matches(':hover')&&el.contains(document.elementFromPoint(r.x+r.width/2,r.y+r.height/2));
+        }"""),label
+        expect(control).to_have_css('color',foreground)
+        expect(control).to_have_css('box-shadow','none')
+        expect(control).to_have_css('transform','none')
+        contrast(control)
+        check_geometry(before)
+        if hover_evidence is not None and label=='Telegram':
+            container.screenshot(path=str(hover_evidence),animations='disabled')
+        neutral()
+        # Enter focus using real keyboard navigation, independently of hover.
+        controls.nth(i-1 if i else 1).focus()
+        page.keyboard.press('Tab' if i else 'Shift+Tab')
+        expect(control).to_be_focused()
+        assert control.evaluate("el=>el.matches(':focus-visible')"),label
+        expect(control).to_have_css('background-color',hover)
+        expect(control).to_have_css('color',foreground)
+        expect(control).to_have_css('box-shadow','none')
+        assert control.evaluate("""el=>{
+            const s=getComputedStyle(el);
+            return s.outlineStyle!=='none'&&parseFloat(s.outlineWidth)>=2;
+        }"""),label
+        contrast(control)
+        check_geometry(before)
+        neutral()
+        expect(control).to_have_css('background-color',background)
 
 
 @pytest.mark.browser
@@ -2586,7 +2677,8 @@ def test_friends_exact_search_and_qr_invite(browser_https,application,engine):
                 page.wait_for_function('(url)=>window.copiedInvite===url',arg=url)
                 assert page.locator('.personal-invite-social').evaluate("el=>{const r=[...el.children].map(c=>c.getBoundingClientRect());return r.length===5&&r.every(x=>Math.abs(x.top-r[0].top)<1)&&r.every(x=>x.width>0&&x.height>=44)}")
                 expect(page.locator('#personal-invite-qr')).to_be_visible()
-                assert_invite_branding(page.locator('.personal-invite-social'))
+                output=OUTPUT/'friend-invite';output.mkdir(parents=True,exist_ok=True)
+                assert_invite_branding(page.locator('.personal-invite-social'),output/f'{engine}-friend-hover-390.png')
                 page.wait_for_function("()=>document.querySelector('#personal-invite-qr')?.complete && document.querySelector('#personal-invite-qr')?.naturalWidth>0")
                 assert page.locator('#personal-invite-qr').evaluate("img=>img.complete&&img.naturalWidth>0&&img.src.startsWith('data:image/png')")
                 expect(page.get_by_role('button',name='QR',exact=True)).to_be_visible()
@@ -2626,9 +2718,10 @@ def test_friends_exact_search_and_qr_invite(browser_https,application,engine):
                 assert page.evaluate("document.documentElement.scrollWidth<=innerWidth+1")
                 page.set_viewport_size({'width':320,'height':780})
                 page.wait_for_function("""()=>{const el=document.querySelector('.personal-invite-social');if(!el)return false;const r=[...el.children].map(c=>c.getBoundingClientRect());return r.length===5&&r.every(x=>Math.abs(x.top-r[0].top)<1)&&r.every(x=>x.left>=0&&x.right<=innerWidth+1&&x.height>=44)}""")
-                assert_invite_branding(page.locator('.personal-invite-social'))
+                assert_invite_branding(page.locator('.personal-invite-social'),output/f'{engine}-friend-hover-320.png')
                 page.screenshot(path=str(output/f'{engine}-320-qr.png'),animations='disabled')
                 page.set_viewport_size({'width':1440,'height':900})
+                assert_invite_branding(page.locator('.personal-invite-social'),output/f'{engine}-friend-hover-1440.png')
                 page.screenshot(path=str(output/f'{engine}-desktop-qr.png'),animations='disabled')
                 assert page.evaluate("document.documentElement.scrollWidth<=innerWidth+1")
                 guest=browser.new_context(ignore_https_errors=True,viewport={'width':390,'height':844}).new_page()
@@ -3717,8 +3810,10 @@ def test_profile_feedback_and_inline_santa_polish(browser_https,application,engi
             expect(page.locator('[data-santa-date-input]')).to_have_value('2027-02-13')
             eid=page.evaluate("async()=> (await api('/api/santas',{method:'POST',body:{title:'QR regression'}})).id")
             page.evaluate("id=>nav('/santa/'+id,{force:true})",eid)
-            assert_invite_branding(page.locator('.santa-share'))
             evidence=OUTPUT/'pr44-acceptance';evidence.mkdir(parents=True,exist_ok=True)
+            for width,height in [(320,780),(1440,900),(390,844)]:
+                page.set_viewport_size({'width':width,'height':height})
+                assert_invite_branding(page.locator('.santa-share'),evidence/f'{engine}-santa-share-hover-{width}.png')
             page.locator('.santa-share').screenshot(path=str(evidence/f'{engine}-santa-share.png'),animations='disabled')
             url=page.locator('.santa-share [data-action=copy]').get_attribute('data-url')
             page.locator('.santa-share [data-social-action=santa-invite-qr]').click()
