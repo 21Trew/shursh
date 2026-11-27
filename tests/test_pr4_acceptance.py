@@ -2572,6 +2572,11 @@ def assert_invite_branding(container,hover_evidence=None):
         }
         requestAnimationFrame(frame);
     })"""),'Invitation controls must be stable and reachable before hover'
+    assert controls.evaluate_all("""els=>{
+        const r=els.map(el=>el.getBoundingClientRect());
+        return r.length===5&&r.every((v,i)=>Math.abs(v.top-r[0].top)<=1&&
+            (!i||v.left>=r[i-1].right-1));
+    }"""),'All five invite buttons must occupy one row without overlap'
     for i,(label,background,hover,foreground) in enumerate(expected):
         control=controls.nth(i)
         expect(control).to_be_visible()
@@ -2579,7 +2584,16 @@ def assert_invite_branding(container,hover_evidence=None):
         expect(control).to_have_css('background-color',background)
         expect(control).to_have_css('color',foreground)
         contrast(control)
-        assert control.evaluate("el=>el.scrollWidth<=el.clientWidth+1")
+        dimensions=control.evaluate("""el=>{
+            const r=el.getBoundingClientRect();
+            return {client:el.clientWidth,scroll:el.scrollWidth,width:r.width,height:r.height,
+                    left:r.left,right:r.right,viewport:innerWidth};
+        }""")
+        assert dimensions['scroll']<=dimensions['client']+1,(label,dimensions)
+        assert dimensions['height']>=44,(label,dimensions)
+        assert dimensions['left']>=-1 and dimensions['right']<=dimensions['viewport']+1,(label,dimensions)
+        if container.evaluate("el=>el.matches('.santa-share')"):
+            assert dimensions['width']>=44,(label,dimensions)
         expect(control.locator('svg')).to_have_count(1)
         if i>=2:
             expect(control.locator('svg path')).to_have_count(1)
@@ -2663,7 +2677,8 @@ def test_friends_exact_search_and_qr_invite(browser_https,application,engine):
                 page.wait_for_function('(url)=>window.copiedInvite===url',arg=url)
                 assert page.locator('.personal-invite-social').evaluate("el=>{const r=[...el.children].map(c=>c.getBoundingClientRect());return r.length===5&&r.every(x=>Math.abs(x.top-r[0].top)<1)&&r.every(x=>x.width>0&&x.height>=44)}")
                 expect(page.locator('#personal-invite-qr')).to_be_visible()
-                assert_invite_branding(page.locator('.personal-invite-social'))
+                output=OUTPUT/'friend-invite';output.mkdir(parents=True,exist_ok=True)
+                assert_invite_branding(page.locator('.personal-invite-social'),output/f'{engine}-friend-hover-390.png')
                 page.wait_for_function("()=>document.querySelector('#personal-invite-qr')?.complete && document.querySelector('#personal-invite-qr')?.naturalWidth>0")
                 assert page.locator('#personal-invite-qr').evaluate("img=>img.complete&&img.naturalWidth>0&&img.src.startsWith('data:image/png')")
                 expect(page.get_by_role('button',name='QR',exact=True)).to_be_visible()
@@ -2703,10 +2718,10 @@ def test_friends_exact_search_and_qr_invite(browser_https,application,engine):
                 assert page.evaluate("document.documentElement.scrollWidth<=innerWidth+1")
                 page.set_viewport_size({'width':320,'height':780})
                 page.wait_for_function("""()=>{const el=document.querySelector('.personal-invite-social');if(!el)return false;const r=[...el.children].map(c=>c.getBoundingClientRect());return r.length===5&&r.every(x=>Math.abs(x.top-r[0].top)<1)&&r.every(x=>x.left>=0&&x.right<=innerWidth+1&&x.height>=44)}""")
-                assert_invite_branding(page.locator('.personal-invite-social'))
+                assert_invite_branding(page.locator('.personal-invite-social'),output/f'{engine}-friend-hover-320.png')
                 page.screenshot(path=str(output/f'{engine}-320-qr.png'),animations='disabled')
                 page.set_viewport_size({'width':1440,'height':900})
-                assert_invite_branding(page.locator('.personal-invite-social'))
+                assert_invite_branding(page.locator('.personal-invite-social'),output/f'{engine}-friend-hover-1440.png')
                 page.screenshot(path=str(output/f'{engine}-desktop-qr.png'),animations='disabled')
                 assert page.evaluate("document.documentElement.scrollWidth<=innerWidth+1")
                 guest=browser.new_context(ignore_https_errors=True,viewport={'width':390,'height':844}).new_page()

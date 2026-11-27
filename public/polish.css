@@ -1221,6 +1221,17 @@ body:has(.scroll-to-top.is-visible) #toast-root{bottom:max(84px,calc(env(safe-ar
 .personal-invite-card{background:#e8dcf5}
 .personal-invite-social>.btn{--invite-hover-bg:#e5d596;border-radius:11px;background:#f9e7a3;border:1px solid #e4c978;color:#302b24;min-height:44px}
 .santa-share{margin-top:20px;display:grid;gap:12px}
+/* The inline Santa panel is narrower than the invite sheet on phones.
+   Reserve more room for Telegram without shrinking the short touch targets. */
+@media(max-width:760px){
+ .santa-share .personal-invite-social{grid-template-columns:minmax(44px,1.15fr) minmax(44px,.82fr) minmax(44px,1.23fr) minmax(44px,.82fr) minmax(44px,.98fr);gap:4px}
+ .santa-share .personal-invite-social>.btn{padding-inline:2px;gap:2px}
+}
+@media(max-width:359px){
+ .santa-share .personal-invite-social{gap:3px}
+ .santa-share .personal-invite-social>.btn{padding-inline:1px}
+ .santa-share .personal-invite-social>.btn svg{width:11px;height:11px}
+}
 .feedback-options{display:flex;align-items:center;gap:12px;justify-content:space-between}
 .feedback-options .shursh-checkbox{min-width:0;font-size:clamp(11px,3.3vw,14px);gap:6px;white-space:nowrap;margin:0}
 .santa-memory-wrap{position:relative}.santa-memory-view{width:100%;border:0;background:transparent;padding:0;display:block;cursor:zoom-in}
