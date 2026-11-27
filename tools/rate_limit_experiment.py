@@ -9,6 +9,7 @@ from pathlib import Path
 import random
 import re
 import statistics
+import sqlite3
 import tempfile
 import threading
 import time
@@ -162,9 +163,12 @@ def semantic_gates(admin, profile):
             assert session(c) == initial
             must_fail(lambda: fn(c, key, 101, 0), ValueError)
             # Hostile-shaped input must be bound, not executed.
-            must_fail(lambda: fn(c, "x'); SELECT 1; --", 101, 2), psycopg.Error)
+            # DB.execute translates SQL constraint errors for the legacy API.
+            # Both candidates use the driver directly; require its specific error.
+            invalid_key_error = sqlite3.IntegrityError if name == 'production' else psycopg.errors.CheckViolation
+            must_fail(lambda: fn(c, "x'); SELECT 1; --", 101, 2), invalid_key_error)
             assert session(c) == initial and state(admin, key)[:2] == (101, 1)
-            must_fail(lambda: fn(c, 'f'*64, 101, 2), psycopg.Error)
+            must_fail(lambda: fn(c, 'f'*64, 101, 2), psycopg.errors.CheckViolation)
             assert state(admin, 'f'*64) is None and session(c) == initial
             assert fn(c, key, 101, 2) and state(admin, key)[:2] == (101, 2)
             # Revoke the scoped role's insert privilege: no superuser fallback.
