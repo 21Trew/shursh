@@ -2094,8 +2094,22 @@ def test_browser_santa_preferences_readonly_until_edit_and_mobile_density(browse
             expect(page.locator('#santa-preferences-display')).to_be_hidden()
             page.locator('#santa-preferences-form [name="wanted"]').fill('Настольные игры')
             page.locator('#santa-preferences-form [name="unwanted"]').fill('Настойки')
-            page.locator('#santa-preferences-form button[type="submit"]').click()
+            submit=page.locator('#santa-preferences-form button[type="submit"]')
+            submit.scroll_into_view_if_needed()
+            # Verify pointer focus transfer cannot reinsert the navigation or
+            # consent overlay above the action before the click completes.
+            expect(page.locator('#mobile-nav')).to_be_hidden()
+            box=submit.bounding_box()
+            assert box
+            x,y=box['x']+box['width']/2,box['y']+box['height']/2
+            with page.expect_response(lambda r:r.url.endswith('/preferences') and r.request.method=='PATCH') as response:
+                page.mouse.move(x,y);page.mouse.down()
+                expect(page.locator('#mobile-nav')).to_be_hidden()
+                assert submit.evaluate("(e)=>{const r=e.getBoundingClientRect();return e.contains(document.elementFromPoint(r.x+r.width/2,r.y+r.height/2))}")
+                page.mouse.up()
+            assert response.value.ok
             expect(page.locator('#santa-preferences-form')).to_be_hidden()
+            expect(page.locator('#mobile-nav')).to_be_visible()
             expect(page.locator('#santa-preferences-display')).to_contain_text('Настольные игры')
             expect(page.locator('#santa-preferences-display')).to_contain_text('Настойки')
             rows=page.locator('#santa-preferences-display button[data-action="edit-santa-preferences"]')

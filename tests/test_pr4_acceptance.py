@@ -3692,6 +3692,12 @@ def test_hotfix_admin_direct_reload_and_error_report(browser_https,application,m
             modal.screenshot(path=str(output/f'{engine}-profile-edit.png'))
             page.keyboard.press('Escape')
             assert page.evaluate("new Set([1,2,3,4].map(santaCardArt)).size===4&&santaCardArt(3)===santaCardArt(3)")
+            page.set_viewport_size({'width':390,'height':844})
+            link=page.locator('.mobile-navigation-settings .mobile-nav-admin')
+            expect(link).to_be_visible()
+            link.click()
+            expect(page).to_have_url(re.compile('/admin$'))
+            expect(page.locator('main h1')).to_be_visible()
             ctx.close()
         finally:
             browser.close()
@@ -4169,7 +4175,12 @@ def test_personal_mobile_navigation_modes_drag_rotation_and_storage(browser_http
                     page.set_viewport_size({'width':width,'height':height})
                     if width>760:
                         expect(root).to_be_hidden()
+                        # Existing desktop header collapses on scroll. Assert its
+                        # expanded state rather than treating that as a new bug.
+                        page.evaluate("scrollTo({top:0,behavior:'instant'})")
+                        page.wait_for_function("()=>!document.querySelector('.site-header').classList.contains('is-condensed')")
                         expect(page.locator('header .nav')).to_be_visible()
+                        assert page.evaluate("document.documentElement.scrollWidth<=innerWidth+2")
                         continue
                     expect(root).to_be_visible()
                     expect(page.locator('header .nav')).to_be_hidden()
@@ -4177,6 +4188,8 @@ def test_personal_mobile_navigation_modes_drag_rotation_and_storage(browser_http
                     if mode=='radial':
                         handle=root.locator('.mobile-nav-handle')
                         expect(handle).to_be_visible()
+                        handle.evaluate("e=>e.blur()")
+                        page.wait_for_function("()=>Number(getComputedStyle(document.querySelector('.mobile-nav-handle')).opacity)<=.3")
                         assert float(handle.evaluate("e=>getComputedStyle(e).opacity"))<=.3
                         handle.click()
                         expect(handle).to_have_attribute('aria-expanded','true')
@@ -4186,6 +4199,7 @@ def test_personal_mobile_navigation_modes_drag_rotation_and_storage(browser_http
                             box=b.bounding_box()
                             assert box['x']>=-1 and box['x']+box['width']<=width+1 and box['y']>=-1 and box['y']+box['height']<=height+1,box
                             assert box['width']>=44 and box['height']>=44
+                        page.screenshot(path=str(out/f'{engine}-radial-open-{width}x{height}.png'),animations='disabled')
                         page.keyboard.press('Escape')
                         expect(handle).to_have_attribute('aria-expanded','false')
                     else:
@@ -4197,6 +4211,14 @@ def test_personal_mobile_navigation_modes_drag_rotation_and_storage(browser_http
                         if cookie.is_visible():
                             cb,nb=cookie.bounding_box(),bar.bounding_box()
                             assert cb['y']+cb['height']<=nb['y']+1,(cb,nb)
+                        page.evaluate("notice('Проверка нижних слоёв')")
+                        toast=page.locator('#toast-root .toast')
+                        expect(toast).to_be_visible()
+                        tb,nb=toast.bounding_box(),bar.bounding_box()
+                        assert tb['y']+tb['height']<=nb['y']+1,(tb,nb)
+                        if cookie.is_visible():
+                            cb=cookie.bounding_box()
+                            assert tb['y']+tb['height']<=cb['y']+1,(tb,cb)
                     records.append({'mode':mode,'width':width,'height':height})
                     page.screenshot(path=str(out/f'{engine}-{mode}-{width}x{height}.png'),animations='disabled')
             page.set_viewport_size({'width':390,'height':844})
@@ -4228,7 +4250,10 @@ def test_personal_mobile_navigation_modes_drag_rotation_and_storage(browser_http
             page.keyboard.press('Escape')
             # Native route state remains shared with the existing header/router.
             handle.click()
-            root.locator('.mobile-nav-arc [data-nav="/friends"]').click()
+            # On the short arc a target can be offscreen until rotated.
+            friends=root.locator('.mobile-nav-arc [data-nav="/friends"]')
+            expect(friends).to_be_visible()
+            friends.click()
             expect(page).to_have_url(re.compile('/friends$'))
             search=page.locator('#social-search-form input[name=q]')
             search.click();expect(root).to_be_hidden()

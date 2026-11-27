@@ -20,12 +20,15 @@
  function save(){try{localStorage.setItem(key,JSON.stringify(prefs));return true;}catch{return false;}}
  const root=document.createElement('div');root.id='mobile-nav';root.className='mobile-nav';root.hidden=true;document.body.append(root);
  const enabled=()=>!!currentUser&&!isPreview&&mobile.matches;
- const blocked=()=>!!modalRoot.firstElementChild||!!document.querySelector('#page-view :is(input:not([type=checkbox]):not([type=radio]):not([type=hidden]):not([type=file]):not([type=button]):not([type=submit]),textarea,[contenteditable="true"]):focus')||
+ const editorSelector='#page-view :is(input:not([type=checkbox]):not([type=radio]):not([type=hidden]):not([type=file]):not([type=button]):not([type=submit]),textarea,[contenteditable="true"])';
+ let editorPointer=null,editorRelease=0;
+ const editing=()=>!!document.activeElement?.matches(editorSelector)||editorPointer!==null;
+ const blocked=()=>!!modalRoot.firstElementChild||editing()||
   (window.visualViewport&&window.visualViewport.scale<1.05&&innerHeight-window.visualViewport.height-window.visualViewport.offsetTop>120);
  const link=r=>'<a href="'+r[0]+'" data-nav="'+r[0]+'" aria-label="'+label(r)+'">'+symbol(r[2])+'<span>'+r[1]+'</span></a>';
  function settingsMarkup(){
   return '<section class="panel mobile-navigation-settings"><h2>Навигация</h2><p class="note">Выбери удобный способ перемещения на этом устройстве</p><div class="mobile-nav-choices" role="group" aria-label="Модель навигации">'+
-    modes.map(([id,name,desc])=>'<button type="button" class="mobile-nav-choice" data-nav-mode="'+id+'" aria-pressed="'+(prefs.mode===id)+'"><span class="mobile-nav-mini '+id+'" aria-hidden="true"><i></i><i></i><i></i><i></i><i></i></span><span><strong>'+name+'</strong><small>'+desc+'</small></span><span class="mobile-nav-check" aria-hidden="true">'+ico('check',18)+'</span></button>').join('')+
+    modes.map(([id,name,desc])=>'<button type="button" class="mobile-nav-choice" data-nav-mode="'+id+'" aria-pressed="'+(prefs.mode===id)+'"><span class="mobile-nav-mini mode-'+id+'" aria-hidden="true"><i></i><i></i><i></i><i></i><i></i></span><span><strong>'+name+'</strong><small>'+desc+'</small></span><span class="mobile-nav-check" aria-hidden="true">'+ico('check',18)+'</span></button>').join('')+
     '</div><div class="mobile-nav-position" '+(prefs.mode==='radial'?'':'hidden')+'><p class="note">Перетащи закрытый островок вверх, вниз или к другой границе</p><div class="btn-row" role="group" aria-label="Расположение островка"><button type="button" class="btn btn-soft btn-small" data-nav-side="left" aria-pressed="'+(prefs.side==='left')+'">Слева</button><button type="button" class="btn btn-soft btn-small" data-nav-side="right" aria-pressed="'+(prefs.side==='right')+'">Справа</button><button type="button" class="btn btn-soft btn-small" data-nav-reset>Сброс места</button></div></div>'+
     (currentUser?.is_admin?'<a class="btn btn-soft btn-small mobile-nav-admin" href="/admin" data-nav="/admin">Админка</a>':'')+'<p class="note mobile-nav-storage" role="status"></p></section>';
  }
@@ -109,6 +112,7 @@
   if(hidden)close();
   html.classList.toggle('mobile-nav-active',active);
   html.classList.toggle('mobile-nav-blocked',active&&hidden);
+  html.classList.toggle('mobile-nav-editing',active&&editing());
   if(html.dataset.mobileNavMode!==(active?prefs.mode:''))html.dataset.mobileNavMode=active?prefs.mode:'';
   if(renderedMode!==prefs.mode){close();build();}
   if(root.hidden!==hidden)root.hidden=hidden;
@@ -200,6 +204,20 @@
  const resize=typeof ResizeObserver==='function'?new ResizeObserver(schedule):null;
  if(resize){resize.observe(document.getElementById('toast-root'));}
  new MutationObserver(sync).observe(modalRoot,{childList:true});
+ // A pointer press on a form action moves focus off the editor before click.
+ // Keep the bottom overlays parked until click has actually been dispatched.
+ // A timeout also releases a pointer sequence that never produces a click.
+ function releaseEditorPointer(){clearTimeout(editorRelease);editorRelease=0;editorPointer=null;sync();}
+ document.addEventListener('pointerdown',e=>{
+  if(!enabled()||!e.isPrimary||e.button!==0||!document.activeElement?.matches(editorSelector))return;
+  clearTimeout(editorRelease);editorPointer=e.pointerId;sync();
+ },true);
+ document.addEventListener('pointerup',e=>{
+  if(editorPointer===e.pointerId){clearTimeout(editorRelease);editorRelease=setTimeout(releaseEditorPointer,350);}
+ },true);
+ document.addEventListener('pointercancel',e=>{if(editorPointer===e.pointerId)releaseEditorPointer();},true);
+ document.addEventListener('click',()=>{if(editorPointer!==null){clearTimeout(editorRelease);editorRelease=setTimeout(releaseEditorPointer,0);}},true);
+ window.addEventListener('blur',releaseEditorPointer);
  document.addEventListener('focusin',sync);document.addEventListener('focusout',()=>requestAnimationFrame(sync));
  mobile.addEventListener?.('change',sync);window.addEventListener('resize',()=>{close();sync();},{passive:true});
  window.visualViewport?.addEventListener('resize',sync,{passive:true});window.visualViewport?.addEventListener('scroll',sync,{passive:true});

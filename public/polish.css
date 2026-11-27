@@ -1347,8 +1347,8 @@ html.pwa-install-available .pwa-install{display:inline-flex;align-items:center;m
 .mobile-nav-check{opacity:0;color:#655681}.mobile-nav-choice[aria-pressed=true] .mobile-nav-check{opacity:1}
 .mobile-nav-mini{height:46px;border:1px solid #d5c9b9;border-radius:9px;display:flex;align-items:flex-end;justify-content:center;gap:3px;background:linear-gradient(#f9c6ac 0 28%,#fffdf7 28% 100%);padding:4px;position:relative}
 .mobile-nav-mini i{width:5px;height:7px;border-radius:3px;background:#7760b9}
-.mobile-nav-mini.island{box-shadow:inset 0 -12px #f4e7d4}
-.mobile-nav-mini.radial i{display:none}.mobile-nav-mini.radial:after{content:'';position:absolute;right:0;top:17px;width:9px;height:15px;border-radius:8px 0 0 8px;background:#e6c877}
+.mobile-nav-mini.mode-island{box-shadow:inset 0 -12px #f4e7d4}
+.mobile-nav-mini.mode-radial i{display:none}.mobile-nav-mini.mode-radial:after{content:'';position:absolute;right:0;top:17px;width:9px;height:15px;border-radius:8px 0 0 8px;background:#e6c877}
 .mobile-nav-position{margin-top:12px}.mobile-nav-position .btn-row{margin-top:8px}.mobile-nav-position [aria-pressed=true]{background:var(--lilac)}
 .mobile-nav-storage:empty{display:none}.mobile-nav-storage:not(:empty){margin-top:8px}
 .mobile-nav-admin{display:none}
@@ -1398,4 +1398,8 @@ html.pwa-install-available .pwa-install{display:inline-flex;align-items:center;m
  .mobile-nav[data-side=left] .mobile-nav-arc a{left:env(safe-area-inset-left)}
  html.mobile-nav-open .scroll-to-top{visibility:hidden}
  html.mobile-nav-open body:has(.scroll-to-top.is-visible) #toast-root{bottom:calc(max(12px,env(safe-area-inset-bottom)) + var(--notice-visual-bottom))}
+}
+
+@media(max-width:760px){
+ html.mobile-nav-active.mobile-nav-editing #app>.cookie-notice{display:none}
 }
