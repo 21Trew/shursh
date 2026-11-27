@@ -4352,7 +4352,9 @@ def test_personal_mobile_navigation_modes_drag_rotation_and_storage(browser_http
                     client.send('Input.dispatchTouchEvent',{'type':'touchMove','touchPoints':[{'x':x+(24-x)*i/8,'y':y+(400-y)*i/8}]})
                 client.send('Input.dispatchTouchEvent',{'type':'touchEnd','touchPoints':[]})
                 expect(root).to_have_attribute('data-side','left')
+                expect(page.locator('.cookie-notice')).to_be_visible()
                 handle.tap();expect(handle).to_have_attribute('aria-expanded','true')
+                expect(page.locator('.cookie-notice')).to_be_hidden()
                 for direction in (1,-1):
                     before=names.index(center.inner_text());points=arc_points(direction)
                     x,y=points[0]
@@ -4364,13 +4366,38 @@ def test_personal_mobile_navigation_modes_drag_rotation_and_storage(browser_http
                     expect(handle).to_have_attribute('aria-expanded','true')
                 expect(handle).to_have_attribute('aria-expanded','true')
                 expect(page).to_have_url(re.compile('/profile$'))
-                page.keyboard.press('Escape')
-                b=handle.bounding_box();x=b['x']+b['width']/2;y=b['y']+b['height']/2
+                expect(page.locator('#toast-root .toast')).to_have_count(0)
+                # Deterministically sample the real Escape handler in its own
+                # task, then again after the browser paints the restored cookie.
+                # A deferred edge layout makes the immediately read hit point
+                # stale. No sleeps, retries or widened tolerances.
+                closed=handle.evaluate("""async el=>{
+                  const point=()=>{const r=el.getBoundingClientRect();return {x:r.x+r.width/2,y:r.y+r.height/2}};
+                  document.dispatchEvent(new KeyboardEvent('keydown',{key:'Escape',bubbles:true}));
+                  const immediate=point();
+                  await new Promise(r=>requestAnimationFrame(()=>requestAnimationFrame(r)));
+                  const painted=point();
+                  return {immediate,painted,hit:el.contains(document.elementFromPoint(immediate.x,immediate.y))};
+                }""")
+                expect(handle).to_have_attribute('aria-expanded','false')
+                expect(page.locator('.cookie-notice')).to_be_visible()
+                assert abs(closed['immediate']['x']-closed['painted']['x'])<=.5,closed
+                assert abs(closed['immediate']['y']-closed['painted']['y'])<=.5,closed
+                assert closed['hit'],closed
+                x,y=closed['immediate']['x'],closed['immediate']['y']
+                page.evaluate("""()=>{window.__edgePointer=[];
+                  const record=e=>window.__edgePointer.push({type:e.type,pointerType:e.pointerType,
+                    handle:!!e.target.closest?.('.mobile-nav-handle'),x:e.clientX,y:e.clientY});
+                  for(const type of ['pointerdown','pointerup','pointercancel'])document.addEventListener(type,record,{capture:true});
+                }""")
                 client.send('Input.dispatchTouchEvent',{'type':'touchStart','touchPoints':[{'x':x,'y':y}]})
                 for i in range(1,9):
                     client.send('Input.dispatchTouchEvent',{'type':'touchMove','touchPoints':[{'x':x+(366-x)*i/8,'y':y+(300-y)*i/8}]})
                 client.send('Input.dispatchTouchEvent',{'type':'touchEnd','touchPoints':[]})
-                expect(root).to_have_attribute('data-side','right')
+                events=page.evaluate("window.__edgePointer")
+                assert events and events[0]['type']=='pointerdown' and events[0]['handle'] and events[0]['pointerType']=='touch',events
+                assert events[-1]['type']=='pointerup' and not any(e['type']=='pointercancel' for e in events),events
+                assert root.get_attribute('data-side')=='right',(closed,events)
                 saved=page.evaluate("JSON.parse(localStorage.getItem('shursh-mobile-navigation-v1'))")
                 assert saved['side']=='right' and 0<=saved['ratio']<=1
                 client.detach()
