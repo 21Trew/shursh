@@ -304,7 +304,11 @@ function patchOwnerNode(old,next){
  }
  for(const a of [...old.attributes])if(!next.hasAttribute(a.name)&&!(a.name==='data-keyboard-focus'&&old===document.activeElement))old.removeAttribute(a.name);
  for(const a of next.attributes)if(old.getAttribute(a.name)!==a.value)old.setAttribute(a.name,a.value);
- const key=n=>n.nodeType===1?(n.id||n.getAttribute('data-nav')||n.getAttribute('data-wishlist-filter')||n.getAttribute('data-santa-state')||n.getAttribute('data-message-id')||n.getAttribute('data-notification-id')||n.getAttribute('data-person-id')||n.querySelector(':scope > [data-nav]')?.getAttribute('data-nav')||(n.matches('section.panel')?n.querySelector(':scope > h2')?.firstChild?.textContent:null)||null):null;
+ const key=n=>n.nodeType===1?(n.getAttribute('data-render-key')||n.id||n.getAttribute('data-nav')||n.getAttribute('data-wishlist-filter')||n.getAttribute('data-santa-state')||n.getAttribute('data-message-id')||n.getAttribute('data-notification-id')||n.getAttribute('data-person-id')||n.querySelector(':scope > [data-nav]')?.getAttribute('data-nav')||(n.matches('section.panel')?n.querySelector(':scope > h2')?.firstChild?.textContent:null)||null):null;
+ // Remove obsolete keyed siblings first. Otherwise deleting the first
+ // card moves every surviving card before it, causing avoidable DOM mutations.
+ const nextKeys=new Set([...next.childNodes].map(key).filter(Boolean));
+ for(const child of [...old.childNodes]){const k=key(child);if(k&&!nextKeys.has(k))child.remove();}
  let cursor=old.firstChild;
  for(const child of [...next.childNodes]){
   const k=key(child);
@@ -317,6 +321,16 @@ function patchOwnerNode(old,next){
   patchOwnerNode(match,child);cursor=after;
  }
  while(cursor){const after=cursor.nextSibling;cursor.remove();cursor=after;}
+}
+// Patch trusted, escaped renderer output, preserving a moved live control.
+function patchRenderedMarkup(root,markup,prepare){
+ const next=root.cloneNode(false);next.innerHTML=markup;
+ if(prepare)prepare(next);
+ if(root.isEqualNode(next))return false;
+ const focused=root.contains(document.activeElement)?document.activeElement:null;
+ patchOwnerNode(root,next);
+ if(focused?.isConnected&&root.contains(focused)&&document.activeElement===document.body&&!focused.disabled)focused.focus({preventScroll:true});
+ return true;
 }
 function refreshOwnerWishlistPanel(root,lists,mode){
  const panel=root.querySelector('#wishlist-view-content');if(!panel)return;
@@ -1415,14 +1429,16 @@ document.addEventListener('click',async event=>{
   if(!region)return;
   const generation=++wishlistTabGeneration;
   if(tab.dataset.wishlistView==='mine'){
-   region.innerHTML=ownWishlistTiles(currentOwnedWishlists);
+   patchRenderedMarkup(region,ownWishlistTiles(currentOwnedWishlists));
    return;
   }
-  region.innerHTML='<p class="note" role="status">Загружаем вишлисты друзей…</p>';
+  const cachedFriends=cachedOwnerValue('/api/friends/wishlists');
+  if(cachedFriends)patchRenderedMarkup(region,friendWishlistTiles(cachedFriends.lists||[]));
+  else patchRenderedMarkup(region,'<p class="note" role="status">Загружаем вишлисты друзей…</p>');
   try{
    const result=await api('/api/friends/wishlists');
    if(generation!==wishlistTabGeneration||(!region.isConnected&&!ownerTabViews.get('/lists')?.node.contains(region)))return;
-   region.innerHTML=friendWishlistTiles(result.lists||[]);
+   if(!cachedFriends)patchRenderedMarkup(region,friendWishlistTiles(result.lists||[]));
   }catch(err){if(generation===wishlistTabGeneration)region.innerHTML='<p class="note">'+esc(err.message)+'</p>';}
   return;
  }
@@ -1505,7 +1521,7 @@ async function toggleGiftReservation(wishId,listKey){
  }
  if(card?.isConnected){
   const next=document.createElement('template');next.innerHTML=wishCard(wish,'guest',listKey);
-  card.replaceWith(next.content.firstElementChild);
+  patchOwnerNode(card,next.content.firstElementChild);
  }
 }
 function wishCard(w,mode='owner',shareKey=''){
@@ -1513,7 +1529,7 @@ function wishCard(w,mode='owner',shareKey=''){
  const cardActions=mode==='owner'?`<div class="wish-controls"><button class="btn btn-soft" data-action="edit-wish" data-id="${w.id}" title="Редактировать">${ico('edit')}</button><button class="btn btn-soft" data-action="delete-wish" data-id="${w.id}" title="Удалить">${ico('trash')}</button></div>`:'';
  const own=reserved&&!!currentUser&&(w.reserved_by_me||!!ownReservation(shareKey,w.id));
  const footer=mode==='guest'?`<button type="button" class="btn ${own?'btn-soft':reserved?'btn-soft':'btn-dark'} wish-action" ${reserved&&!own?'disabled':''} data-action="reserve" data-id="${w.id}" data-key="${attr(shareKey)}">${own?`${ico('check')} Отменить бронь`:reserved?`${ico('lock')} Уже забронировано`:currentUser?`${ico('gift')} Забронировать`:`${ico('lock')} Войти и забронировать`}</button>`:'';
- return `<article class="wish-card"><button type="button" class="card-hitarea" data-action="show-wish" data-id="${w.id}" data-mode="${attr(mode)}" data-key="${attr(shareKey)}" aria-label="Подробнее о желании ${attr(w.title)}"></button><div class="wish-image">${w.image_path?`<img src="${attr(w.image_path)}" alt="${attr(w.title)}" loading="lazy">`:artFor(w)}${w.priority==='love'?`<span class="wish-priority chip chip-peach">${ico('heart')} Очень хочу</span>`:`<span class="wish-priority chip priority-nice">Было бы здорово</span>`}</div><div class="wish-content"><h3>${esc(w.title)}</h3><p class="wish-desc">${esc(w.description|| (w.kind==='experience'?'Впечатление или хорошая идея':'Подарок без комментария'))}</p><div class="wish-card-footer"><div class="wish-price">${money(w.price_cents,w.currency)}</div>${cardActions}</div>${w.shop_url?`<a href="${attr(w.shop_url)}" target="_blank" rel="noopener noreferrer" class="text-link" style="margin-top:12px;font-size:12px">В магазин ${ico('external')}</a>`:''}${footer}</div></article>`;
+ return `<article class="wish-card" data-render-key="wish:${attr(mode)}:${attr(w.id)}"><button type="button" class="card-hitarea" data-action="show-wish" data-id="${w.id}" data-mode="${attr(mode)}" data-key="${attr(shareKey)}" aria-label="Подробнее о желании ${attr(w.title)}"></button><div class="wish-image">${w.image_path?`<img src="${attr(w.image_path)}" alt="${attr(w.title)}" loading="lazy">`:artFor(w)}${w.priority==='love'?`<span class="wish-priority chip chip-peach">${ico('heart')} Очень хочу</span>`:`<span class="wish-priority chip priority-nice">Было бы здорово</span>`}</div><div class="wish-content"><h3>${esc(w.title)}</h3><p class="wish-desc">${esc(w.description|| (w.kind==='experience'?'Впечатление или хорошая идея':'Подарок без комментария'))}</p><div class="wish-card-footer"><div class="wish-price">${money(w.price_cents,w.currency)}</div>${cardActions}</div>${w.shop_url?`<a href="${attr(w.shop_url)}" target="_blank" rel="noopener noreferrer" class="text-link" style="margin-top:12px;font-size:12px">В магазин ${ico('external')}</a>`:''}${footer}</div></article>`;
 }
 function showWishDetails(el){
  const id=Number(el.dataset.id), mode=el.dataset.mode, key=el.dataset.key||'';
@@ -1547,8 +1563,9 @@ async function refreshOwnerWishes(id){
  if(marker!==lastRenderToken||!root.isConnected)return;
  loadedList=data;
  const scrollY=window.scrollY;
- root.innerHTML=ownerWishesMarkup(data.wishes);
- const count=document.querySelector('[data-owner-wish-count]');if(count)count.textContent=String(data.wishes.length);
+ patchRenderedMarkup(root,ownerWishesMarkup(data.wishes));
+ const count=document.querySelector('[data-owner-wish-count]'),label=String(data.wishes.length);
+ if(count&&count.textContent!==label)count.textContent=label;
  if(Math.abs(window.scrollY-scrollY)>1)window.scrollTo({top:scrollY,behavior:'instant'});
 }
 let loadedPublicWishes=[];

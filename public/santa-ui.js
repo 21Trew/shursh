@@ -5,7 +5,7 @@ function gameWishCard(w,source='own'){
  const image=w.image_data?'<img src="'+attr(w.image_data)+'" alt="'+attr(w.title)+'" loading="lazy" decoding="async">': '<div class="game-gift-placeholder">'+artFor(w)+'</div>';
  const actions=mine?'<div class="game-gift-overlay-actions"><button type="button" class="btn btn-soft" data-action="edit-game-gift" data-id="'+w.id+'" aria-label="Изменить подарок" title="Изменить">'+ico('edit')+'</button>'+
   '<button type="button" class="btn btn-soft" data-action="delete-game-gift" data-id="'+w.id+'" aria-label="Удалить подарок" title="Удалить">'+ico('trash')+'</button></div>':'';
- return '<article class="wish-card game-gift-card">'+
+ return '<article class="wish-card game-gift-card" data-render-key="game-gift:'+attr(source)+':'+attr(w.id)+'">'+
   '<button type="button" class="card-hitarea game-gift-primary" data-action="show-game-gift" data-id="'+w.id+'" data-source="'+source+'" aria-label="Подробнее о подарке '+attr(w.title)+'">'+
   '<div class="wish-image">'+image+'</div>'+
   '<div class="wish-content"><h3>'+esc(w.title)+'</h3></div></button>'+
@@ -20,27 +20,39 @@ function wishesMarkup(wishes,source='own'){
   wishes.map(w=>gameWishCard(w,source)).join('')+'</div></div>';
 }
 const gameGiftDisposers=new Map();
-function disposeGameGiftOverflow(){for(const dispose of gameGiftDisposers.values())dispose();gameGiftDisposers.clear();}
+function disposeGameGiftOverflow(){for(const entry of gameGiftDisposers.values())entry.dispose();gameGiftDisposers.clear();}
 function setupGameGiftOverflow(root=document){
- for(const [track,dispose] of gameGiftDisposers)if(!track.isConnected){dispose();gameGiftDisposers.delete(track);}
+ for(const [track,entry] of gameGiftDisposers)if(!track.isConnected||!track.closest('.game-gifts-carousel')?.querySelector('.game-gifts-arrows')){entry.dispose();gameGiftDisposers.delete(track);}
  root.querySelectorAll('.game-gifts-carousel').forEach(carousel=>{
   const track=carousel.querySelector('.game-gifts-track'),arrows=carousel.querySelector('.game-gifts-arrows');
-  if(!track||!arrows||gameGiftDisposers.has(track))return;
+  if(!track||!arrows)return;
+  const previous=gameGiftDisposers.get(track);
+  if(previous){previous.refresh();return;}
+  let frame=0,disposed=false;
+  const observed=new Set();
   const update=()=>{
-   if(!track.isConnected){observer?.disconnect();return;}
+   frame=0;if(disposed||!track.isConnected)return;
+   const controls=carousel.querySelector('.game-gifts-arrows');if(!controls)return;
    const max=Math.max(0,track.scrollWidth-track.clientWidth);
-   arrows.hidden=max<=3;
-   const back=arrows.querySelector('[data-direction="prev"]'),next=arrows.querySelector('[data-direction="next"]');
-   if(back)back.disabled=max<=3||track.scrollLeft<=2;
-   if(next)next.disabled=max<=3||track.scrollLeft>=max-2;
+   if(controls.hidden!==(max<=3))controls.hidden=max<=3;
+   const back=controls.querySelector('[data-direction="prev"]'),next=controls.querySelector('[data-direction="next"]');
+   const atStart=max<=3||track.scrollLeft<=2,atEnd=max<=3||track.scrollLeft>=max-2;
+   if(back&&back.disabled!==atStart)back.disabled=atStart;
+   if(next&&next.disabled!==atEnd)next.disabled=atEnd;
   };
-  const observer=typeof ResizeObserver==='function'?new ResizeObserver(update):null;
+  const queue=()=>{if(!disposed&&!frame)frame=requestAnimationFrame(update);};
+  const observer=typeof ResizeObserver==='function'?new ResizeObserver(queue):null;
   observer?.observe(track);
-  for(const card of track.children)observer?.observe(card);
-  track.addEventListener('scroll',update,{passive:true});
-  gameGiftDisposers.set(track,()=>{observer?.disconnect();track.removeEventListener('scroll',update);});
-  requestAnimationFrame(update);
-  if(document.fonts?.ready)void document.fonts.ready.then(update);
+  const refresh=()=>{
+   const children=new Set(track.children);
+   for(const node of observed)if(!children.has(node)){observer?.unobserve(node);observed.delete(node);}
+   for(const node of children)if(!observed.has(node)){observer?.observe(node);observed.add(node);}
+   queue();
+  };
+  track.addEventListener('scroll',queue,{passive:true});
+  gameGiftDisposers.set(track,{refresh,dispose:()=>{disposed=true;observer?.disconnect();observed.clear();track.removeEventListener('scroll',queue);if(frame)cancelAnimationFrame(frame);}});
+  refresh();
+  if(document.fonts?.ready)void document.fonts.ready.then(queue);
  });
 }
 async function refreshGameOwnWishes(state){
@@ -53,9 +65,19 @@ async function refreshGameOwnWishes(state){
  const scrollY=window.scrollY,trackX=root.querySelector('.game-gifts-track')?.scrollLeft||0;
  state.own=wishes;
  if(!state.memberView&&loadedSanta?.event.id===state.event.id)loadedSanta.my_wishes=wishes;
- root.innerHTML=wishesMarkup(wishes);
+ // Arrow visibility and disabled state are derived from live geometry.
+ patchRenderedMarkup(root,wishesMarkup(wishes),next=>{
+  const oldArrows=root.querySelector('.game-gifts-arrows'),newArrows=next.querySelector('.game-gifts-arrows');
+  if(oldArrows&&newArrows){
+   newArrows.hidden=oldArrows.hidden;
+   for(const button of newArrows.querySelectorAll('[data-direction]')){
+    const prior=oldArrows.querySelector('[data-direction="'+button.dataset.direction+'"]');
+    if(prior)button.disabled=prior.disabled;
+   }
+  }
+ });
  setupGameGiftOverflow(root);
- const track=root.querySelector('.game-gifts-track');if(track)track.scrollLeft=trackX;
+ const track=root.querySelector('.game-gifts-track');if(track&&Math.abs(track.scrollLeft-trackX)>1)track.scrollLeft=trackX;
  if(Math.abs(window.scrollY-scrollY)>1)window.scrollTo({top:scrollY,behavior:'instant'});
 }
 function gameGiftDetailImage(gift){

@@ -3790,3 +3790,86 @@ def test_branded_document_404_and_diagnostic(browser_https,application,monkeypat
             browser.close()
     items=call(manager,'GET','/api/admin/feedback').json['items']
     assert any('HTTP: 404' in item['message'] and '/santa/*' in item['message'] and 'Версия UI:' in item['message'] and not item['reply_email'] and not item['notify_site'] for item in items)
+
+
+@pytest.mark.browser
+@pytest.mark.parametrize('engine',['chromium','webkit'])
+def test_scoped_gift_render_identity_and_mutation_budget(browser_https,application,engine):
+    """Real CRUD + DOM references, not only visual equality; no Production data."""
+    from test_cloud import login,call
+    owner=login(application)
+    lid=call(owner,'POST','/api/lists',{'title':'DOM identity wishlist'},201).json['id']
+    eid=call(owner,'POST','/api/santas',{'title':'DOM identity Santa'},201).json['id']
+    wish_ids=[call(owner,'POST',f'/api/lists/{lid}/wishes',{'title':f'DOM wish {i}'},201).json['id'] for i in range(3)]
+    game_ids=[call(owner,'POST',f'/api/santas/{eid}/my-wishes',{'title':f'DOM game gift {i}'},201).json['id'] for i in range(5)]
+    report={}
+    with sync_playwright() as play:
+        browser=getattr(play,engine).launch(headless=True)
+        try:
+            ctx=browser.new_context(ignore_https_errors=True,viewport={'width':390,'height':844},reduced_motion='reduce')
+            page=ctx.new_page()
+            page.goto(browser_https+'/')
+            browser_login(page)
+            page.wait_for_function("()=>ownerWarmupReady&&!socialUnreadBusy",timeout=15000)
+            for mode,id,ids in [('wish',lid,wish_ids),('game',eid,game_ids)]:
+                page.evaluate("p=>nav(p)",('/list/' if mode=='wish' else '/santa/')+str(id))
+                selector='[data-owner-wishes]' if mode=='wish' else '.my-wishes-list'
+                expect(page.locator(selector+' .wish-card')).to_have_count(len(ids))
+                if mode=='game':
+                    expect(page.locator(selector+' .game-gifts-track')).to_be_visible()
+                    page.evaluate("()=>{const t=document.querySelector('.my-wishes-list .game-gifts-track');t.scrollLeft=Math.min(80,t.scrollWidth-t.clientWidth)}")
+                    page.wait_for_timeout(150)
+                result=page.evaluate("""async({mode,id,ids,selector})=>{
+                    const root=document.querySelector(selector);
+                    const cards=()=>[...root.querySelectorAll('.wish-card')];
+                    const initial=cards(),track=root.querySelector('.game-gifts-track');
+                    const control=initial[0].querySelector('.card-hitarea');
+                    control.focus({preventScroll:true});
+                    const scroll=window.scrollY,x=track?.scrollLeft||0;
+                    let records=[];
+                    const audit=new MutationObserver(batch=>records.push(...batch));
+                    audit.observe(root,{subtree:true,childList:true,attributes:true,characterData:true});
+                    const take=()=>{
+                        records.push(...audit.takeRecords());
+                        const out={records:records.length,added:0,removed:0,cardsAdded:0,cardsRemoved:0};
+                        for(const r of records)for(const [nodes,k,ck] of [[r.addedNodes,'added','cardsAdded'],[r.removedNodes,'removed','cardsRemoved']]){
+                            for(const n of nodes){out[k]++;if(n.nodeType===1)out[ck]+=(n.matches('.wish-card')?1:0)+n.querySelectorAll('.wish-card').length;}
+                        }
+                        records=[];return out;
+                    };
+                    const refresh=()=>mode==='wish'?refreshOwnerWishes(id):refreshGameOwnWishes(activeGameContext);
+                    const base=mode==='wish'?'/api/lists/'+id+'/wishes':'/api/santas/'+id+'/my-wishes';
+                    const path=i=>mode==='wish'?'/api/wishes/'+i:base+'/'+i;
+                    const settle=()=>new Promise(r=>requestAnimationFrame(()=>requestAnimationFrame(r)));
+                    try{
+                        await refresh();await settle();
+                        const noop=take();
+                        await api(path(ids[0]),{method:'PATCH',body:{title:'DOM edited'}});
+                        await refresh();await settle();
+                        const edit=take(),editIdentity=initial.every((n,i)=>n===cards()[i]);
+                        const editFocus=document.activeElement===control;
+                        const editScroll=Math.abs(window.scrollY-scroll)<=1&&(!track||(track===root.querySelector('.game-gifts-track')&&Math.abs(track.scrollLeft-x)<=1));
+                        const edited=cards().some(n=>n.querySelector('h3')?.textContent==='DOM edited');
+                        const created=await api(base,{method:'POST',body:{title:'DOM added'}});
+                        await refresh();await settle();
+                        const add=take(),addIdentity=initial.every(n=>cards().includes(n));
+                        const countAfterAdd=cards().length;
+                        await api(path(created.id),{method:'DELETE'});
+                        await refresh();await settle();
+                        const del=take(),deleteIdentity=initial.every((n,i)=>n===cards()[i]);
+                        return {noop,edit,add,del,editIdentity,editFocus,editScroll,edited,addIdentity,deleteIdentity,countAfterAdd,countAfterDelete:cards().length,trackIdentity:!track||track===root.querySelector('.game-gifts-track')};
+                    }finally{audit.disconnect();}
+                }""",{'mode':mode,'id':id,'ids':ids,'selector':selector})
+                report[mode]=result
+                assert result['noop']['records']==0,result
+                assert result['editIdentity'] and result['editFocus'] and result['editScroll'] and result['edited'],result
+                assert result['edit']['cardsAdded']==result['edit']['cardsRemoved']==0,result
+                assert result['edit']['records']>0,result
+                assert result['addIdentity'] and result['add']['cardsAdded']==1 and result['add']['cardsRemoved']==0,result
+                assert result['countAfterAdd']==len(ids)+1,result
+                assert result['deleteIdentity'] and result['del']['cardsAdded']==0 and result['del']['cardsRemoved']==1,result
+                assert result['countAfterDelete']==len(ids) and result['trackIdentity'],result
+            out=OUTPUT/'render-mutations';out.mkdir(parents=True,exist_ok=True)
+            (out/f'{engine}.json').write_text(json.dumps(report,ensure_ascii=False,indent=2),encoding='utf-8')
+            ctx.close()
+        finally:browser.close()
