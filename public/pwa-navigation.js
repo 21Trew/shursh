@@ -98,7 +98,7 @@
   const handle=root.querySelector('.mobile-nav-handle');if(!handle)return;
   // Hold the polar centre and radius throughout a gesture: a disappearing toast
   // must not rotate the menu or change its coordinate system under the finger.
-  const g=open?(drag?.kind==='arc'?drag.geometry:geom()):null;
+  const g=open?(drag?.geometry||geom()):null;
   handle.style.top=(g?.y??edgeY())+'px';root.dataset.side=prefs.side;
   if(!open)return;
   lastArcGeometry=g;
@@ -156,28 +156,36 @@
  root.addEventListener('pointerdown',e=>{
   if(!e.isPrimary||e.button!==0||root.hidden)return;
   suppress=false;const h=e.target.closest('.mobile-nav-handle');
-  if(h){drag={kind:'edge',id:e.pointerId,x:e.clientX,y:e.clientY,side:prefs.side,ratio:prefs.ratio,moved:false,wasOpen:open,target:h};}
+  if(h&&!open){drag={kind:'edge',id:e.pointerId,x:e.clientX,y:e.clientY,side:prefs.side,ratio:prefs.ratio,moved:false,target:h};}
+  else if(open&&(h||e.target.closest('.mobile-nav-shade'))){cancelMotion();const geometry=lastArcGeometry||geom();drag={kind:'vertical',id:e.pointerId,x:e.clientX,y:e.clientY,lastY:e.clientY,geometry,moved:false,target:h||e.target.closest('.mobile-nav-shade'),tapToggle:!!h};}
   else if(open&&e.target.closest('.mobile-nav-arc')){cancelMotion();const geometry=lastArcGeometry||geom();drag={kind:'arc',id:e.pointerId,x:e.clientX,y:e.clientY,last:angle(e,geometry),geometry,moved:false,target:e.target.closest('a')||root.querySelector('.mobile-nav-arc')};}
-  if(drag?.kind==='edge'){try{drag.target.setPointerCapture(e.pointerId);drag.capture=drag.target;}catch{}}
+  if(drag&&(drag.kind==='edge'||drag.tapToggle)){try{drag.target.setPointerCapture(e.pointerId);drag.capture=drag.target;}catch{}}
  });
  // Native HTML link dragging cancels pointer events in Chromium. A moving
  // route link may also become hidden. Capture the gesture on the stable arc.
  root.addEventListener('dragstart',e=>e.preventDefault());
+ // Keep a handle-originated touch out of Safari's default edge gesture.
+ // Other page touches retain their normal browser behavior.
+ function cancelHandleTouch(e){if(e.touches.length===1&&e.target.closest('.mobile-nav-handle')&&e.cancelable)e.preventDefault();}
+ root.addEventListener('touchstart',cancelHandleTouch,{passive:false});
+ root.addEventListener('touchmove',cancelHandleTouch,{passive:false});
  document.addEventListener('pointermove',e=>{
   const d=drag;if(!d||d.id!==e.pointerId)return;
   if(!d.moved&&Math.hypot(e.clientX-d.x,e.clientY-d.y)<8)return;
   if(!d.moved){
    d.moved=true;
-   if(d.kind==='arc'){
-    const surface=root.querySelector('.mobile-nav-arc');
+   if(d.kind!=='edge'&&!d.capture){
+    const surface=d.kind==='arc'?root.querySelector('.mobile-nav-arc'):d.target;
     try{surface.setPointerCapture(e.pointerId);d.capture=surface;}catch{}
    }
   }
   e.preventDefault();
   if(d.kind==='edge'){
-   if(d.wasOpen)return;
    const b=bounds();prefs.side=e.clientX<innerWidth/2?'left':'right';prefs.ratio=clamp((e.clientY-b.top)/Math.max(1,b.bottom-b.top),0,1);
    root.classList.add('is-dragging');layout();
+  }else if(open&&d.kind==='vertical'){
+   const pitch=d.geometry.radius*d.geometry.step*Math.PI/180;
+   offset+=(prefs.side==='left'?1:-1)*(e.clientY-d.lastY)/pitch;d.lastY=e.clientY;layout();
   }else if(open){
    const a=angle(e,d.geometry);let delta=a-d.last;if(delta>180)delta-=360;if(delta<-180)delta+=360;d.last=a;
    offset-=delta/d.geometry.step;layout();
@@ -189,9 +197,9 @@
   root.classList.remove('is-dragging');
   if(d.moved){
    suppress=true;
-   if(d.kind==='edge'&&!d.wasOpen){if(e.type!=='pointerup'){prefs.side=d.side;prefs.ratio=d.ratio;}else save();syncSettings();layout();}
-   else if(d.kind==='arc'&&open)snap();
-  }else if(d.kind==='edge'&&e.type==='pointerup'){
+   if(d.kind==='edge'){if(e.type!=='pointerup'){prefs.side=d.side;prefs.ratio=d.ratio;}else save();syncSettings();layout();}
+   else if(open)snap();
+  }else if((d.kind==='edge'||d.tapToggle)&&e.type==='pointerup'){
    suppress=true;toggle();
   }
  }
