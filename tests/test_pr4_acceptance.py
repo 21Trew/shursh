@@ -3446,6 +3446,8 @@ def test_cookie_notice_nested_routes_dialogs_and_keyboard_viewport(browser_https
     def page_gate(page):
         notice = page.locator('.cookie-notice')
         expect(notice).to_have_count(1)
+        expect(notice).to_be_visible()
+        page.evaluate("()=>new Promise(r=>requestAnimationFrame(()=>requestAnimationFrame(r)))")
         assert notice.evaluate("""el => {
           const r=el.getBoundingClientRect(),view=document.querySelector('#page-view');
           const before=[view.offsetTop,view.offsetHeight,document.documentElement.scrollHeight];
@@ -3559,6 +3561,8 @@ def test_cookie_notice_nested_routes_dialogs_and_keyboard_viewport(browser_https
                     expect(search).to_be_focused()
                     page.set_viewport_size({'width':width,'height':height})
                     page.evaluate("socialPersonalInviteModal()")
+                    # A dialog parks the page editor and ends its pointer sequence.
+                    expect(search).not_to_be_focused()
                     dialog_gate(page,'friend-qr',width,height)
                     page.evaluate("document.activeElement?.blur()")
                     notice=page.locator('.cookie-notice')
@@ -4245,12 +4249,33 @@ def test_personal_mobile_navigation_modes_drag_rotation_and_storage(browser_http
             assert center.inner_text()!=before
             for _ in range(4):page.keyboard.press('ArrowDown')
             expect(center).to_have_text(before)
-            # Actual mouse drag on the open arc: movement must not navigate.
-            target=root.locator('.mobile-nav-arc a[tabindex="0"]').nth(1)
-            b=target.bounding_box();x=b['x']+b['width']/2;y=b['y']+b['height']/2
-            before_drag=center.inner_text()
-            page.mouse.move(x,y);page.mouse.down();page.mouse.move(x,y+100,steps=10);page.mouse.up()
-            assert center.inner_text()!=before_drag
+            # Follow an actual arc from its centre item, not an arbitrary
+            # vertical drag at an endpoint (which can be almost radial).
+            import math
+            names=['Главная','Вишлисты','Тайный Санта','Друзья','Профиль']
+            def arc_points(direction):
+                target=root.locator('.mobile-nav-arc a[aria-label="'+center.inner_text()+'"]')
+                b=target.bounding_box();h=handle.bounding_box()
+                cx=h['x']+h['width']/2;cy=h['y']+h['height']/2
+                x=b['x']+b['width']/2;y=b['y']+b['height']/2
+                radius=abs(x-cx);side=1 if x>cx else -1
+                assert radius>=44,(b,h)
+                points=[(x,y)]
+                for i in range(1,13):
+                    angle=math.radians(direction*70*i/12)
+                    points.append((cx+side*radius*math.cos(angle),cy+radius*math.sin(angle)))
+                return points
+            def rotate_mouse(direction):
+                before=names.index(center.inner_text())
+                points=arc_points(direction)
+                page.mouse.move(*points[0]);page.mouse.down()
+                for point in points[1:]:page.mouse.move(*point)
+                page.mouse.up()
+                expect(center).to_have_text(names[(before-2*direction)%5])
+                expect(handle).to_have_attribute('aria-expanded','true')
+                expect(page).to_have_url(re.compile('/profile$'))
+            rotate_mouse(1)
+            rotate_mouse(-1)
             expect(page).to_have_url(re.compile('/profile$'))
             expect(handle).to_have_attribute('aria-expanded','true')
             page.keyboard.press('Escape')
@@ -4282,13 +4307,15 @@ def test_personal_mobile_navigation_modes_drag_rotation_and_storage(browser_http
                 client.send('Input.dispatchTouchEvent',{'type':'touchEnd','touchPoints':[]})
                 expect(root).to_have_attribute('data-side','left')
                 handle.tap();expect(handle).to_have_attribute('aria-expanded','true')
-                before_touch=center.inner_text()
-                b=root.locator('.mobile-nav-arc a[tabindex="0"]').nth(1).bounding_box();x=b['x']+b['width']/2;y=b['y']+b['height']/2
-                client.send('Input.dispatchTouchEvent',{'type':'touchStart','touchPoints':[{'x':x,'y':y}]})
-                for i in range(1,9):
-                    client.send('Input.dispatchTouchEvent',{'type':'touchMove','touchPoints':[{'x':x,'y':y+13*i}]})
-                client.send('Input.dispatchTouchEvent',{'type':'touchEnd','touchPoints':[]})
-                assert center.inner_text()!=before_touch
+                for direction in (1,-1):
+                    before=names.index(center.inner_text());points=arc_points(direction)
+                    x,y=points[0]
+                    client.send('Input.dispatchTouchEvent',{'type':'touchStart','touchPoints':[{'x':x,'y':y}]})
+                    for x,y in points[1:]:
+                        client.send('Input.dispatchTouchEvent',{'type':'touchMove','touchPoints':[{'x':x,'y':y}]})
+                    client.send('Input.dispatchTouchEvent',{'type':'touchEnd','touchPoints':[]})
+                    expect(center).to_have_text(names[(before-2*direction)%5])
+                    expect(handle).to_have_attribute('aria-expanded','true')
                 expect(handle).to_have_attribute('aria-expanded','true')
                 expect(page).to_have_url(re.compile('/profile$'))
                 page.keyboard.press('Escape')

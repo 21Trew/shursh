@@ -90,7 +90,9 @@
  function layout(){
   if(!enabled()||root.hidden||prefs.mode!=='radial')return;
   const handle=root.querySelector('.mobile-nav-handle');if(!handle)return;
-  const g=open?geom():null;
+  // Hold the polar centre and radius throughout a gesture: a disappearing toast
+  // must not rotate the menu or change its coordinate system under the finger.
+  const g=open?(drag?.kind==='arc'?drag.geometry:geom()):null;
   handle.style.top=(g?.y??edgeY())+'px';root.dataset.side=prefs.side;
   if(!open)return;
   const side=prefs.side==='left'?1:-1;
@@ -143,12 +145,12 @@
   function frame(t){if(!open)return;const u=clamp((t-t0)/170,0,1);offset=start+(to-start)*(1-Math.pow(1-u,3));layout();if(u<1)animation=requestAnimationFrame(frame);else{animation=0;offset=mod(to,routes.length);layout();if(focus)focusCenter();}}
   animation=requestAnimationFrame(frame);
  }
- const angle=e=>{const g=geom(),x=prefs.side==='left'?e.clientX-g.safeLeft:g.width-g.safeRight-e.clientX;return Math.atan2(e.clientY-g.y,x-24)*180/Math.PI;};
+ const angle=(e,g)=>{const x=prefs.side==='left'?e.clientX-g.safeLeft:g.width-g.safeRight-e.clientX;return Math.atan2(e.clientY-g.y,x-24)*180/Math.PI;};
  root.addEventListener('pointerdown',e=>{
   if(!e.isPrimary||e.button!==0||root.hidden)return;
   suppress=false;const h=e.target.closest('.mobile-nav-handle');
   if(h){drag={kind:'edge',id:e.pointerId,x:e.clientX,y:e.clientY,side:prefs.side,ratio:prefs.ratio,moved:false,wasOpen:open,target:h};}
-  else if(open&&e.target.closest('.mobile-nav-arc')){cancelMotion();drag={kind:'arc',id:e.pointerId,x:e.clientX,y:e.clientY,last:angle(e),moved:false,target:e.target.closest('a')||root.querySelector('.mobile-nav-arc')};}
+  else if(open&&e.target.closest('.mobile-nav-arc')){cancelMotion();const geometry=geom();drag={kind:'arc',id:e.pointerId,x:e.clientX,y:e.clientY,last:angle(e,geometry),geometry,moved:false,target:e.target.closest('a')||root.querySelector('.mobile-nav-arc')};}
   if(drag){try{drag.target.setPointerCapture(e.pointerId);}catch{}}
  });
  root.addEventListener('pointermove',e=>{
@@ -161,8 +163,8 @@
    const b=bounds();prefs.side=e.clientX<innerWidth/2?'left':'right';prefs.ratio=clamp((e.clientY-b.top)/Math.max(1,b.bottom-b.top),0,1);
    root.classList.add('is-dragging');layout();
   }else if(open){
-   const a=angle(e);let delta=a-d.last;if(delta>180)delta-=360;if(delta<-180)delta+=360;d.last=a;
-   offset-=delta/geom().step;layout();
+   const a=angle(e,d.geometry);let delta=a-d.last;if(delta>180)delta-=360;if(delta<-180)delta+=360;d.last=a;
+   offset-=delta/d.geometry.step;layout();
   }
  });
  function finish(e){
@@ -207,13 +209,21 @@
  });
  const resize=typeof ResizeObserver==='function'?new ResizeObserver(schedule):null;
  if(resize){resize.observe(document.getElementById('toast-root'));}
- new MutationObserver(sync).observe(modalRoot,{childList:true});
+ new MutationObserver(()=>{
+  // Opening a dialog ends an underlying editor gesture. Do not retain an
+  // editor focus or a stale pointer latch when closing a non-editable dialog.
+  if(modalRoot.firstElementChild){
+   clearTimeout(editorRelease);editorRelease=0;editorPointer=null;
+   if(document.activeElement?.matches(editorSelector))document.activeElement.blur();
+  }
+  sync();
+ }).observe(modalRoot,{childList:true});
  // A pointer press on a form action moves focus off the editor before click.
  // Keep the bottom overlays parked until click has actually been dispatched.
  // A timeout also releases a pointer sequence that never produces a click.
  function releaseEditorPointer(){clearTimeout(editorRelease);editorRelease=0;editorPointer=null;sync();}
  document.addEventListener('pointerdown',e=>{
-  if(!enabled()||!e.isPrimary||e.button!==0||!document.activeElement?.matches(editorSelector))return;
+  if(!enabled()||modalRoot.firstElementChild||!e.isPrimary||e.button!==0||!document.activeElement?.matches(editorSelector))return;
   clearTimeout(editorRelease);editorPointer=e.pointerId;sync();
  },true);
  document.addEventListener('pointerup',e=>{
