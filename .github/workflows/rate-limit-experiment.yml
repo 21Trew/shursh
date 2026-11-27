@@ -7,7 +7,7 @@ permissions:
 jobs:
   rate-benchmark:
     runs-on: ubuntu-24.04
-    timeout-minutes: 12
+    timeout-minutes: 18
     services:
       postgres:
         image: postgres:17
@@ -32,22 +32,34 @@ jobs:
         with:
           python-version: '3.12'
       - run: python -m pip install -r requirements.txt
-      - name: Direct PostgreSQL 17 benchmark and security gates
+      - name: Start isolated Supavisor transaction pooler
         run: |
-          python -m py_compile tools/rate_limit_experiment.py
-          python -m tools.rate_limit_experiment --profile local --requests 120 --repeats 5 --output artifacts/rate-benchmark/local.json
-      - name: Optional isolated loopback latency experiment
+          python -m py_compile tools/rate_limit_pooler_experiment.py
+          bash -n tools/start_rate_bench_pooler.sh
+          python -m tools.rate_limit_pooler_experiment --setup
+          bash tools/start_rate_bench_pooler.sh
+          python -m tools.rate_limit_pooler_experiment --ready
+      - name: Supavisor benchmark and fault gates
+        run: python -m tools.rate_limit_pooler_experiment --profile local --output artifacts/rate-pooler/local.json
+      - name: Optional loopback latency profile
         run: |
           if sudo tc qdisc add dev lo root netem delay 5ms; then
             trap 'sudo tc qdisc del dev lo root' EXIT
-            python -m tools.rate_limit_experiment --profile netem --requests 120 --repeats 3 --output artifacts/rate-benchmark/netem.json
+            python -m tools.rate_limit_pooler_experiment --profile netem --output artifacts/rate-pooler/netem.json
           else
-            echo '{"status":"skipped","reason":"netem unavailable on runner"}' > artifacts/rate-benchmark/netem-status.json
+            echo '{"status":"skipped","reason":"netem unavailable"}' > artifacts/rate-pooler/netem-status.json
+          fi
+      - name: Stop disposable pooler and show startup diagnostics on failure
+        if: always()
+        run: |
+          if docker inspect shursh-bench-pooler >/dev/null 2>&1; then
+            docker logs --tail 80 shursh-bench-pooler || true
+            docker rm -f shursh-bench-pooler
           fi
       - uses: actions/upload-artifact@v4
         if: always()
         with:
-          name: isolated-rate-limiter-benchmark
-          path: artifacts/rate-benchmark/
+          name: isolated-supavisor-benchmark
+          path: artifacts/rate-pooler/
           if-no-files-found: warn
           retention-days: 7
