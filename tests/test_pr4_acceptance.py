@@ -4432,16 +4432,14 @@ def test_personal_mobile_navigation_modes_drag_rotation_and_storage(browser_http
                         vertical_drag(x,400,direction*pitch*2)
                         expect(center).to_have_text(names[(before+direction*(1 if side=='left' else -1)*2)%5])
                         expect(handle).to_have_attribute('aria-expanded','true')
-                        expect(page).to_have_url(re.compile('/profile
-))
+                        expect(page).to_have_url(re.compile('/profile$'))
                     b=handle.bounding_box();before=names.index(center.inner_text())
                     vertical_drag(b['x']+b['width']/2,b['y']+b['height']/2,-pitch)
                     expect(center).to_have_text(names[(before+(-1 if side=='left' else 1))%5])
                     expect(handle).to_have_attribute('aria-expanded','true')
                     page.touchscreen.tap(x,400)
                     expect(handle).to_have_attribute('aria-expanded','false')
-                    expect(page).to_have_url(re.compile('/profile
-))
+                    expect(page).to_have_url(re.compile('/profile$'))
                 page.evaluate("window.__navTouchStarts=[]")
                 page.locator('.mobile-navigation-settings h2').tap()
                 assert page.evaluate("window.__navTouchStarts.some(e=>!e.handle&&!e.prevented)")
