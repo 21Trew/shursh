@@ -2910,16 +2910,16 @@ def test_toast_route_scope_and_page_flow(browser_https,engine):
                     ignore_https_errors=True,reduced_motion='reduce')
                 page=ctx.new_page();page.goto(browser_https+'/')
                 expect(page.locator('main h1').first).to_be_visible()
-                page.evaluate("notice('Сохранено на этой странице')")
+                page.evaluate("document.fonts.ready")
+                page.evaluate("""()=>{window.toastPageGeometry=()=>{const r=document.querySelector('main').getBoundingClientRect();return [r.x,r.y,r.width,r.height,document.documentElement.scrollHeight,scrollY]};window.toastBefore=toastPageGeometry();notice('Сохранено на этой странице')}""")
                 toast=page.locator('#toast-root .toast')
                 expect(toast).to_be_visible()
-                assert toast.evaluate("el=>getComputedStyle(el).position==='static'")
                 assert toast.evaluate("""el=>{
-                    const r=el.getBoundingClientRect();
-                    return [...document.querySelectorAll('button,a,input')].every(b=>{
-                        const q=b.getBoundingClientRect();
-                        return !(r.left<q.right&&r.right>q.left&&r.top<q.bottom&&r.bottom>q.top&&q.width&&q.height);
-                    });
+                    const root=el.parentElement,r=el.getBoundingClientRect();
+                    const hit=document.elementFromPoint(r.left+r.width/2,r.top+r.height/2);
+                    return root.parentElement===document.body&&getComputedStyle(root).position==='fixed'&&
+                      innerWidth-r.right>=0&&innerWidth-r.right<=30&&innerHeight-r.bottom>=0&&innerHeight-r.bottom<=30&&
+                      !root.contains(hit)&&JSON.stringify(toastBefore)===JSON.stringify(toastPageGeometry());
                 }""")
                 page.screenshot(path=str(out/f'{engine}-{width}-page.png'),animations='disabled')
                 page.evaluate("nav('/toast-scope-test')")
@@ -3517,7 +3517,10 @@ def test_admin_device_presence_color_and_refresh(browser_https, application, mon
             search.focus()
             page.evaluate("window.presenceSearch=document.querySelector('#admin-users-query');window.presenceTable=document.querySelector('.admin-users-table')")
             call(member,'GET','/api/notifications/unread',headers={'User-Agent':'Mozilla/5.0 (Windows NT 10.0)','X-Shursh-Visit':'1'})
+            traffic=[]
+            page.on('request',lambda r:traffic.append(r.url) if '/api/admin/users' in r.url else None)
             page.evaluate("socialRefreshAdminPresence()")
+            assert len(traffic)==1 and 'presence=1' in traffic[0],traffic
             expect(icon).to_have_class(re.compile(r'\bis-online\b'))
             expect(icon).to_have_css('color','rgb(22, 163, 74)')
             expect(icon).to_have_attribute('title',re.compile('В сети'))
@@ -3872,4 +3875,58 @@ def test_scoped_gift_render_identity_and_mutation_budget(browser_https,applicati
             out=OUTPUT/'render-mutations';out.mkdir(parents=True,exist_ok=True)
             (out/f'{engine}.json').write_text(json.dumps(report,ensure_ascii=False,indent=2),encoding='utf-8')
             ctx.close()
+        finally:browser.close()
+
+
+@pytest.mark.browser
+@pytest.mark.parametrize('engine',['chromium','webkit'])
+def test_api_deadline_dedup_and_cancel(browser_https,engine):
+    """Measure actual client promises and signals with a deterministic transport."""
+    with sync_playwright() as play:
+        browser=getattr(play,engine).launch(headless=True)
+        try:
+            page=browser.new_context(ignore_https_errors=True).new_page()
+            page.goto(browser_https+'/')
+            expect(page.locator('main h1').first).to_be_visible()
+            report=page.evaluate("""async()=>{
+              const original=window.fetch,requests=[];
+              const path='/api/test-transport';
+              const reply=()=>new Response(JSON.stringify({ok:true}),{status:200});
+              window.fetch=(url,options)=>url===path?new Promise(resolve=>requests.push({resolve,signal:options.signal,method:options.method})):original(url,options);
+              const outcome=p=>p.then(()=> 'ok',e=>e.name);
+              try{
+                const first=api(path),second=api(path);
+                const dedup=requests.length;
+                requests[0].resolve(reply());await Promise.all([first,second]);
+                const start=performance.now();
+                const timeout=await outcome(api(path,{timeoutMs:80}));
+                const elapsed=performance.now()-start,timeoutAborted=requests[1].signal.aborted;
+                const caller=new AbortController(),other=new AbortController();
+                const p=outcome(api(path,{signal:caller.signal})),q=outcome(api(path,{signal:other.signal}));
+                caller.abort();const cancelled=await p;
+                const independent=!requests[3].signal.aborted;
+                requests[3].resolve(reply());const sibling=await q;
+                const write=await outcome(api(path,{method:'POST',body:{a:1},timeoutMs:80}));
+                const writes=requests.filter(r=>r.method==='POST').length;
+                const body=outcome(api(path,{timeoutMs:80}));
+                const bodyRequest=requests.at(-1);
+                bodyRequest.resolve({ok:true,status:200,headers:new Headers(),json:()=>new Promise(()=>{})});
+                const bodyTimeout=await body;
+                const bodyAborted=bodyRequest.signal.aborted;
+                const before=requests.length,stale=outcome(api(path));
+                clearOwnerDataCache();const session=await stale;
+                const sessionAborted=requests[before].signal.aborted;
+                const recovery=api(path);requests.at(-1).resolve(reply());await recovery;
+                return {dedup,timeout,elapsed,timeoutAborted,cancelled,independent,sibling,write,writes,bodyTimeout,bodyAborted,session,sessionAborted,pending:apiReadPending.size,controllers:apiReadControllers.size};
+              }finally{window.fetch=original;}
+            }""")
+            assert report['dedup']==1,report
+            assert report['timeout']=='TimeoutError' and 60<=report['elapsed']<1500 and report['timeoutAborted'],report
+            assert report['cancelled']=='AbortError' and report['independent'] and report['sibling']=='ok',report
+            assert report['write']=='TimeoutError' and report['writes']==1,report
+            assert report['bodyTimeout']=='TimeoutError' and report['bodyAborted'],report
+            assert report['session']=='AbortError' and report['sessionAborted'],report
+            assert report['pending']==report['controllers']==0,report
+            out=OUTPUT/'api-lifecycle';out.mkdir(parents=True,exist_ok=True)
+            (out/f'{engine}.json').write_text(json.dumps(report,indent=2),encoding='utf-8')
         finally:browser.close()

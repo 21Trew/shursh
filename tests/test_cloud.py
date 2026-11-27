@@ -2542,6 +2542,15 @@ def test_admin_user_directory_is_paginated_and_only_for_site_admin(application,m
     call(manager,'GET','/api/admin/users?offset=10001',status=400)
     call(manager,'GET','/api/admin/users?q='+'a'*51,status=400)
     call(user,'GET','/api/admin/overview',status=403)
+    call(anon,'GET','/api/admin/users?presence=1',status=401)
+    call(user,'GET','/api/admin/users?presence=1',status=403)
+    presence=call(manager,'GET','/api/admin/users?presence=1').json
+    assert set(presence)=={'users','server_now'}
+    fields={'id','last_seen_at','last_platform','last_seen_source','gifts_count','referral_count'}
+    assert presence['users']==[{k:u[k] for k in fields} for u in result['users']]
+    assert len(str(presence))<len(str(result))
+    assert call(manager,'GET','/api/admin/users?presence=1&offset=10000').json['users']==[]
+    call(manager,'GET','/api/admin/users?presence=1&offset=-1',status=400)
 
 
 def test_admin_directory_profile_link_does_not_bypass_private_content(application,monkeypatch):

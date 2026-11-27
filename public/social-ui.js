@@ -21,7 +21,7 @@ async function socialRefreshBadge(force=false){
  finally{if(request===socialUnreadRequest)socialUnreadBusy=false;}
 }
 setInterval(()=>{if(typeof currentUser!=='undefined')socialRefreshBadge();},120000);
-document.addEventListener('visibilitychange',()=>{if(!document.hidden)socialRefreshBadge(true);});
+document.addEventListener('visibilitychange',()=>{if(!document.hidden)socialRefreshBadge();});
 
 const socialEmojiChoices=["🐱","🐈","🐶","🦊","🐻","🐼","🐸","🦄","🐰","🦦","🐧","🐨","🦉","🦋","❤️","💚","💜","💛","✨","⭐","🌙","🌈","🔥","🪐","🚀","🌸","🌼","🌻","🍀","🍄","🪴","🎄","🍓","🍒","🍋","☕","🍩","🍪","🧁","🎁","🧸","🎮","🎨","📚","🎵","🎧","🎬","🛹"];
 function socialAvatar(p,extra=''){
@@ -418,21 +418,28 @@ function socialAdminUsersMarkup(page){
    '<button type="button" class="btn btn-soft btn-small" data-social-action="admin-users-next" data-offset="'+(page.offset+page.limit)+'"'+(to>=page.total?' disabled':'')+'>Вперёд</button></div></div>';
 }
 let adminUsersSearchTimer=null;
-let adminUsersRequestId=0;
+let adminUsersRequestId=0,adminUsersController=null,adminPresenceController=null;
+function cancelAdminUserReads(){
+ adminUsersRequestId++;adminUsersController?.abort();adminPresenceController?.abort();
+ if(adminUsersSearchTimer!==null){clearTimeout(adminUsersSearchTimer);adminUsersSearchTimer=null;}
+}
 async function socialLoadAdminUsers(offset=0){
  const root=document.querySelector('[data-admin-users-content]');
  const search=document.getElementById('admin-users-query');
  if(!root||!search)return;
+ adminUsersController?.abort();adminPresenceController?.abort();
+ const controller=new AbortController();adminUsersController=controller;
  const query=search.value.trim(),requestId=++adminUsersRequestId;
  root.setAttribute('aria-busy','true');
  try{
-  const page=await api('/api/admin/users?offset='+offset+'&q='+encodeURIComponent(query));
+  const page=await api('/api/admin/users?offset='+offset+'&q='+encodeURIComponent(query),{signal:controller.signal});
   if(requestId!==adminUsersRequestId||!root.isConnected||search.value.trim()!==query)return;
   patchRenderedMarkup(root,socialAdminUsersMarkup(page));
   setAttrIfChanged(root,'data-admin-offset',String(page.offset||0));setAttrIfChanged(root,'data-admin-query',query);
  }catch(error){
-  if(requestId===adminUsersRequestId&&root.isConnected)notice(error.message,true);
+  if(error.name!=='AbortError'&&requestId===adminUsersRequestId&&root.isConnected)notice(error.message,true);
  }finally{
+  if(adminUsersController===controller)adminUsersController=null;
   if(requestId===adminUsersRequestId&&root.isConnected)root.removeAttribute('aria-busy');
  }
 }
@@ -451,8 +458,9 @@ async function socialRefreshAdminPresence(){
  if(adminPresenceBusy||root.hasAttribute('aria-busy')||query!==(root.dataset.adminQuery||''))return;
  const offset=Number(root.dataset.adminOffset||0),requestId=adminUsersRequestId,epoch=ownerSessionEpoch;
  adminPresenceBusy=true;
+ const controller=new AbortController();adminPresenceController=controller;
  try{
-  const page=await api('/api/admin/users?offset='+offset+'&q='+encodeURIComponent(query));
+  const page=await api('/api/admin/users?presence=1&offset='+offset+'&q='+encodeURIComponent(query),{signal:controller.signal});
   if(epoch!==ownerSessionEpoch||requestId!==adminUsersRequestId||!root.isConnected||document.hidden||search.value.trim()!==query||root.hasAttribute('aria-busy'))return;
   syncAdminPresenceClock(page);
   const users=new Map((page.users||[]).map(u=>[String(u.id),u]));
@@ -463,9 +471,10 @@ async function socialRefreshAdminPresence(){
    const row=cell.closest('tr');for(const [key,value] of [['gifts',user.gifts_count],['referrals',user.referral_count]]){const count=row?.querySelector('[data-admin-count="'+key+'"]');if(count&&count.textContent!==String(Number(value||0)))count.textContent=String(Number(value||0));}
   }
  }catch{ /* Presence is advisory; leave existing data and expire stale indicators. */ }
- finally{adminPresenceBusy=false;}
+ finally{if(adminPresenceController===controller){adminPresenceController=null;adminPresenceBusy=false;}}
 }
 setInterval(()=>{if(typeof currentUser!=='undefined')void socialRefreshAdminPresence();},30000);
+document.addEventListener('visibilitychange',()=>{if(document.hidden)adminPresenceController?.abort();});
 async function socialAdminPage(marker=lastRenderToken){
  if(!currentUser?.is_admin){errorView(new Error('Доступ только администратору'));return;}
  const {stats}=await api('/api/admin/overview');
@@ -484,8 +493,7 @@ async function socialAdminPage(marker=lastRenderToken){
 }
 async function socialAdminUsersPage(marker=lastRenderToken){
  if(!currentUser?.is_admin){errorView(new Error('Доступ только администратору'));return;}
- await socialRefreshBadge(true);
- if(marker!==lastRenderToken)return;
+ void socialRefreshBadge();
  const page=await api('/api/admin/users');
  if(marker!==lastRenderToken)return;
  ++adminUsersRequestId;
@@ -501,6 +509,8 @@ async function socialAdminUsersPage(marker=lastRenderToken){
  const search=document.getElementById('admin-users-query');
  search?.closest('form')?.addEventListener('submit',e=>e.preventDefault());
  search?.addEventListener('input',()=>{
+   adminUsersRequestId++;adminUsersController?.abort();adminPresenceController?.abort();
+   const root=document.querySelector('[data-admin-users-content]');if(root)root.removeAttribute('aria-busy');
    if(adminUsersSearchTimer!==null)clearTimeout(adminUsersSearchTimer);
    adminUsersSearchTimer=setTimeout(()=>{adminUsersSearchTimer=null;void socialLoadAdminUsers(0);},250);
  });

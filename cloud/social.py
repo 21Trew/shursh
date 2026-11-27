@@ -214,7 +214,8 @@ def handle(handler, method, path, con):
             raise ApiError(400,'Слишком длинный поисковый запрос')
         where='WHERE (p.name ILIKE ? OR coalesce(p.handle,\'\') ILIKE ?)' if search else ''
         args=('%'+search+'%','%'+search.lstrip('@')+'%') if search else ()
-        total=con.execute('SELECT count(*) AS n FROM profiles p '+where,args).fetchone()['n']
+        presence_only=handler.request.args.get('presence')=='1'
+        total=None if presence_only else con.execute('SELECT count(*) AS n FROM profiles p '+where,args).fetchone()['n']
         # Backward-safe read during rollout: no invented historical activity.
         ready=con.execute("SELECT to_regclass('public.admin_user_activity') IS NOT NULL AS ready").fetchone()['ready']
         seen='a.last_seen_at' if ready else 'NULL::timestamptz'
@@ -227,6 +228,14 @@ def handle(handler, method, path, con):
           LEFT JOIN LATERAL (SELECT max(created_at) AS latest_session_at FROM app_sessions
                              WHERE user_id=p.id) s ON TRUE '''
         referral_count_sql='(SELECT count(*) FROM referral_attributions r WHERE r.referrer_id=p.id)' if referrals.ready(con) else '0'
+        if presence_only:
+            rows=con.execute('''SELECT p.id,'''+activity_columns+''',
+                (SELECT count(*) FROM wishes g JOIN wishlists w ON w.id=g.list_id WHERE w.owner_id=p.id) AS gifts_count,
+                '''+referral_count_sql+''' AS referral_count
+                FROM profiles p '''+activity_join+where+'''
+                ORDER BY p.created_at DESC,p.id DESC LIMIT ? OFFSET ?''',(*args,25,offset)).fetchall()
+            return 200,{'users':[dict(row) for row in rows],
+                        'server_now':con.execute('SELECT clock_timestamp() AS t').fetchone()['t']},None
         rows=con.execute('''SELECT p.id,p.name,p.handle,p.avatar_emoji,p.created_at,p.discoverable,
                  '''+activity_columns+''',
                  (SELECT count(*) FROM wishlists w WHERE w.owner_id=p.id) AS wishlists_count,
