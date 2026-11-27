@@ -1,0 +1,53 @@
+name: Experimental rate limiter benchmark
+on:
+  push:
+    branches: [experiment/rate-limit-roundtrips-20261127]
+permissions:
+  contents: read
+jobs:
+  rate-benchmark:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 12
+    services:
+      postgres:
+        image: postgres:17
+        env:
+          POSTGRES_USER: postgres
+          POSTGRES_PASSWORD: ci-bench-only
+          POSTGRES_DB: shursh_rate_bench
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd "pg_isready -U postgres -d shursh_rate_bench"
+          --health-interval 5s
+          --health-timeout 5s
+          --health-retries 15
+    env:
+      SHURSH_BENCH_DISPOSABLE: 'yes'
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+      - run: python -m pip install -r requirements.txt
+      - name: Direct PostgreSQL 17 benchmark and security gates
+        run: |
+          python -m py_compile tools/rate_limit_experiment.py
+          python -m tools.rate_limit_experiment --profile local --requests 120 --repeats 5 --output artifacts/rate-benchmark/local.json
+      - name: Optional isolated loopback latency experiment
+        run: |
+          if sudo tc qdisc add dev lo root netem delay 5ms; then
+            trap 'sudo tc qdisc del dev lo root' EXIT
+            python -m tools.rate_limit_experiment --profile netem --requests 120 --repeats 3 --output artifacts/rate-benchmark/netem.json
+          else
+            echo '{"status":"skipped","reason":"netem unavailable on runner"}' > artifacts/rate-benchmark/netem-status.json
+          fi
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: isolated-rate-limiter-benchmark
+          path: artifacts/rate-benchmark/
+          if-no-files-found: warn
+          retention-days: 7
