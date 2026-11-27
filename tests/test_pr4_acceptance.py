@@ -1599,7 +1599,7 @@ def test_auth_character_highlight_responsive(browser_https):
 
 @pytest.mark.browser
 def test_password_meter_continuous_motion(browser_https):
-    """Sample real computed transforms on each animation frame in both engines."""
+    """Sample real CSS transition transforms and a live transition in both engines."""
     with sync_playwright() as play:
         for engine in (play.chromium,play.webkit):
             browser=engine.launch(headless=True)
@@ -1617,32 +1617,56 @@ def test_password_meter_continuous_motion(browser_https):
                           const meter=document.querySelector('[data-password-strength]');
                           const bars=[...meter.querySelectorAll('i')];
                           const values=()=>bars.map(b=>new DOMMatrixReadOnly(getComputedStyle(b,'::after').transform).a);
-                          const frame=()=>new Promise(requestAnimationFrame);
-                          // Keep the configured animation budget strict; allow delayed CI frames.
                           const durationMs=parseFloat(getComputedStyle(meter).transitionDuration)*1000;
-                          const read=async (target,duration=900)=>{
-                            if(target!==null)renderPasswordStrength(input,target);
-                            const result=[], start=performance.now();
-                            do{await frame();result.push(values());}while(performance.now()-start<duration);
+                          const frame=()=>new Promise(requestAnimationFrame);
+                          // Sample the browser's real CSS transition timeline.
+                          // A busy CI runner can miss every intermediate rAF
+                          // during the 420 ms transition despite correct CSS.
+                          const startTransition=(target,status='')=>{
+                            renderPasswordStrength(input,target,status);
+                            void getComputedStyle(meter).getPropertyValue('--shursh-strength-progress');
+                            const animation=meter.getAnimations().find(a=>a.transitionProperty==='--shursh-strength-progress');
+                            if(!animation)throw Error('Missing CSS transition to '+target);
+                            animation.pause();animation.currentTime=0;
+                            return animation;
+                          };
+                          const sample=(animation)=>{
+                            const duration=animation.effect.getComputedTiming().activeDuration;
+                            const result=[];
+                            for(let i=0;i<=24;i++){
+                              animation.currentTime=duration*i/24;
+                              result.push(values());
+                            }
+                            animation.finish();
                             return result;
                           };
-                          const up=await read(4);
-                          const down=await read(1);
-                          // Reverse direction mid-flight without jumping to a boundary.
-                          renderPasswordStrength(input,4);
-                          const start=performance.now();
-                          while(performance.now()-start<120)await frame();
+                          const up=sample(startTransition(4));
+                          const down=sample(startTransition(1));
+                          // Reverse a real transition from its intermediate
+                          // value, preserving continuity at the retarget.
+                          const rise=startTransition(4);rise.currentTime=120;
                           const before=values();
                           renderPasswordStrength(input,0,'Не подходит');
                           const immediate=values();
-                          const reversed=await read(null);
-                          return {up,down,before,immediate,reversed,durationMs};
+                          const reverse=meter.getAnimations().find(a=>a.transitionProperty==='--shursh-strength-progress');
+                          if(!reverse)throw Error('Missing reversed CSS transition');
+                          reverse.pause();reverse.currentTime=0;
+                          const reversed=sample(reverse);
+                          // Also require a genuine, unpaused transition to
+                          // finish in real time (not only seekable keyframes).
+                          renderPasswordStrength(input,4);
+                          void getComputedStyle(meter).getPropertyValue('--shursh-strength-progress');
+                          const live=meter.getAnimations().find(a=>a.transitionProperty==='--shursh-strength-progress');
+                          if(!live)throw Error('Missing live transition');
+                          await live.finished;await frame();
+                          const liveEnd=values();
+                          return {up,down,before,immediate,reversed,durationMs,liveEnd};
                         }""")
                         assert abs(samples['durationMs']-420)<1
                         def total(frame): return sum(frame)
                         for key,direction,target in (('up',1,4),('down',-1,1),('reversed',-1,0)):
                             frames=samples[key]
-                            assert len(frames)>=5
+                            assert len(frames)==25,(engine.name,width,key,len(frames))
                             assert abs(total(frames[-1])-target)<.03
                             for frame in frames:
                                 assert all(-.01<=v<=1.01 for v in frame)
@@ -1650,8 +1674,9 @@ def test_password_meter_continuous_motion(browser_https):
                                 assert all(a+.02>=b for a,b in zip(frame,frame[1:]))
                             sums=[total(f) for f in frames]
                             assert all(direction*(b-a)>=-.03 for a,b in zip(sums,sums[1:]))
-                            assert any(.02<v<.98 for f in frames for v in f)
+                            assert any(.02<v<.98 for f in frames for v in f),(engine.name,width,key,frames)
                         assert abs(total(samples['before'])-total(samples['immediate']))<.25
+                        assert all(abs(v-1)<.01 for v in samples['liveEnd'])
                         page.emulate_media(reduced_motion='reduce')
                         page.wait_for_function("()=>matchMedia('(prefers-reduced-motion: reduce)').matches")
                         assert page.evaluate("""async () => {
