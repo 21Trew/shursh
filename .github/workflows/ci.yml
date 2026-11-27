@@ -248,3 +248,55 @@ jobs:
           path: artifacts/pr4-ui/
           if-no-files-found: error
           retention-days: 7
+
+  supavisor-rate-batch:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 8
+    services:
+      postgres:
+        image: postgres:17
+        env:
+          POSTGRES_USER: postgres
+          POSTGRES_PASSWORD: ci-bench-only
+          POSTGRES_DB: shursh_rate_bench
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd "pg_isready -U postgres -d shursh_rate_bench"
+          --health-interval 5s
+          --health-timeout 5s
+          --health-retries 15
+    env:
+      SHURSH_BENCH_DISPOSABLE: 'yes'
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.13'
+          cache: pip
+          cache-dependency-path: requirements.txt
+      - run: python -m pip install -r requirements.txt
+      - name: Start isolated Supavisor 2.9.5 transaction pooler
+        run: |
+          python -m py_compile cloud/db.py cloud/backend.py tools/check_rate_batch.py
+          python -m tools.rate_limit_pooler_experiment --setup
+          bash tools/start_rate_bench_pooler.sh
+          python -m tools.rate_limit_pooler_experiment --ready
+      - name: Verify integrated SQL batch and lost COMMIT acknowledgement
+        run: python -m tools.check_rate_batch
+      - name: Stop disposable pooler
+        if: always()
+        run: |
+          if docker inspect shursh-bench-pooler >/dev/null 2>&1; then
+            docker logs --tail 80 shursh-bench-pooler || true
+            docker rm -f shursh-bench-pooler
+          fi
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: integrated-rate-batch
+          path: artifacts/rate-batch/
+          if-no-files-found: warn
+          retention-days: 7

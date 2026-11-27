@@ -1,5 +1,10 @@
 {
   "$schema": "https://openapi.vercel.sh/vercel.json",
+  "git": {
+    "deploymentEnabled": {
+      "perf/rate-limit-sql-batch-20261127": false
+    }
+  },
   "framework": "flask",
   "functions": {
     "app.py": {
