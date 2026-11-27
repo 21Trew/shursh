@@ -3939,3 +3939,25 @@ def test_staging_rate_batch_never_bypasses_identity_check(monkeypatch):
                         lambda *a: pytest.fail('Staging marker bypassed'))
     with pytest.raises(RuntimeError, match='identity mismatch'):
         consume_committed_rate_limit('a'*64, 100, 1)
+
+
+def test_rate_batch_immediate_constraint_preserves_conflict(application):
+    import sqlite3
+    from cloud.backend import consume_committed_rate_limit
+    with pytest.raises(sqlite3.IntegrityError, match='database constraint'):
+        consume_committed_rate_limit('invalid', 100, 1)
+
+
+def test_rate_batch_transport_failure_returns_503_without_retry(application, monkeypatch):
+    from cloud import db, auth
+    attempts = []
+    def fail(*args):
+        attempts.append(1)
+        raise psycopg.OperationalError('simulated lost COMMIT acknowledgement')
+    monkeypatch.setattr(db, 'committed_rate_limit_batch', fail)
+    monkeypatch.setattr(auth, 'auth_request',
+                        lambda *a, **k: pytest.fail('Auth called after failed quota'))
+    res = call(application.test_client(), 'POST', '/api/login',
+               {'email':'owner@example.test','password':'valid-password'}, 503)
+    assert res.json == {'error':'Сервис временно недоступен. Повтори позже'}
+    assert attempts == [1]

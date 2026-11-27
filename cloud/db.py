@@ -219,6 +219,8 @@ def _rate_limit_batch(connection, statement, params):
             if not connection.closed:
                 status = connection.info.transaction_status
                 if (isinstance(exc, psycopg.Error) and exc.sqlstate
+                        and not exc.sqlstate.startswith('08')
+                        and exc.sqlstate not in ('40003', '57P01', '57P02', '57P03')
                         and status in (idle, psycopg.pq.TransactionStatus.INERROR,
                                        psycopg.pq.TransactionStatus.INTRANS)):
                     if status != idle:
@@ -245,4 +247,17 @@ def committed_rate_limit_batch(statement, params):
     if os.environ.get('SHURSH_ENV') == 'staging':
         raise RuntimeError('Staging rate limiter requires database identity check')
     with _lease_connection() as connection:
-        return _rate_limit_batch(connection, statement, params)
+        try:
+            return _rate_limit_batch(connection, statement, params)
+        except psycopg.IntegrityError as exc:
+            # The legacy DB.execute maps immediate constraints to 409, but
+            # errors at COMMIT propagate as unavailable. Only map the known
+            # non-deferrable quota table constraints, never an unknown COMMIT.
+            diag = exc.diag
+            if (diag.schema_name == 'public' and diag.table_name == 'app_rate_limits'
+                    and (diag.constraint_name in ('app_rate_limits_pkey',
+                        'app_rate_limits_key_hash_check', 'app_rate_limits_hits_check')
+                        or (exc.sqlstate == '23502' and diag.column_name in
+                            ('key_hash', 'bucket', 'hits')))):
+                raise sqlite3.IntegrityError('database constraint') from exc
+            raise
