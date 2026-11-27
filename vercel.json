@@ -3,7 +3,8 @@
   "git": {
     "deploymentEnabled": {
       "perf/rate-limit-sql-batch-20261127": false,
-      "feat/mobile-first-pwa-20261127": false
+      "feat/mobile-first-pwa-20261127": false,
+      "feat/personal-mobile-navigation-20261127": false
     }
   },
   "framework": "flask",

@@ -1240,7 +1240,7 @@ def test_browser_card_clicks_and_santa_settings(browser_http):
             owner.locator('header .logo[data-nav="/"]').click()
             owner.locator('.dashboard-santa-card .card-hitarea').first.click(position={'x':35,'y':35})
             expect(owner).to_have_url(re.compile(r'/santa/\d+'))
-            owner.locator('header .nav [data-nav="/santas"]').click()
+            owner.locator(':is(header .nav,#mobile-nav .mobile-nav-bar) [data-nav="/santas"]:visible').click()
             owner.locator('.santa-list-card .card-hitarea').first.click(position={'x':35,'y':35})
             expect(owner).to_have_url(re.compile(r'/santa/\d+'))
 
@@ -1347,28 +1347,28 @@ def test_browser_navigation_cache_invalidation_and_persistent_header(browser_htt
             visited=[]
             page.on('request',lambda request: visited.append((request.method,request.url.split(browser_http)[-1]))
                     if request.url.startswith(browser_http+'/api/') else None)
-            page.locator('header .nav [data-nav="/lists"]').click()
+            page.locator(':is(header .nav,#mobile-nav .mobile-nav-bar) [data-nav="/lists"]:visible').click()
             expect(page.locator('main h1')).to_contain_text('Вишлисты')
-            page.locator('header .nav [data-nav="/santas"]').click()
+            page.locator(':is(header .nav,#mobile-nav .mobile-nav-bar) [data-nav="/santas"]:visible').click()
             expect(page.locator('main h1')).to_contain_text('Тайный Санта')
-            page.locator('header .nav [data-nav="/lists"]').click()
+            page.locator(':is(header .nav,#mobile-nav .mobile-nav-bar) [data-nav="/lists"]:visible').click()
             expect(page.locator('main h1')).to_contain_text('Вишлисты')
             assert sum(method=='GET' and path=='/api/lists' for method,path in visited)==0,visited
             assert sum(method=='GET' and path=='/api/santas' for method,path in visited)==0,visited
             assert page.evaluate('document.querySelector(".site-header") === window.__stableHeader')
             assert page.evaluate('document.querySelector("footer") === window.__stableFooter')
             before=len(visited)
-            page.locator('header .nav [data-nav="/lists"]').click()
+            page.locator(':is(header .nav,#mobile-nav .mobile-nav-bar) [data-nav="/lists"]:visible').click()
             assert len(visited)==before,'same-route click should not fetch'
             title='No redraw '+uuid4().hex[:7]
             page.locator('main button[data-open="list"]').first.click()
             page.locator('#fld-title').fill(title)
             page.locator('#modal-form button[type="submit"], .modal-fixed-footer button[type="submit"]').click()
             expect(page).to_have_url(re.compile(r'/list/\d+$'))
-            page.locator('header .nav [data-nav="/lists"]').click()
+            page.locator(':is(header .nav,#mobile-nav .mobile-nav-bar) [data-nav="/lists"]:visible').click()
             expect(page.locator('main')).to_contain_text(title)
             assert sum(method=='GET' and path=='/api/lists' for method,path in visited)==1,visited
-            page.locator('header .nav [data-nav="/santas"]').click()
+            page.locator(':is(header .nav,#mobile-nav .mobile-nav-bar) [data-nav="/santas"]:visible').click()
             expect(page.locator('main h1')).to_contain_text('Тайный Санта')
             santa='No redraw game '+uuid4().hex[:7]
             page.locator('main button[data-open="santa"]').first.click()
@@ -1378,10 +1378,10 @@ def test_browser_navigation_cache_invalidation_and_persistent_header(browser_htt
             assert page.locator('.error-page').count()==0, page.locator('.error-page p').all_inner_texts()
             expect(page.locator('main h1')).to_contain_text(santa)
             assert sum('/my-wishes' in path for method,path in visited)==0,visited
-            page.locator('header .nav [data-nav="/santas"]').click()
+            page.locator(':is(header .nav,#mobile-nav .mobile-nav-bar) [data-nav="/santas"]:visible').click()
             expect(page.locator('main')).to_contain_text(santa)
             assert sum(method=='GET' and path=='/api/santas' for method,path in visited)==1,visited
-            page.locator('header .nav [data-nav="/"]').click()
+            page.locator(':is(header .nav,#mobile-nav .mobile-nav-bar) [data-nav="/"]:visible').click()
             expect(page.locator('.dashboard-page')).to_contain_text(title)
             expect(page.locator('.dashboard-page')).to_contain_text(santa)
             assert page.evaluate('localStorage.length===0 && sessionStorage.length===0')
@@ -1417,21 +1417,21 @@ def test_owner_tab_navigation_reuses_data_and_dom(browser_http):
             expect(page.locator('.dashboard-skeleton')).to_have_count(0,timeout=15000)
             requests=[]
             page.on('request', lambda r: requests.append(r.url) if '/api/' in r.url else None)
-            page.locator('header .nav [data-nav="/lists"]').click()
+            page.locator(':is(header .nav,#mobile-nav .mobile-nav-bar) [data-nav="/lists"]:visible').click()
             expect(page.locator('main h1')).to_contain_text('Вишлисты')
             page.locator('main').evaluate("(el) => el.dataset.identity = 'same-node'")
-            page.locator('header .nav [data-nav="/santas"]').click()
+            page.locator(':is(header .nav,#mobile-nav .mobile-nav-bar) [data-nav="/santas"]:visible').click()
             expect(page.locator('main h1')).to_contain_text('Тайный Санта')
-            page.locator('header .nav [data-nav="/lists"]').click()
+            page.locator(':is(header .nav,#mobile-nav .mobile-nav-bar) [data-nav="/lists"]:visible').click()
             expect(page.locator('main')).to_have_attribute('data-identity','same-node')
-            page.locator('header .nav [data-nav="/"]').click()
+            page.locator(':is(header .nav,#mobile-nav .mobile-nav-bar) [data-nav="/"]:visible').click()
             expect(page.locator('.dashboard-page')).to_be_visible()
             assert not any('/api/lists' in url or '/api/santas' in url for url in requests), requests
             page.locator('main button[data-open="list"]').first.click()
             page.locator('#fld-title').fill('Cache invalidation integration')
             page.locator('#modal-form button[type="submit"], .modal-fixed-footer button[type="submit"]').click()
             expect(page).to_have_url(re.compile(r'/list/[0-9]+$'))
-            page.locator('header .nav [data-nav="/lists"]').click()
+            page.locator(':is(header .nav,#mobile-nav .mobile-nav-bar) [data-nav="/lists"]:visible').click()
             expect(page.locator('main')).to_contain_text('Cache invalidation integration')
             assert any('/api/lists' in url for url in requests), requests
         finally:
@@ -2044,17 +2044,17 @@ def test_browser_social_tabs_cache_notification_bell_and_mobile_heading(browser_
             browser_login(page)
             expect(page.locator('.dashboard-metrics')).to_have_count(0)
             expect(page.locator('header .header-bell')).to_be_visible()
-            expect(page.locator('header .nav [data-nav="/notifications"]')).to_have_count(0)
+            expect(page.locator(':is(header .nav,#mobile-nav .mobile-nav-bar) [data-nav="/notifications"]:visible')).to_have_count(0)
             assert page.evaluate('document.documentElement.scrollWidth<=innerWidth+2')
             page.wait_for_function("() => typeof ownerWarmupReady !== 'undefined' && ownerWarmupReady && !socialUnreadBusy",timeout=15000)
             requests=[]
             page.on('request',lambda r: requests.append(r.url.split('?')[0])
                     if '/api/friends' in r.url or '/api/profile/me' in r.url else None)
-            page.locator('header [data-nav="/friends"]').click()
+            page.locator(':is(header,#mobile-nav) [data-nav="/friends"]:visible').click()
             expect(page.locator('main h1')).to_have_text('Друзья')
             expect(page.locator('.social-search h2')).to_have_text('Найти друга')
             page.locator('main').evaluate("(el)=>el.dataset.sameNode='friends'")
-            page.locator('header .nav [data-nav="/profile"]').click()
+            page.locator(':is(header .nav,#mobile-nav .mobile-nav-bar) [data-nav="/profile"]:visible').click()
             expect(page.locator('main h1').first).to_have_text('Мой профиль')
             expect(page.locator('.emoji-avatar').first).to_be_visible()
             page.locator('header .header-bell').click()
@@ -2062,7 +2062,7 @@ def test_browser_social_tabs_cache_notification_bell_and_mobile_heading(browser_
             expect(page.locator('[data-notification-tab]')).to_have_count(4)
             expect(page.locator('main h1').first).to_have_text('Мой профиль')
             page.keyboard.press('Escape')
-            page.locator('header [data-nav="/friends"]').click()
+            page.locator(':is(header,#mobile-nav) [data-nav="/friends"]:visible').click()
             expect(page.locator('main')).to_have_attribute('data-same-node','friends')
             assert sum('/api/friends' in u for u in requests)==0,requests
             assert page.evaluate('document.documentElement.scrollWidth<=innerWidth+2')

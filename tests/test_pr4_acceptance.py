@@ -19,11 +19,11 @@ from playwright.sync_api import sync_playwright, expect
 from test_cloud import browser_http, browser_login, application, db_setup
 
 ROUTES = (
-    ("/", "С возвращением", 'header .nav [data-nav="/"]'),
-    ("/lists", "Вишлисты", 'header .nav [data-nav="/lists"]'),
-    ("/santas", "Тайный Санта", 'header .nav [data-nav="/santas"]'),
-    ("/friends", "Друзья", 'header .nav [data-nav="/friends"]'),
-    ("/profile", "Мой профиль", 'header .nav [data-nav="/profile"]'),
+    ("/", "С возвращением", ':is(header .nav,#mobile-nav .mobile-nav-bar) [data-nav="/"]:visible'),
+    ("/lists", "Вишлисты", ':is(header .nav,#mobile-nav .mobile-nav-bar) [data-nav="/lists"]:visible'),
+    ("/santas", "Тайный Санта", ':is(header .nav,#mobile-nav .mobile-nav-bar) [data-nav="/santas"]:visible'),
+    ("/friends", "Друзья", ':is(header .nav,#mobile-nav .mobile-nav-bar) [data-nav="/friends"]:visible'),
+    ("/profile", "Мой профиль", ':is(header .nav,#mobile-nav .mobile-nav-bar) [data-nav="/profile"]:visible'),
     ("/notifications", "Уведомления", "header .header-bell"),
 )
 VIEWPORTS = (375, 390, 768, 1024, 1440)
@@ -120,7 +120,7 @@ def _layout(page, width, path):
       const footer = document.querySelector('footer');
       const bell = header?.querySelector('.header-bell');
       const main = document.querySelector('#page-view main');
-      const nav = header?.querySelector('.nav');
+      const nav = document.querySelector('#mobile-nav .mobile-nav-bar:not([hidden])') && innerWidth<=760 ? document.querySelector('#mobile-nav .mobile-nav-bar') : header?.querySelector('.nav');
       const r = el => {
         if (!el) return null;
         const b = el.getBoundingClientRect();
@@ -257,7 +257,7 @@ def test_pr4_six_tabs_dom_http_timings_and_all_viewports(browser_http):
                 # Clicking already active tab should do no app work.
                 page.evaluate("window.__pr4Audit.begin()")
                 before = len(requests)
-                assert page.locator('header .nav [data-nav="/notifications"]').count() == 0
+                assert page.locator(':is(header .nav,#mobile-nav .mobile-nav-bar) [data-nav="/notifications"]:visible').count() == 0
                 page.locator("header .header-bell").click()
                 expect(page.get_by_role("dialog",name="Уведомления")).to_be_visible()
                 expect(page.locator('[data-notification-tab]')).to_have_count(4)
@@ -302,7 +302,7 @@ def test_pr4_profile_mobile_sheet_and_footer(browser_http):
                                     reduced_motion="reduce")
             page.goto(browser_http + "/")
             browser_login(page)
-            page.locator('header .nav [data-nav="/profile"]').click()
+            page.locator(':is(header .nav,#mobile-nav .mobile-nav-bar) [data-nav="/profile"]:visible').click()
             expect(page.locator("main h1").first).to_have_text("Мой профиль")
             expect(page.locator(".profile-public-lists")).to_have_count(0)
             expect(page.locator(".profile-visibility")).to_have_count(0)
@@ -354,7 +354,7 @@ def test_pr4_santa_illustration_and_panels(browser_http):
             assert second["y"]-first["y"]-first["height"] >= 12, (
                 "Missing Santa panel gap",first,second
             )
-            page.locator('header [data-nav="/santas"]').click()
+            page.locator(':is(header,#mobile-nav) [data-nav="/santas"]:visible').click()
             expect(page.locator(".santa-list-card")).to_have_count(1)
             expect(page.locator(".santa-list-card .sparkle-deco svg")).to_have_count(1)
             assert "✳" not in page.locator(".santa-list-card").first.inner_text()
@@ -678,7 +678,7 @@ def test_webkit_mobile_six_tabs_and_create_flows(browser_https):
                     page.screenshot(path=str(out/f"route-{path.strip('/') or 'home'}.png"),
                                     full_page=True,animations="disabled")
                 # Long profile modal: edge-to-edge bottom sheet.
-                page.locator('header .nav [data-nav="/profile"]').click()
+                page.locator(':is(header .nav,#mobile-nav .mobile-nav-bar) [data-nav="/profile"]:visible').click()
                 page.locator('[data-social-action="edit-profile"]').click()
                 expect(page.locator(".modal")).to_be_visible()
                 bbox=page.locator(".modal").bounding_box()
@@ -688,7 +688,7 @@ def test_webkit_mobile_six_tabs_and_create_flows(browser_https):
                 page.keyboard.press("Escape")
                 expect(page.locator(".modal-backdrop")).to_have_count(0)
                 # Creation form and saved list page.
-                page.locator('header .nav [data-nav="/lists"]').click()
+                page.locator(':is(header .nav,#mobile-nav .mobile-nav-bar) [data-nav="/lists"]:visible').click()
                 page.locator('main button[data-open="list"]').first.click()
                 title="WebKit список "+uuid4().hex[:6]
                 page.locator("#fld-title").fill(title)
@@ -698,7 +698,7 @@ def test_webkit_mobile_six_tabs_and_create_flows(browser_https):
                 page.screenshot(path=str(out/"wishlist-detail.png"),
                                 full_page=True,animations="disabled")
                 # Santa game and chat, including initial loading and compact panels.
-                page.locator('header .nav [data-nav="/santas"]').click()
+                page.locator(':is(header .nav,#mobile-nav .mobile-nav-bar) [data-nav="/santas"]:visible').click()
                 page.locator('main button[data-open="santa"]').first.click()
                 game_title="WebKit игра "+uuid4().hex[:6]
                 page.locator("#fld-title").fill(game_title)
@@ -907,68 +907,15 @@ def test_pr4_p1_mobile_contrast_touch_targets_and_scroll_cue(browser_https):
                     page.goto(browser_https+"/",wait_until="domcontentloaded")
                     browser_login(page)
                     expect(page.locator(".dashboard-page")).to_be_visible()
-                    nav=page.locator("header .nav")
+                    nav=page.locator(":is(header .nav,#mobile-nav .mobile-nav-bar):visible")
                     expect(nav).to_be_visible()
-                    widths=nav.evaluate("""el => ({
-                        client:el.clientWidth, scroll:el.scrollWidth,
-                        links:[...el.querySelectorAll('a')].map(a=>
-                          a.getBoundingClientRect().height)
-                    })""")
-                    assert min(widths["links"])>=43.9,(engine,width,widths)
-                    if width<768:
-                        assert widths["scroll"]>widths["client"]+2,(engine,width,widths)
-                        expect(nav).to_have_class(re.compile("nav-scroll-more-right"))
-                        right=page.evaluate("""() => ({
-                            content:getComputedStyle(document.querySelector('.topbar'),'::after').content,
-                            pointer:getComputedStyle(document.querySelector('.topbar'),'::after').pointerEvents
-                        })""")
-                        assert "›" in right["content"] and right["pointer"]=="none",(
-                            engine,width,right
-                        )
-                        nav.evaluate("el => {el.scrollLeft=el.scrollWidth}")
-                        expect(nav).not_to_have_class(re.compile("nav-scroll-more-right"))
-                        expect(nav).to_have_class(re.compile("nav-scroll-more-left"))
-                        left=page.evaluate("""() => ({
-                            content:getComputedStyle(document.querySelector('.topbar'),'::before').content,
-                            pointer:getComputedStyle(document.querySelector('.topbar'),'::before').pointerEvents
-                        })""")
-                        assert "‹" in left["content"] and left["pointer"]=="none",(
-                            engine,width,left
-                        )
-                    if width<768:
-                        # The hint's entire painted rectangle must live below
-                        # every tab, including the active marker, at both scroll
-                        # ends; a gradient cannot occlude the active tab.
-                        for side,tag in (("right","::after"),("left","::before")):
-                            if side=="right":
-                                nav.evaluate("el => {el.scrollLeft=0}")
-                                expect(nav).to_have_class(re.compile("nav-scroll-more-right"))
-                            else:
-                                nav.evaluate("el => {el.scrollLeft=el.scrollWidth}")
-                                expect(nav).to_have_class(re.compile("nav-scroll-more-left"))
-                            geometry=page.evaluate("""pseudo => {
-                                const topbar=document.querySelector('.topbar');
-                                const nav=topbar.querySelector('.nav');
-                                const css=getComputedStyle(topbar,pseudo);
-                                const host=topbar.getBoundingClientRect();
-                                const bottom=parseFloat(css.bottom);
-                                const height=parseFloat(css.height);
-                                const links=[...nav.querySelectorAll('a')]
-                                    .map(el=>el.getBoundingClientRect().bottom);
-                                const maxLinkBottom=Math.max(...links);
-                                const cueTop=host.bottom-bottom-height;
-                                return {cueTop,maxLinkBottom,
-                                    gap:cueTop-maxLinkBottom,
-                                    height,background:css.backgroundImage,
-                                    pointer:css.pointerEvents,
-                                    content:css.content};
-                            }""",tag)
-                            assert geometry["gap"]>=2, (
-                                "navigation hint overlaps tabs",engine,width,side,geometry
-                            )
-                            assert geometry["height"]<=16.1,geometry
-                            assert geometry["pointer"]=="none",geometry
-                            assert "gradient" in geometry["background"],geometry
+                    sizes=nav.evaluate("""el=>({width:el.clientWidth,scroll:el.scrollWidth,
+                        bottom:el.getBoundingClientRect().bottom,links:[...el.querySelectorAll('a')].map(a=>{const r=a.getBoundingClientRect();return {w:r.width,h:r.height}})})""")
+                    assert min(r['h'] for r in sizes['links'])>=43.9,(engine,width,sizes)
+                    if width<=760:
+                        assert len(sizes['links'])==5 and min(r['w'] for r in sizes['links'])>=43.9
+                        assert sizes['scroll']<=sizes['width']+2 and abs(sizes['bottom']-page.viewport_size['height'])<=1
+                        expect(page.locator("header .nav")).to_be_hidden()
                     assert page.evaluate("document.documentElement.scrollWidth<=innerWidth+2")
                     page.screenshot(
                         path=str(output/f"{engine}-{width}-header.png"),
@@ -1009,7 +956,7 @@ def test_pr4_post_release_mobile_controls_chromium_webkit(browser_https):
                                     animations="disabled")
                     page.keyboard.press("Escape")
                     expect(dialog).to_have_count(0)
-                    page.locator('header .nav [data-nav="/lists"]').click()
+                    page.locator(':is(header .nav,#mobile-nav .mobile-nav-bar) [data-nav="/lists"]:visible').click()
                     expect(page.get_by_role("tab",name="Вишлисты друзей")).to_be_visible()
                     page.get_by_role("tab",name="Вишлисты друзей").click()
                     expect(page.get_by_role("tab",name="Вишлисты друзей")).to_have_attribute(
@@ -1234,7 +1181,7 @@ def test_cookie_notice_responsive_alignment_chromium_and_webkit(browser_https):
                         assert notice.evaluate("""el=>{
                             const r=el.getBoundingClientRect(), main=document.querySelector('main');
                             const before=[main.getBoundingClientRect().top,main.offsetHeight,document.documentElement.scrollHeight];
-                            const bottom=innerHeight-r.bottom;
+                            const bottom=innerHeight-r.bottom-(document.querySelector('#mobile-nav .mobile-nav-bar')?.getClientRects().length?innerHeight-document.querySelector('#mobile-nav .mobile-nav-bar').getBoundingClientRect().top:0);
                             el.style.visibility='hidden';
                             const after=[main.getBoundingClientRect().top,main.offsetHeight,document.documentElement.scrollHeight];
                             el.style.removeProperty('visibility');
@@ -2018,9 +1965,10 @@ def test_navigation_filter_markers_focus_and_noop_mutations(browser_https,applic
     out=OUTPUT/'navigation-selection'
     out.mkdir(parents=True,exist_ok=True)
     visible="""({selector,attribute})=>{
-      const elements=[...document.querySelectorAll(selector)];
+      const elements=[...document.querySelectorAll(selector.replace(/:visible/g,''))].filter(e=>!selector.includes(':visible')||(e.getClientRects().length&&getComputedStyle(e).visibility!=='hidden'));
       const selected=elements.filter(e=>attribute==='aria-current'?e.hasAttribute(attribute):e.getAttribute(attribute)==='true');
       return elements.length>0&&selected.length===1&&elements.every(e=>{
+        if(e.closest('#mobile-nav'))return e.classList.contains('active')===selected.includes(e)&&(selected.includes(e)?getComputedStyle(e).backgroundColor!=='rgba(0, 0, 0, 0)':true);
         const style=getComputedStyle(e,'::before');
         return selected.includes(e)?style.content!=='none'&&Number(style.opacity)>=.9:
           style.content==='none'&&Number(style.opacity)===0&&style.animationName==='none';
@@ -2105,14 +2053,14 @@ def test_navigation_filter_markers_focus_and_noop_mutations(browser_https,applic
                         for width in widths:
                             page.set_viewport_size({'width':width,'height':844})
                             page.evaluate("window.scrollTo({top:0,behavior:'instant'})")
-                            expect(page.locator('header .nav')).to_be_visible()
-                            assert_group('header .nav a','aria-current')
-                            inactive=page.locator('header .nav a:not([aria-current])').first
+                            expect(page.locator(':is(header .nav,#mobile-nav .mobile-nav-bar):visible')).to_be_visible()
+                            assert_group(':is(header .nav,#mobile-nav .mobile-nav-bar) a:visible','aria-current')
+                            inactive=page.locator(':is(header .nav,#mobile-nav .mobile-nav-bar) a:not([aria-current]):visible').first
                             inactive.focus()
-                            assert_group('header .nav a','aria-current')
+                            assert_group(':is(header .nav,#mobile-nav .mobile-nav-bar) a:visible','aria-current')
                             if not touch:inactive.hover()
-                            assert_group('header .nav a','aria-current')
-                            expect(page.locator('header .nav a[data-nav="/lists"]')).to_have_attribute('aria-current','page')
+                            assert_group(':is(header .nav,#mobile-nav .mobile-nav-bar) a:visible','aria-current')
+                            expect(page.locator(':is(header .nav,#mobile-nav .mobile-nav-bar) a[data-nav="/lists"]:visible')).to_have_attribute('aria-current','page')
                             # Switch local filters: existing cards remain mounted.
                             filters='.wishlist-filters button'
                             all_filter=page.locator(filters).filter(has_text=re.compile('^Все$'))
@@ -2139,10 +2087,10 @@ def test_navigation_filter_markers_focus_and_noop_mutations(browser_https,applic
                             results.append({'engine':engine,'touch':touch,'width':width,'navigation':'passed'})
                         page.evaluate("id=>nav('/santa/'+id)",eid)
                         expect(page.locator('#game-chat')).to_be_visible()
-                        expect(page.locator('header .nav a[data-nav="/santas"]')).to_have_attribute('aria-current','location')
+                        expect(page.locator(':is(header .nav,#mobile-nav .mobile-nav-bar) a[data-nav="/santas"]:visible')).to_have_attribute('aria-current','location')
                         page.go_back()
                         expect(page.locator('.wishlist-view-tabs')).to_be_visible()
-                        expect(page.locator('header .nav a[data-nav="/lists"]')).to_have_attribute('aria-current','page')
+                        expect(page.locator(':is(header .nav,#mobile-nav .mobile-nav-bar) a[data-nav="/lists"]:visible')).to_have_attribute('aria-current','page')
                         bell=page.locator('header .header-bell')
                         bell.click()
                         expect(page.locator('.notification-dialog')).to_be_visible()
@@ -2856,23 +2804,20 @@ def test_mobile_shared_sheets_header_actions_and_swipes(browser_https,engine):
                 }""")
                 assert result['after']>result['before']+50 and result['closing'] and result['removed'],result
                 assert any(result['before']+2<h<result['after']-2 for h in result['samples']),result
-                # Header keeps its layout and fixed document offset while collapsing.
+                # The compact top header and persistent bottom navigation keep
+                # their geometry while scrolling; no obsolete collapsing tab strip.
                 page.evaluate("scrollTo({top:0,behavior:'instant'})")
-                page.wait_for_function("()=>!document.querySelector('.site-header').classList.contains('is-condensed') && Math.abs(document.querySelector('.site-header').getBoundingClientRect().height-132)<1")
+                page.wait_for_function("()=>Math.abs(document.querySelector('.site-header').getBoundingClientRect().height-70)<2")
                 metrics=page.evaluate("""async()=>{
-                  document.body.style.minHeight='3000px';const h=document.querySelector('.site-header'),bar=h.querySelector('.topbar');
-                  const initial=h.getBoundingClientRect().height,offset=getComputedStyle(document.querySelector('#app')).paddingTop;
-                  const display=getComputedStyle(bar).display;scrollTo({top:300,behavior:'instant'});
-                  const frames=[],opacities=[],nav=h.querySelector('.nav'),start=performance.now();
-                  while(performance.now()-start<420){await new Promise(requestAnimationFrame);frames.push(h.getBoundingClientRect().height);opacities.push(Number(getComputedStyle(nav).opacity));}
-                  return {initial,frames,opacities,scrollbar:getComputedStyle(nav).scrollbarWidth,final:h.getBoundingClientRect().height,display,afterDisplay:getComputedStyle(bar).display,offset,afterOffset:getComputedStyle(document.querySelector('#app')).paddingTop,y:scrollY};
+                  document.body.style.minHeight='3000px';
+                  const h=document.querySelector('.site-header'),n=document.querySelector('#mobile-nav .mobile-nav-bar');
+                  const rect=e=>{const r=e.getBoundingClientRect();return [r.top,r.bottom,r.height]};
+                  const before=[rect(h),rect(n),getComputedStyle(document.querySelector('#app')).paddingTop];
+                  scrollTo({top:300,behavior:'instant'});await new Promise(r=>setTimeout(r,350));
+                  return {before,after:[rect(h),rect(n),getComputedStyle(document.querySelector('#app')).paddingTop],y:scrollY};
                 }""")
-                assert metrics['initial']>metrics['final']+30 and abs(metrics['final']-62)<2,metrics
-                assert metrics['display']==metrics['afterDisplay'] and metrics['offset']==metrics['afterOffset'] and abs(metrics['y']-300)<2,metrics
-                assert any(metrics['final']+2<h<metrics['initial']-2 for h in metrics['frames']),metrics
-                assert any(.05<o<.95 for o in metrics['opacities']),metrics
+                assert metrics['before']==metrics['after'] and abs(metrics['y']-300)<2,metrics
                 page.evaluate("scrollTo({top:0,behavior:'instant'})")
-                page.wait_for_function("()=>!document.querySelector('.site-header').classList.contains('is-condensed') && Math.abs(document.querySelector('.site-header').getBoundingClientRect().height-132)<1")
                 # Synthetic touch events use the real handler, not a direct nav call.
                 def swipe(selector,dx,dy=0,x=width/2):
                     return page.evaluate("""([selector,dx,dy,x])=>{
@@ -2917,7 +2862,7 @@ def test_mobile_shared_sheets_header_actions_and_swipes(browser_https,engine):
                 page.evaluate("notice('Только на странице Санты')")
                 expect(page.locator('#toast-root .toast')).to_have_text('Только на странице Санты')
                 # A genuine new touch resets the swipe compatibility-click guard.
-                page.locator('.site-header .nav a[data-nav="/lists"]').tap()
+                page.locator(':is(header .nav,#mobile-nav .mobile-nav-bar) a[data-nav="/lists"]:visible').tap()
                 expect(page).to_have_url(re.compile(r'/lists$'))
                 expect(page.locator('.toast')).to_have_count(0)
                 page.evaluate("notice('Только на странице вишлистов')")
@@ -3052,7 +2997,7 @@ def test_toast_route_scope_and_page_flow(browser_https,engine):
                     const hit=document.elementFromPoint(r.left+r.width/2,r.top+r.height/2);
                     const cookie=document.querySelector('.cookie-notice')?.getBoundingClientRect();
                     const bottomOK=cookie?.height?r.bottom<=cookie.top+1&&cookie.top-r.bottom<=48:
-                      innerHeight-r.bottom>=0&&innerHeight-r.bottom<=30;
+                      innerHeight-r.bottom>=0&&innerHeight-r.bottom<=30+(document.querySelector('#mobile-nav .mobile-nav-bar')?.getBoundingClientRect().height||0);
                     return root.parentElement===document.body&&getComputedStyle(root).position==='fixed'&&
                       innerWidth-r.right>=0&&innerWidth-r.right<=30&&bottomOK&&
                       !root.contains(hit)&&JSON.stringify(toastBefore)===JSON.stringify(toastPageGeometry());
@@ -3455,7 +3400,7 @@ def test_mobile_cookie_notice_never_overlays_owner_tabs(browser_https):
                             expect(notice).to_have_count(1)
                             assert notice.evaluate("""el=>{
                                 const r=el.getBoundingClientRect();
-                                return getComputedStyle(el).position==='fixed' && innerHeight-r.bottom>=0 && innerHeight-r.bottom<=24;
+                                return getComputedStyle(el).position==='fixed' && innerHeight-r.bottom>=0 && innerHeight-r.bottom<=24+(document.querySelector('#mobile-nav .mobile-nav-bar')?.getBoundingClientRect().height||0);
                             }"""),(engine,width,path)
                         notice.locator("button").click()
                         expect(notice).to_have_count(0)
@@ -3508,7 +3453,7 @@ def test_cookie_notice_nested_routes_dialogs_and_keyboard_viewport(browser_https
           const after=[view.offsetTop,view.offsetHeight,document.documentElement.scrollHeight];
           el.style.removeProperty('display');
           return getComputedStyle(el).position==='fixed' && innerHeight-r.bottom>=0 &&
-            innerHeight-r.bottom<=24 && JSON.stringify(before)===JSON.stringify(after);
+            innerHeight-r.bottom<=24+(document.querySelector('#mobile-nav .mobile-nav-bar')?.getBoundingClientRect().height||0) && JSON.stringify(before)===JSON.stringify(after);
         }""")
         assert page.evaluate("localStorage.getItem('shursh-cookie-notice-v1')!=='yes'")
 
@@ -4194,3 +4139,126 @@ def test_pwa_network_only_offline_fallback_and_reconnect(application):
                 (out/'offline-reconnect.json').write_text(json.dumps({'authenticated':True,'worker_navigation':True,'offline_status':503,'reconnect_status':200,'cache_storage_entries':0,'network_failure':'listener_stopped'},indent=2),encoding='utf-8')
             finally:ctx.close();browser.close()
     finally:stop()
+
+
+@pytest.mark.browser
+@pytest.mark.parametrize('engine',['chromium','webkit'])
+def test_personal_mobile_navigation_modes_drag_rotation_and_storage(browser_https,engine):
+    out=OUTPUT/'personal-mobile-navigation';out.mkdir(parents=True,exist_ok=True)
+    records=[]
+    with sync_playwright() as play:
+        browser=getattr(play,engine).launch(headless=True)
+        ctx=browser.new_context(viewport={'width':390,'height':844},has_touch=True,
+                                ignore_https_errors=True,reduced_motion='reduce')
+        errors=[]
+        try:
+            page=ctx.new_page()
+            page.on('pageerror',lambda error:errors.append(str(error)))
+            page.goto(browser_https+'/')
+            browser_login(page)
+            root=page.locator('#mobile-nav')
+            expect(root).to_be_visible()
+            expect(root.locator('.mobile-nav-bar a')).to_have_count(5)
+            root.locator('[data-nav="/profile"]').click()
+            expect(page.locator('.mobile-navigation-settings')).to_be_visible()
+            for mode in ('panel','island','radial'):
+                page.locator('[data-nav-mode="'+mode+'"]').click()
+                expect(root).to_have_attribute('data-mode',mode)
+                assert page.evaluate("JSON.parse(localStorage.getItem('shursh-mobile-navigation-v1')).mode")==mode
+                for width,height in ((320,568),(390,844),(430,932),(568,320),(760,844),(761,844),(1440,900)):
+                    page.set_viewport_size({'width':width,'height':height})
+                    if width>760:
+                        expect(root).to_be_hidden()
+                        expect(page.locator('header .nav')).to_be_visible()
+                        continue
+                    expect(root).to_be_visible()
+                    expect(page.locator('header .nav')).to_be_hidden()
+                    assert page.evaluate("document.documentElement.scrollWidth<=innerWidth+2")
+                    if mode=='radial':
+                        handle=root.locator('.mobile-nav-handle')
+                        expect(handle).to_be_visible()
+                        assert float(handle.evaluate("e=>getComputedStyle(e).opacity"))<=.3
+                        handle.click()
+                        expect(handle).to_have_attribute('aria-expanded','true')
+                        visible=root.locator('.mobile-nav-arc a[tabindex="0"]')
+                        assert visible.count()>=3
+                        for b in visible.all():
+                            box=b.bounding_box()
+                            assert box['x']>=-1 and box['x']+box['width']<=width+1 and box['y']>=-1 and box['y']+box['height']<=height+1,box
+                            assert box['width']>=44 and box['height']>=44
+                        page.keyboard.press('Escape')
+                        expect(handle).to_have_attribute('aria-expanded','false')
+                    else:
+                        bar=root.locator('.mobile-nav-bar')
+                        assert bar.locator('a').count()==5
+                        for a in bar.locator('a').all():
+                            box=a.bounding_box();assert box['width']>=43.9 and box['height']>=43.9,box
+                        cookie=page.locator('.cookie-notice')
+                        if cookie.is_visible():
+                            cb,nb=cookie.bounding_box(),bar.bounding_box()
+                            assert cb['y']+cb['height']<=nb['y']+1,(cb,nb)
+                    records.append({'mode':mode,'width':width,'height':height})
+                    page.screenshot(path=str(out/f'{engine}-{mode}-{width}x{height}.png'),animations='disabled')
+            page.set_viewport_size({'width':390,'height':844})
+            handle=root.locator('.mobile-nav-handle')
+            b=handle.bounding_box();x=b['x']+b['width']/2;y=b['y']+b['height']/2
+            page.mouse.move(x,y);page.mouse.down();page.mouse.move(22,340,steps=12);page.mouse.up()
+            expect(root).to_have_attribute('data-side','left')
+            saved=page.evaluate("JSON.parse(localStorage.getItem('shursh-mobile-navigation-v1'))")
+            assert saved['side']=='left' and 0<=saved['ratio']<=1
+            page.reload()
+            expect(page.locator('.mobile-navigation-settings')).to_be_visible()
+            expect(root).to_have_attribute('data-mode','radial')
+            expect(root).to_have_attribute('data-side','left')
+            assert page.evaluate("JSON.parse(localStorage.getItem('shursh-mobile-navigation-v1'))")==saved
+            handle.click()
+            expect(handle).to_have_attribute('aria-expanded','true')
+            center=root.locator('.mobile-nav-spin span')
+            before=center.inner_text()
+            page.keyboard.press('ArrowDown')
+            assert center.inner_text()!=before
+            for _ in range(4):page.keyboard.press('ArrowDown')
+            expect(center).to_have_text(before)
+            # Actual mouse drag on the open arc: movement must not navigate.
+            target=root.locator('.mobile-nav-arc a[tabindex="0"]').nth(1)
+            b=target.bounding_box();x=b['x']+b['width']/2;y=b['y']+b['height']/2
+            page.mouse.move(x,y);page.mouse.down();page.mouse.move(x,y+60,steps=8);page.mouse.up()
+            expect(page).to_have_url(re.compile('/profile$'))
+            expect(handle).to_have_attribute('aria-expanded','true')
+            page.keyboard.press('Escape')
+            # Native route state remains shared with the existing header/router.
+            handle.click()
+            root.locator('.mobile-nav-arc [data-nav="/friends"]').click()
+            expect(page).to_have_url(re.compile('/friends$'))
+            search=page.locator('#social-search-form input[name=q]')
+            search.click();expect(root).to_be_hidden()
+            page.set_viewport_size({'width':390,'height':544});expect(root).to_be_hidden()
+            search.blur();expect(root).to_be_visible()
+            page.set_viewport_size({'width':390,'height':844})
+            page.evaluate("contactDeveloperModal()");expect(root).to_be_hidden()
+            page.keyboard.press('Escape');expect(root).to_be_visible()
+            page.evaluate("nav('/profile')");expect(page.locator('.mobile-navigation-settings')).to_be_visible()
+            page.locator('[data-nav-reset]').click()
+            expect(root).to_have_attribute('data-side','right')
+            assert page.evaluate("JSON.parse(localStorage.getItem('shursh-mobile-navigation-v1')).ratio")==.72
+            if engine=='chromium':
+                # Genuine browser touch input, not a synthetic click.
+                client=ctx.new_cdp_session(page)
+                b=handle.bounding_box();x=b['x']+b['width']/2;y=b['y']+b['height']/2
+                client.send('Input.dispatchTouchEvent',{'type':'touchStart','touchPoints':[{'x':x,'y':y}]})
+                for i in range(1,9):
+                    client.send('Input.dispatchTouchEvent',{'type':'touchMove','touchPoints':[{'x':x+(24-x)*i/8,'y':y+(400-y)*i/8}]})
+                client.send('Input.dispatchTouchEvent',{'type':'touchEnd','touchPoints':[]})
+                expect(root).to_have_attribute('data-side','left')
+                handle.tap();expect(handle).to_have_attribute('aria-expanded','true')
+                b=root.locator('.mobile-nav-arc a[tabindex="0"]').nth(1).bounding_box();x=b['x']+b['width']/2;y=b['y']+b['height']/2
+                client.send('Input.dispatchTouchEvent',{'type':'touchStart','touchPoints':[{'x':x,'y':y}]})
+                for i in range(1,9):
+                    client.send('Input.dispatchTouchEvent',{'type':'touchMove','touchPoints':[{'x':x,'y':y+9*i}]})
+                client.send('Input.dispatchTouchEvent',{'type':'touchEnd','touchPoints':[]})
+                expect(handle).to_have_attribute('aria-expanded','true')
+                expect(page).to_have_url(re.compile('/profile$'))
+                client.detach();page.keyboard.press('Escape')
+            assert not errors,errors
+        finally:ctx.close();browser.close()
+    (out/f'{engine}-metrics.json').write_text(json.dumps(records,indent=2),encoding='utf-8')

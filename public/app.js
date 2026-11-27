@@ -93,7 +93,7 @@ function consumeSwipeArrival(){
  const pending=swipeArrival;swipeArrival=null;
  if(pending.path===currentPath())animateSwipeArrival(app.querySelector('#page-view > main'),pending.dir);
 }
-const swipeExcluded='input,textarea,select,button,a:not(.card-hitarea),[contenteditable], [role="slider"],.ui-select,.ui-calendar-popover,.game-gifts-track,.gift-gallery,.game-chat-messages,.admin-users-table-scroll,.nav,.cookie-notice';
+const swipeExcluded='input,textarea,select,button,a:not(.card-hitarea),[contenteditable], [role="slider"],.ui-select,.ui-calendar-popover,.game-gifts-track,.gift-gallery,.game-chat-messages,.admin-users-table-scroll,.nav,.cookie-notice,#mobile-nav';
 function swipeScrollable(node,limit){
  for(let el=node;el&&el!==limit;el=el.parentElement){
   if(el.scrollWidth>el.clientWidth+3&&/auto|scroll/.test(getComputedStyle(el).overflowX))return true;
@@ -102,7 +102,7 @@ function swipeScrollable(node,limit){
 }
 document.addEventListener('touchstart',event=>{
  pageSwipe=null;swipeClickUntil=0;
- if(event.touches.length!==1||!matchMedia('(max-width:760px)').matches||!currentUser)return;
+ if(event.touches.length!==1||!matchMedia('(max-width:760px)').matches||!currentUser||document.documentElement.classList.contains('mobile-nav-open'))return;
  const t=event.touches[0],target=event.target instanceof Element?event.target:null;
  if(!target||target.closest(swipeExcluded)||t.clientX<24||t.clientX>innerWidth-24)return;
  const dialog=target.closest('.modal');
@@ -1103,6 +1103,7 @@ function syncNavigationSelection(path=currentPath()){
  const active=app.querySelector('.site-header .nav [aria-current]');
  const rail=active?.parentElement;
  if(rail&&matchMedia('(max-width:760px)').matches){const x=active.offsetLeft-rail.offsetLeft; if(x<rail.scrollLeft||x+active.offsetWidth>rail.scrollLeft+rail.clientWidth)rail.scrollLeft=Math.max(0,x-(rail.clientWidth-active.offsetWidth)/2);}
+ window.shurshNavigation?.sync();
  const bell=app.querySelector('.header-bell');
  if(bell&&bell.classList.contains('active')!==(path==='/notifications'))bell.classList.toggle('active',path==='/notifications');
 }
@@ -1274,7 +1275,7 @@ function shell(body){
  ensureCookieNotice();
  syncNavigationSelection();
  attachNavigationScrollCue();
-  closeUiSelect();view.innerHTML=body;enhanceSelects(view);view.removeAttribute('aria-busy');app.classList.remove('route-loading');
+  closeUiSelect();view.innerHTML=body;enhanceSelects(view);view.removeAttribute('aria-busy');app.classList.remove('route-loading');window.shurshNavigation?.sync();
    if(hadPageToast)placePageToast();else parkPageToast();
  renderedOwnerTab=ownerTab(currentPath())?currentPath():null;consumeSwipeArrival();
  document.title='Шурш! - вишлисты и Тайный Санта';

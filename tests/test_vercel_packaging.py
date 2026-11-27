@@ -15,7 +15,7 @@ REQUIRED_FILES = {
     'public/app.js', 'public/error-page.js', 'public/social-ui.js',
     'public/santa-ui.js', 'public/password-strength-worker.js',
     'public/zxcvbn-4.4.2.js', 'public/favicon.svg', 'public/favicon.ico',
-    'public/pwa.js', 'public/manifest.webmanifest', 'public/service-worker.js',
+    'public/pwa.js', 'public/pwa-navigation.js', 'public/manifest.webmanifest', 'public/service-worker.js',
     'public/pwa-180.png', 'public/pwa-192.png', 'public/pwa-512.png',
 }
 RESOURCE_FAMILIES = ('templates/*.html', 'public/fonts/*.woff2',
