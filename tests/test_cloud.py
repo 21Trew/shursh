@@ -1340,6 +1340,10 @@ def test_browser_navigation_cache_invalidation_and_persistent_header(browser_htt
             page.set_default_timeout(15000)
             page.goto(browser_http+'/')
             browser_login(page)
+            # The greeting is also rendered by dashboardLoading(). Wait for
+            # the real data before testing cache reuse, not the skeleton.
+            expect(page.locator('.dashboard-page .dashboard-section')).to_have_count(2)
+            assert page.evaluate("()=>['/api/lists','/api/santas'].every(p=>!!cachedOwnerValue(p))")
             expect(page.locator('.dashboard-metrics')).to_have_count(0)
             expect(page.locator('header .header-bell')).to_be_visible()
             page.evaluate('window.__stableHeader = document.querySelector(".site-header")')

@@ -16,7 +16,7 @@
   }catch{}
   return {...defaults};
  }
- let prefs=read(),open=false,offset=0,raf=0,animation=0,wheelTimer=0,drag=null,suppress=false,lastPath='',renderedMode='',observedCookie=null;
+ let prefs=read(),open=false,offset=0,raf=0,animation=0,wheelTimer=0,drag=null,suppress=false,lastPath='',renderedMode='',observedCookie=null,lastArcGeometry=null;
  function save(){try{localStorage.setItem(key,JSON.stringify(prefs));return true;}catch{return false;}}
  const root=document.createElement('div');root.id='mobile-nav';root.className='mobile-nav';root.hidden=true;document.body.append(root);
  const enabled=()=>!!currentUser&&!isPreview&&mobile.matches;
@@ -25,7 +25,7 @@
  const editing=()=>!!document.activeElement?.matches(editorSelector)||editorPointer!==null;
  const blocked=()=>!!modalRoot.firstElementChild||editing()||
   (window.visualViewport&&window.visualViewport.scale<1.05&&innerHeight-window.visualViewport.height-window.visualViewport.offsetTop>120);
- const link=r=>'<a href="'+r[0]+'" data-nav="'+r[0]+'" aria-label="'+label(r)+'">'+symbol(r[2])+'<span>'+r[1]+'</span></a>';
+ const link=r=>'<a draggable="false" href="'+r[0]+'" data-nav="'+r[0]+'" aria-label="'+label(r)+'">'+symbol(r[2])+'<span>'+r[1]+'</span></a>';
  function settingsMarkup(){
   return '<section class="panel mobile-navigation-settings"><h2>Навигация</h2><p class="note">Выбери удобный способ перемещения на этом устройстве</p><div class="mobile-nav-choices" role="group" aria-label="Модель навигации">'+
     modes.map(([id,name,desc])=>'<button type="button" class="mobile-nav-choice" data-nav-mode="'+id+'" aria-pressed="'+(prefs.mode===id)+'"><span class="mobile-nav-mini mode-'+id+'" aria-hidden="true"><i></i><i></i><i></i><i></i><i></i></span><span><strong>'+name+'</strong><small>'+desc+'</small></span><span class="mobile-nav-check" aria-hidden="true">'+ico('check',18)+'</span></button>').join('')+
@@ -95,6 +95,7 @@
   const g=open?(drag?.kind==='arc'?drag.geometry:geom()):null;
   handle.style.top=(g?.y??edgeY())+'px';root.dataset.side=prefs.side;
   if(!open)return;
+  lastArcGeometry=g;
   const side=prefs.side==='left'?1:-1;
   for(const [i,a] of [...root.querySelectorAll('.mobile-nav-arc a')].entries()){
    const slot=mod(i-offset+routes.length/2,routes.length)-routes.length/2;
@@ -150,13 +151,22 @@
   if(!e.isPrimary||e.button!==0||root.hidden)return;
   suppress=false;const h=e.target.closest('.mobile-nav-handle');
   if(h){drag={kind:'edge',id:e.pointerId,x:e.clientX,y:e.clientY,side:prefs.side,ratio:prefs.ratio,moved:false,wasOpen:open,target:h};}
-  else if(open&&e.target.closest('.mobile-nav-arc')){cancelMotion();const geometry=geom();drag={kind:'arc',id:e.pointerId,x:e.clientX,y:e.clientY,last:angle(e,geometry),geometry,moved:false,target:e.target.closest('a')||root.querySelector('.mobile-nav-arc')};}
-  if(drag){try{drag.target.setPointerCapture(e.pointerId);}catch{}}
+  else if(open&&e.target.closest('.mobile-nav-arc')){cancelMotion();const geometry=lastArcGeometry||geom();drag={kind:'arc',id:e.pointerId,x:e.clientX,y:e.clientY,last:angle(e,geometry),geometry,moved:false,target:e.target.closest('a')||root.querySelector('.mobile-nav-arc')};}
+  if(drag?.kind==='edge'){try{drag.target.setPointerCapture(e.pointerId);drag.capture=drag.target;}catch{}}
  });
- root.addEventListener('pointermove',e=>{
+ // Native HTML link dragging cancels pointer events in Chromium. A moving
+ // route link may also become hidden. Capture the gesture on the stable arc.
+ root.addEventListener('dragstart',e=>e.preventDefault());
+ document.addEventListener('pointermove',e=>{
   const d=drag;if(!d||d.id!==e.pointerId)return;
   if(!d.moved&&Math.hypot(e.clientX-d.x,e.clientY-d.y)<8)return;
-  if(!d.moved)d.moved=true;
+  if(!d.moved){
+   d.moved=true;
+   if(d.kind==='arc'){
+    const surface=root.querySelector('.mobile-nav-arc');
+    try{surface.setPointerCapture(e.pointerId);d.capture=surface;}catch{}
+   }
+  }
   e.preventDefault();
   if(d.kind==='edge'){
    if(d.wasOpen)return;
@@ -166,10 +176,10 @@
    const a=angle(e,d.geometry);let delta=a-d.last;if(delta>180)delta-=360;if(delta<-180)delta+=360;d.last=a;
    offset-=delta/d.geometry.step;layout();
   }
- });
+ },{capture:true,passive:false});
  function finish(e){
   const d=drag;if(!d||d.id!==e.pointerId)return;drag=null;
-  if(d.target.hasPointerCapture?.(e.pointerId))d.target.releasePointerCapture(e.pointerId);
+  if(d.capture?.hasPointerCapture(e.pointerId))d.capture.releasePointerCapture(e.pointerId);
   root.classList.remove('is-dragging');
   if(d.moved){
    suppress=true;
@@ -179,8 +189,10 @@
    suppress=true;toggle();
   }
  }
- root.addEventListener('pointerup',finish);root.addEventListener('pointercancel',finish);
- root.addEventListener('lostpointercapture',e=>{if(drag?.id===e.pointerId)finish(e);});
+ document.addEventListener('pointerup',finish,true);document.addEventListener('pointercancel',finish,true);
+ // Transferring implicit touch capture from the link emits lostpointercapture
+ // on the old link; only loss of our current capture ends the gesture.
+ root.addEventListener('lostpointercapture',e=>{if(drag?.id===e.pointerId&&e.target===drag.capture)finish(e);});
  root.addEventListener('click',e=>{
   if(suppress&&e.detail>0){suppress=false;e.preventDefault();e.stopImmediatePropagation();return;}
   if(e.target.closest('.mobile-nav-handle')){e.preventDefault();toggle();return;}

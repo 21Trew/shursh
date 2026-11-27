@@ -3755,7 +3755,13 @@ def test_profile_feedback_and_inline_santa_polish(browser_https,application,engi
             expect(page.get_by_role('heading',name='Активные сеансы')).to_be_visible()
             expect(page.get_by_role('heading',name='Приглашённые друзья')).to_have_count(0)
             expect(page.locator('.profile-session-row .chip-green')).to_have_count(1)
-            page.locator('[data-social-action=refresh-sessions]').click()
+            # Wait for the actual refresh render, not an already-visible row
+            # from the previous profile snapshot.
+            page.evaluate("window.__oldSessions=document.querySelector('.profile-sessions')")
+            with page.expect_response(lambda r:r.url.endswith('/api/profile/me') and r.request.method=='GET') as refreshed:
+                page.locator('[data-social-action=refresh-sessions]').click()
+            assert refreshed.value.ok
+            page.wait_for_function("()=>!!document.querySelector('.profile-sessions')&&!window.__oldSessions.isConnected")
             revoke=page.locator('[data-session-id="'+secondary_id+'"]')
             evidence=OUTPUT/'pr44-acceptance';evidence.mkdir(parents=True,exist_ok=True)
             expect(revoke).to_be_visible()
@@ -4265,16 +4271,31 @@ def test_personal_mobile_navigation_modes_drag_rotation_and_storage(browser_http
                     angle=math.radians(direction*70*i/12)
                     points.append((cx+side*radius*math.cos(angle),cy+radius*math.sin(angle)))
                 return points
-            def rotate_mouse(direction):
+            def rotate_mouse(direction,expire_toast=False):
                 before=names.index(center.inner_text())
                 points=arc_points(direction)
                 page.mouse.move(*points[0]);page.mouse.down()
-                for point in points[1:]:page.mouse.move(*point)
+                for index,point in enumerate(points[1:],1):
+                    page.mouse.move(*point)
+                    if expire_toast and index==4:
+                        # Wait for the real 4.5-second notice lifetime while
+                        # keeping the pointer pressed. No mocked geometry.
+                        anchor=handle.bounding_box()
+                        expect(page.locator('#toast-root .toast')).to_have_count(0,timeout=6500)
+                        page.evaluate('()=>new Promise(r=>requestAnimationFrame(()=>requestAnimationFrame(r)))')
+                        assert handle.bounding_box()==anchor,(anchor,handle.bounding_box())
                 page.mouse.up()
                 expect(center).to_have_text(names[(before-2*direction)%5])
                 expect(handle).to_have_attribute('aria-expanded','true')
                 expect(page).to_have_url(re.compile('/profile$'))
             rotate_mouse(1)
+            rotate_mouse(-1)
+            page.keyboard.press('Escape')
+            page.evaluate("notice('Проверка геометрии при исчезновении уведомления')")
+            expect(page.locator('#toast-root .toast')).to_be_visible()
+            handle.click();expect(handle).to_have_attribute('aria-expanded','true')
+            page.evaluate('()=>new Promise(r=>requestAnimationFrame(()=>requestAnimationFrame(r)))')
+            rotate_mouse(1,expire_toast=True)
             rotate_mouse(-1)
             expect(page).to_have_url(re.compile('/profile$'))
             expect(handle).to_have_attribute('aria-expanded','true')
