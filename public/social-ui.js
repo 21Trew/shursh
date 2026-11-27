@@ -247,7 +247,7 @@ function renderNotificationModalTab(tab=notificationModalTab){
   '</div>').join(''):'<p class="note">Здесь пока пусто</p>')+(notificationModalMore?'<button type="button" class="btn btn-soft btn-small" data-social-action="notification-older">Ранее</button>':'');
  patchOwnerNode(panel,next);
  const unread=notificationModalUnread;
- const all=modalRoot.querySelector('[data-social-action="read-all-notifications"]');if(all)all.disabled=!unread;
+ const all=modalRoot.querySelector('[data-social-action="read-all-notifications"]');if(all&&all.disabled!==!unread)all.disabled=!unread;
 }
 async function socialNotificationsModal(){
  if(!currentUser)return;
@@ -401,7 +401,7 @@ async function socialAdminAuditEvent(id){
 }
 function socialAdminUsersMarkup(page){
  syncAdminPresenceClock(page);
- const rows=(page.users||[]).map(u=>'<tr><td class="admin-user-cell"><a class="admin-user-identity admin-user-profile-link" href="/users/'+attr(u.id)+'" data-nav="/users/'+attr(u.id)+'" aria-label="Открыть профиль '+attr(u.name)+'"><span class="admin-user-emoji" aria-hidden="true">'+
+ const rows=(page.users||[]).map(u=>'<tr data-render-key="admin-user:'+attr(u.id)+'"><td class="admin-user-cell"><a class="admin-user-identity admin-user-profile-link" href="/users/'+attr(u.id)+'" data-nav="/users/'+attr(u.id)+'" aria-label="Открыть профиль '+attr(u.name)+'"><span class="admin-user-emoji" aria-hidden="true">'+
    esc(u.avatar_emoji||'🎁')+'</span><span><strong>'+esc(u.name)+'</strong>'+
    '<small>ID: '+esc(String(u.id).slice(0,8))+'</small></span></a></td>'+
    '<td>'+(u.handle?'@'+esc(u.handle):'<span class="muted">—</span>')+'</td>'+
@@ -428,8 +428,8 @@ async function socialLoadAdminUsers(offset=0){
  try{
   const page=await api('/api/admin/users?offset='+offset+'&q='+encodeURIComponent(query));
   if(requestId!==adminUsersRequestId||!root.isConnected||search.value.trim()!==query)return;
-  root.innerHTML=socialAdminUsersMarkup(page);
-  root.dataset.adminOffset=String(page.offset||0);root.dataset.adminQuery=query;
+  patchRenderedMarkup(root,socialAdminUsersMarkup(page));
+  setAttrIfChanged(root,'data-admin-offset',String(page.offset||0));setAttrIfChanged(root,'data-admin-query',query);
  }catch(error){
   if(requestId===adminUsersRequestId&&root.isConnected)notice(error.message,true);
  }finally{
