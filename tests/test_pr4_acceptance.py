@@ -2513,7 +2513,7 @@ def test_performance_soak_real_polling_session_and_retention(browser_https, appl
             browser.close()
 
 
-def assert_invite_branding(container):
+def assert_invite_branding(container,hover_evidence=None):
     page=container.page
     controls=container.locator('.btn')
     expect(controls).to_have_count(5)
@@ -2543,6 +2543,35 @@ def assert_invite_branding(container):
         page.mouse.move(0,0)
         controls.evaluate_all("els=>els.forEach(el=>el.blur())")
     neutral()
+    # Navigation may have just mounted an animated main. Hover is a pointer
+    # interaction with a stable, visible control, not a race with route entry.
+    page.evaluate("document.fonts.ready")
+    page.wait_for_function("""()=>[...document.querySelectorAll('#page-view > main,.site-header')]
+        .every(el=>el.getAnimations().every(a=>a.playState!=='running'&&!a.pending))""")
+    controls.first.evaluate("""el=>el.parentElement.scrollIntoView(
+        {block:'center',inline:'nearest',behavior:'instant'})""")
+    page.wait_for_function("""()=>[...document.querySelectorAll('#page-view > main,.site-header')]
+        .every(el=>el.getAnimations().every(a=>a.playState!=='running'&&!a.pending))""")
+    # Require stable viewport geometry and hit-testing over consecutive frames.
+    # Do not force the hover or bypass a real covering element.
+    assert controls.first.evaluate("""el=>new Promise(resolve=>{
+        const group=el.parentElement,start=performance.now();
+        let previous='',stable=0;
+        function frame(){
+            const nodes=[...group.querySelectorAll('.btn')];
+            const rects=nodes.map(n=>n.getBoundingClientRect());
+            const signature=JSON.stringify(rects.map(r=>[r.x,r.y,r.width,r.height]));
+            const hit=nodes.length===5&&nodes.every((n,i)=>{
+                const r=rects[i];
+                return n.contains(document.elementFromPoint(r.x+r.width/2,r.y+r.height/2));
+            });
+            stable=hit&&signature===previous?stable+1:0;previous=signature;
+            if(stable>=3){resolve(true);return;}
+            if(performance.now()-start>3000){resolve(false);return;}
+            requestAnimationFrame(frame);
+        }
+        requestAnimationFrame(frame);
+    })"""),'Invitation controls must be stable and reachable before hover'
     for i,(label,background,hover,foreground) in enumerate(expected):
         control=controls.nth(i)
         expect(control).to_be_visible()
@@ -2561,11 +2590,17 @@ def assert_invite_branding(container):
         before=geometry()
         control.hover()
         expect(control).to_have_css('background-color',hover)
+        assert control.evaluate("""el=>{
+            const r=el.getBoundingClientRect();
+            return el.matches(':hover')&&el.contains(document.elementFromPoint(r.x+r.width/2,r.y+r.height/2));
+        }"""),label
         expect(control).to_have_css('color',foreground)
         expect(control).to_have_css('box-shadow','none')
         expect(control).to_have_css('transform','none')
         contrast(control)
         check_geometry(before)
+        if hover_evidence is not None and label=='Telegram':
+            container.screenshot(path=str(hover_evidence),animations='disabled')
         neutral()
         # Enter focus using real keyboard navigation, independently of hover.
         controls.nth(i-1 if i else 1).focus()
@@ -3760,8 +3795,10 @@ def test_profile_feedback_and_inline_santa_polish(browser_https,application,engi
             expect(page.locator('[data-santa-date-input]')).to_have_value('2027-02-13')
             eid=page.evaluate("async()=> (await api('/api/santas',{method:'POST',body:{title:'QR regression'}})).id")
             page.evaluate("id=>nav('/santa/'+id,{force:true})",eid)
-            assert_invite_branding(page.locator('.santa-share'))
             evidence=OUTPUT/'pr44-acceptance';evidence.mkdir(parents=True,exist_ok=True)
+            for width,height in [(320,780),(1440,900),(390,844)]:
+                page.set_viewport_size({'width':width,'height':height})
+                assert_invite_branding(page.locator('.santa-share'),evidence/f'{engine}-santa-share-hover-{width}.png')
             page.locator('.santa-share').screenshot(path=str(evidence/f'{engine}-santa-share.png'),animations='disabled')
             url=page.locator('.santa-share [data-action=copy]').get_attribute('data-url')
             page.locator('.santa-share [data-social-action=santa-invite-qr]').click()
