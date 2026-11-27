@@ -154,10 +154,10 @@ def staging_marker_gates(admin):
         CREATE SEQUENCE public.bench_guard_attempt;
         GRANT USAGE ON SEQUENCE public.bench_guard_attempt TO shursh_backend;
         CREATE FUNCTION public.bench_guard_probe() RETURNS trigger
-        LANGUAGE plpgsql AS $ BEGIN
+        LANGUAGE plpgsql AS $bench_guard_probe$ BEGIN
           PERFORM nextval('public.bench_guard_attempt');
           RETURN NEW;
-        END $;
+        END; $bench_guard_probe$;
         CREATE TRIGGER bench_guard_probe BEFORE INSERT ON app_rate_limits
         FOR EACH ROW EXECUTE FUNCTION public.bench_guard_probe();
     """)
