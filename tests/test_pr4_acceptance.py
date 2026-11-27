@@ -1325,8 +1325,11 @@ def test_mobile_webkit_signup_inline_validation(browser_https):
         try:
             context=browser.new_context(
                 viewport={"width":390,"height":844},
-                is_mobile=True,ignore_https_errors=True
+                is_mobile=True,ignore_https_errors=True,service_workers='block'
             )
+            # Network interception fixtures do not use the service worker.
+            # The separate PWA test exercises real controlled navigation.
+            context.add_init_script("if ('serviceWorker' in navigator) Object.defineProperty(navigator.serviceWorker,'register',{value:()=>Promise.reject(new Error('Network interception fixture'))})")
             page=context.new_page()
             requests=[]
             page.on('request',lambda req: requests.append('signup')
@@ -2269,7 +2272,11 @@ def test_chat_incremental_history_and_cleanup(browser_https,application,engine):
     with sync_playwright() as play:
         browser=getattr(play,engine).launch(headless=True)
         try:
-            page=browser.new_context(ignore_https_errors=True,viewport={'width':390,'height':844}).new_page()
+            context=browser.new_context(ignore_https_errors=True,viewport={'width':390,'height':844},service_workers='block')
+            # Network interception fixtures do not use the service worker.
+            # The separate PWA test exercises real controlled navigation.
+            context.add_init_script("if ('serviceWorker' in navigator) Object.defineProperty(navigator.serviceWorker,'register',{value:()=>Promise.reject(new Error('Network interception fixture'))})")
+            page=context.new_page()
             page.goto(browser_https+'/')
             browser_login(page)
             page.evaluate("id=>nav('/santa/'+id)",eid)
@@ -4124,23 +4131,66 @@ def test_pwa_manifest_install_help_and_mobile_spacing(browser_http,engine):
 
 
 @pytest.mark.browser
-def test_pwa_network_only_offline_fallback_and_reconnect(browser_http):
-    with sync_playwright() as play:
-        browser=play.chromium.launch(headless=True)
-        ctx=browser.new_context(service_workers='allow',viewport={'width':390,'height':844})
-        try:
-            page=ctx.new_page();page.goto(browser_http+'/')
-            page.wait_for_function("()=>!!navigator.serviceWorker.controller",timeout=15000)
-            assert page.evaluate("async()=> (await caches.keys()).length===0")
-            ctx.set_offline(True)
-            response=page.reload(wait_until='domcontentloaded')
-            assert response.status==503
-            expect(page.locator('h1')).to_have_text('Похоже, нет подключения')
-            assert page.evaluate("async()=> (await caches.keys()).length===0")
-            ctx.set_offline(False)
-            response=page.reload(wait_until='domcontentloaded')
-            assert response.status==200
-            expect(page.locator('main h1').first).to_be_visible()
-            assert page.evaluate("async()=> (await fetch('/api/me')).status===200")
-            assert page.evaluate("async()=> (await caches.keys()).length===0")
-        finally:ctx.close();browser.close()
+def test_pwa_network_only_offline_fallback_and_reconnect(application):
+    """Stop the real local listener: page-level offline emulation may not affect
+    a service worker's own network context. Exercise the actual authenticated
+    navigation and a physical transport failure, not a mocked worker response.
+    """
+    import threading
+    from werkzeug.serving import make_server, WSGIRequestHandler
+
+    class PrivateHandler(WSGIRequestHandler):
+        def log_request(self, code='-', size='-'):
+            pass
+
+    server=thread=None
+    def start(port=0):
+        nonlocal server,thread
+        server=make_server('127.0.0.1',port,application,threaded=True,request_handler=PrivateHandler)
+        thread=threading.Thread(target=server.serve_forever,daemon=True)
+        thread.start()
+        return server.server_port
+
+    def stop():
+        nonlocal server,thread
+        if server is not None:
+            server.shutdown()
+            thread.join(timeout=5)
+            server.server_close()
+            server=thread=None
+
+    port=start()
+    origin=f'http://localhost:{port}'
+    try:
+        with sync_playwright() as play:
+            browser=play.chromium.launch(headless=True)
+            ctx=browser.new_context(service_workers='allow',viewport={'width':390,'height':844})
+            try:
+                page=ctx.new_page()
+                page.goto(origin+'/')
+                page.wait_for_function("()=>!!navigator.serviceWorker.controller",timeout=15000)
+                browser_login(page)
+                page.wait_for_function("()=>!!navigator.serviceWorker.controller",timeout=15000)
+                online=page.goto(origin+'/profile')
+                assert online.status==200 and online.from_service_worker
+                assert online.headers['cache-control']=='no-store'
+                expect(page.locator('main h1').first).to_contain_text('Мой профиль')
+                assert page.evaluate("async()=>{const r=await fetch('/api/me');return r.ok&&r.headers.get('cache-control')==='no-store'&&!!(await r.json()).user}")
+                assert page.evaluate("async()=> (await caches.keys()).length===0")
+                stop()
+                response=page.goto(origin+'/profile?offline-check=1',wait_until='domcontentloaded')
+                assert response.status==503 and response.from_service_worker
+                expect(page.locator('h1')).to_have_text('Похоже, нет подключения')
+                assert page.locator('#app').count()==0
+                assert response.headers['cache-control']=='no-store'
+                assert page.evaluate("async()=> (await caches.keys()).length===0")
+                start(port)
+                response=page.reload(wait_until='domcontentloaded')
+                assert response.status==200 and response.from_service_worker
+                expect(page.locator('main h1').first).to_contain_text('Мой профиль')
+                assert page.evaluate("async()=>{const r=await fetch('/api/me');return r.ok&&!!(await r.json()).user}")
+                assert page.evaluate("async()=> (await caches.keys()).length===0")
+                out=OUTPUT/'pwa-mobile';out.mkdir(parents=True,exist_ok=True)
+                (out/'offline-reconnect.json').write_text(json.dumps({'authenticated':True,'worker_navigation':True,'offline_status':503,'reconnect_status':200,'cache_storage_entries':0,'network_failure':'listener_stopped'},indent=2),encoding='utf-8')
+            finally:ctx.close();browser.close()
+    finally:stop()

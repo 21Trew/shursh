@@ -7,7 +7,7 @@ self.addEventListener('fetch',event=>{
  if(request.method!=='GET'||request.mode!=='navigate')return;
  const url=new URL(request.url);
  if(url.origin!==self.location.origin||url.pathname.startsWith('/api/')||url.pathname.startsWith('/uploads/'))return;
- event.respondWith(fetch(request).catch(()=>new Response(OFFLINE_HTML,{status:503,headers:{
+ event.respondWith(fetch(request,{cache:'no-store'}).catch(()=>new Response(OFFLINE_HTML,{status:503,headers:{
   'Content-Type':'text/html; charset=utf-8','Cache-Control':'no-store','Referrer-Policy':'no-referrer',
   'X-Content-Type-Options':'nosniff','Content-Security-Policy':"default-src 'none'; style-src 'unsafe-inline'; base-uri 'none'; frame-ancestors 'none'"
  }})));
