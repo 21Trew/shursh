@@ -3,7 +3,7 @@ set -euo pipefail
 test "${CI:-}" = true
 test "${SHURSH_BENCH_DISPOSABLE:-}" = yes
 # All credentials and metadata are disposable CI-only values.
-docker run -d --name shursh-bench-pooler --network host \
+docker run -d --name shursh-bench-pooler --network host --ulimit nofile=100000:100000 \
   -e DATABASE_URL=ecto://postgres:ci-bench-only@127.0.0.1:5432/supavisor_metadata \
   -e SECRET_KEY_BASE=ci-only-0123456789abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ \
   -e VAULT_ENC_KEY=0123456789abcdef0123456789abcdef \
