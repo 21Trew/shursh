@@ -16,6 +16,11 @@ DIRECT = exp.connect
 VARIANTS = {'production': exp.baseline, 'sql_batch': exp.batch}
 POOL_PORT = 6543
 POOL_SIZE = 4
+# Supavisor v2.9.5 TenantSupervisor.pool_spec uses size=1 (warm worker)
+# and max_overflow=pool_size for normal users, i.e. 1 + 4 workers.
+# https://github.com/supabase/supavisor/blob/v2.9.5/lib/supavisor/tenant_supervisor.ex
+POOL_WARM_SIZE = 1
+POOL_MAX_WORKERS = POOL_SIZE + POOL_WARM_SIZE
 
 def guard():
     if os.environ.get('CI') != 'true' or os.environ.get('SHURSH_BENCH_DISPOSABLE') != 'yes':
@@ -172,10 +177,13 @@ def reuse(admin, name, fn):
         with concurrent.futures.ThreadPoolExecutor(max_workers=8) as pool:
             pids=[p for row in pool.map(worker,range(8)) for p in row]
         distinct=len(set(pids))
-        assert 1<=distinct<=POOL_SIZE,(distinct,pids)
+        assert 1<=distinct<=POOL_MAX_WORKERS,(distinct,pids)
+        assert distinct<len(clients), (distinct, len(clients))
         assert all(exp.session(c)==expected for c in clients)
         return {'client_connections':8,'backend_pids_observed':distinct,
-                'successful_transactions':96,'role_timeout_restored':True}
+                'successful_transactions':96,'role_timeout_restored':True,
+                'configured_overflow_workers':POOL_SIZE,'warm_workers':POOL_WARM_SIZE,
+                'max_pool_workers':POOL_MAX_WORKERS}
     finally:
         for c in clients: c.close()
 
@@ -202,6 +210,7 @@ def main():
     exp.connect=pooled
     report={'base':exp.BASE,'supavisor_image':'supabase/supavisor:2.9.5',
             'pool_mode':'transaction','configured_pool_size':POOL_SIZE,
+            'warm_pool_workers':POOL_WARM_SIZE,'max_pool_workers':POOL_MAX_WORKERS,
             'profile':args.profile,'security':{},'faults':{},'reuse':{},
             'protocol':{},'failures':{},'scope':'warm local TCP through Supavisor; not hosted pooler or HTTP'}
     with DIRECT(admin=True) as admin:

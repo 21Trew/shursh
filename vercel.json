@@ -1,5 +1,10 @@
 {
   "$schema": "https://openapi.vercel.sh/vercel.json",
+  "git": {
+    "deploymentEnabled": {
+      "experiment/rate-limit-roundtrips-20261127": false
+    }
+  },
   "framework": "flask",
   "functions": {
     "app.py": {
