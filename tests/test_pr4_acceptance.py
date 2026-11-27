@@ -4404,6 +4404,47 @@ def test_personal_mobile_navigation_modes_drag_rotation_and_storage(browser_http
                 page.reload()
                 expect(root).to_have_attribute('data-side','right')
                 assert page.evaluate("JSON.parse(localStorage.getItem('shursh-mobile-navigation-v1'))")==saved
+            # Keep all existing gesture assertions and cover the additional
+            # surface, the mirrored clockwise direction, and the touch guard.
+            mini=page.locator('.mobile-nav-mini.mode-island')
+            assert mini.evaluate("""e=>{const s=getComputedStyle(e,'::before');return s.content!=='none'&&s.borderRadius==='8px'&&s.position==='absolute'}""")
+            page.evaluate("""()=>{window.__navTouchStarts=[];document.addEventListener('touchstart',e=>window.__navTouchStarts.push({handle:!!e.target.closest('.mobile-nav-handle'),prevented:e.defaultPrevented}));}""")
+            client=ctx.new_cdp_session(page) if engine=='chromium' else None
+            try:
+                def vertical_drag(x,y,dy):
+                    if client:
+                        client.send('Input.dispatchTouchEvent',{'type':'touchStart','touchPoints':[{'x':x,'y':y}]})
+                        for i in range(1,13):
+                            client.send('Input.dispatchTouchEvent',{'type':'touchMove','touchPoints':[{'x':x,'y':y+dy*i/12}]})
+                        client.send('Input.dispatchTouchEvent',{'type':'touchEnd','touchPoints':[]})
+                    else:
+                        page.mouse.move(x,y);page.mouse.down();page.mouse.move(x,y+dy,steps=12);page.mouse.up()
+                for side in ('left','right'):
+                    page.locator('[data-nav-side="'+side+'"]').click()
+                    expect(root).to_have_attribute('data-side',side)
+                    handle.tap();expect(handle).to_have_attribute('aria-expanded','true')
+                    assert page.evaluate("window.__navTouchStarts.some(e=>e.handle&&e.prevented)")
+                    x=360 if side=='left' else 30
+                    assert page.evaluate("x=>!!document.elementFromPoint(x,400).closest('.mobile-nav-shade')",x)
+                    pitch=126*35*math.pi/180
+                    for direction in (-1,1):
+                        before=names.index(center.inner_text())
+                        vertical_drag(x,400,direction*pitch*2)
+                        expect(center).to_have_text(names[(before+direction*(1 if side=='left' else -1)*2)%5])
+                        expect(handle).to_have_attribute('aria-expanded','true')
+                        expect(page).to_have_url(re.compile('/profile$'))
+                    b=handle.bounding_box();before=names.index(center.inner_text())
+                    vertical_drag(b['x']+b['width']/2,b['y']+b['height']/2,-pitch)
+                    expect(center).to_have_text(names[(before+(-1 if side=='left' else 1))%5])
+                    expect(handle).to_have_attribute('aria-expanded','true')
+                    page.touchscreen.tap(x,400)
+                    expect(handle).to_have_attribute('aria-expanded','false')
+                    expect(page).to_have_url(re.compile('/profile$'))
+                page.evaluate("window.__navTouchStarts=[]")
+                page.locator('.mobile-navigation-settings h2').tap()
+                assert page.evaluate("window.__navTouchStarts.some(e=>!e.handle&&!e.prevented)")
+            finally:
+                if client:client.detach()
             assert not errors,errors
         finally:ctx.close();browser.close()
     (out/f'{engine}-metrics.json').write_text(json.dumps(records,indent=2),encoding='utf-8')
