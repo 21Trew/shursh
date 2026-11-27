@@ -62,6 +62,7 @@
   // Closing restores the cookie overlay and changes the legal edge range.
   // Publish the closed handle geometry in this same task, before focus or a
   // new pointerdown can observe the old position from the expanded arc.
+  updateCookieNoticeHeight();
   layout();
   if(handle&&focus&&!root.hidden)handle.focus({preventScroll:true});
   schedule();
