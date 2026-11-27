@@ -45,6 +45,7 @@ jobs:
           node-version: '22'
       - run: node --check public/app.js
       - run: node --check public/pwa.js
+      - run: node --check public/pwa-navigation.js
       - run: node --check public/service-worker.js
       - run: node --check public/password-strength-worker.js
       - name: zxcvbn integrity, boundary tests and bundle/CPU budget

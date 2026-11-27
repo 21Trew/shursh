@@ -138,6 +138,7 @@ async function socialOwnProfilePage(marker=lastRenderToken,snapshot=null){
   '<section class="panel profile-security"><div><h2>Вход и безопасность</h2><p class="note">Почта не отображается в публичном профиле</p><div class="account-email">'+esc(p.email||'')+'</div></div>'+
   '<div class="profile-actions"><button class="btn btn-soft btn-small" data-social-action="change-email">Изменить почту</button>'+
   '<button class="btn btn-soft btn-small" data-social-action="change-password">Изменить пароль</button></div></section>'+
+  (window.shurshNavigation?.settingsMarkup()||'')+
   socialSessionsMarkup(data)+
   '<section class="panel profile-notifications"><h2>Какие уведомления получать</h2><p class="note">Настрой события, которые появляются в колокольчике</p>'+
   '<form id="notification-settings-form" class="notification-settings-list">'+
