@@ -3955,3 +3955,25 @@ def test_rate_batch_transport_failure_returns_503_without_retry(application, mon
                {'email':'owner@example.test','password':'valid-password'}, 503)
     assert res.json == {'error':'Сервис временно недоступен. Повтори позже'}
     assert attempts == [1]
+
+
+def test_pwa_public_resources_no_store_and_icon_dimensions(application):
+    import struct
+    client=application.test_client()
+    manifest=client.get('/manifest.webmanifest')
+    assert manifest.status_code==200 and manifest.mimetype=='application/manifest+json'
+    assert manifest.headers['Cache-Control']=='no-store'
+    assert manifest.json['id']=='/' and manifest.json['display']=='standalone'
+    assert manifest.json['start_url']=='/' and manifest.json['scope']=='/'
+    for size in (180,192,512):
+        icon=client.get(f'/pwa-{size}.png')
+        assert icon.status_code==200 and icon.mimetype=='image/png'
+        assert icon.data.startswith(bytes.fromhex('89504e470d0a1a0a'))
+        assert struct.unpack('>II',icon.data[16:24])==(size,size)
+    worker=client.get('/service-worker.js')
+    assert worker.status_code==200 and 'javascript' in worker.mimetype
+    assert worker.headers['Cache-Control']=='no-store'
+    assert b"request.method!=='GET'" in worker.data and b"request.mode!=='navigate'" in worker.data
+    assert b'caches.open' not in worker.data and b'caches.put' not in worker.data
+    page=client.get('/')
+    assert b'/manifest.webmanifest' in page.data and b'/pwa-180.png' in page.data

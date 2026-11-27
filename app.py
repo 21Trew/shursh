@@ -20,7 +20,8 @@ from server import ApiError, LIMIT_BYTES
 ROOT = Path(__file__).resolve().parent
 # One fingerprint for the HTML and every first-party UI module. A new release
 # cannot reuse a cached app.js under the previous HTML's unversioned URL.
-UI_ASSETS=('app.js','santa-ui.js','social-ui.js','styles.css','polish.css','fonts.css','favicon.svg','favicon.ico')
+UI_ASSETS=('app.js','santa-ui.js','social-ui.js','styles.css','polish.css','fonts.css','favicon.svg','favicon.ico','pwa.js')
+PWA_ASSETS=('manifest.webmanifest','service-worker.js','pwa-180.png','pwa-192.png','pwa-512.png')
 ERROR_ASSETS=('error-page.js',)
 LANDING_ART_ASSETS=tuple('art/crayon/'+name+'.webp' for name in (
     'hero-accents', 'hero-mail', 'hero-gift', 'hero-mascot', 'step-list', 'step-share', 'step-gift', 'camera', 'cup', 'ticket', 'santa', 'privacy'
@@ -28,7 +29,7 @@ LANDING_ART_ASSETS=tuple('art/crayon/'+name+'.webp' for name in (
 _ui_digest=hashlib.sha256()
 _ui_digest.update(b'index.html\0'+(ROOT/'templates'/'index.html').read_bytes())
 _ui_digest.update(b'404.html\0'+(ROOT/'templates'/'404.html').read_bytes())
-for _asset in UI_ASSETS + LANDING_ART_ASSETS + ERROR_ASSETS:
+for _asset in UI_ASSETS + LANDING_ART_ASSETS + ERROR_ASSETS + PWA_ASSETS:
     _ui_digest.update(_asset.encode('ascii')+b'\0'+(ROOT/'public'/_asset).read_bytes())
 UI_VERSION=_ui_digest.hexdigest()[:20]
 app = Flask(__name__, static_folder=None)
@@ -356,7 +357,9 @@ def versioned_ui_asset(version,asset):
 @app.get('/')
 @app.get('/<path:route>')
 def frontend(route=''):
-    if route in ('app.js','santa-ui.js','social-ui.js','password-strength-worker.js','zxcvbn-4.4.2.js','styles.css','polish.css','fonts.css','favicon.svg','favicon.ico'):
+    if route == 'manifest.webmanifest':
+        return send_from_directory(ROOT/'public',route,mimetype='application/manifest+json')
+    if route in UI_ASSETS + PWA_ASSETS + ('password-strength-worker.js','zxcvbn-4.4.2.js'):
         return send_from_directory(ROOT/'public',route)
     if re.fullmatch(r'fonts/(?:onest|unbounded)-(?:cyrillic|cyrillic-ext|latin)-wght-normal\.woff2',route):
         return send_from_directory(ROOT/'public',route)

@@ -571,7 +571,15 @@ function restorePageToast(){
  if(n.classList.contains('error')){n.remove();clearTimeout(toastTimeout);toastTimeout=undefined;return;}
  pageToastRoot.replaceChildren(n);placePageToast();
 }
+function syncModalToastGeometry(dialog=modalRoot.querySelector('.modal')){
+ if(!dialog)return;
+ const footer=dialog.querySelector(':scope > .modal-fixed-footer');
+ const body=dialog.querySelector(':scope > .modal-scroll-area');
+ dialog.style.setProperty('--toast-footer-height',(footer?.offsetHeight||0)+'px');
+ dialog.style.setProperty('--toast-body-height',Math.max(0,(body?.clientHeight||0)-16)+'px');
+}
 function syncToastPlacement(){
+ syncModalToastGeometry();
  const rail=toastRail();
  if(!rail||modalExit)return;
  if(pageToastRoot.firstElementChild){rail.replaceChildren(pageToastRoot.firstElementChild);parkPageToast();}
@@ -585,7 +593,7 @@ function notice(message,error=false){
  n.textContent=error?localizedError(message):message;
  const rail=toastRail();
  pageToastRoot.replaceChildren();rail?.replaceChildren();
- if(rail&&!modalExit){rail.append(n);parkPageToast();}
+ if(rail&&!modalExit){rail.append(n);syncModalToastGeometry();parkPageToast();}
  else{pageToastRoot.append(n);placePageToast();}
  clearTimeout(toastTimeout);toastTimeout=setTimeout(()=>{n.remove();parkPageToast();},4500);
 }
@@ -685,7 +693,7 @@ function modal({title,subtitle='',content='',onSubmit=null,onError=null,submitLa
   if(extra)footerRail.append(extra);
   dialog.append(footerRail);
  }
- enhanceSelects(modalRoot);enhanceCalendars(modalRoot);enhancePhotoPickers(modalRoot);
+ enhanceSelects(modalRoot);enhanceCalendars(modalRoot);enhancePhotoPickers(modalRoot);syncModalToastGeometry(dialog);
  // The same bounded height animation serves every dialog, not only Auth.
  if(reuseAuth){
   if(!motionReduced()&&dialog.animate){
@@ -700,7 +708,9 @@ function modal({title,subtitle='',content='',onSubmit=null,onError=null,submitLa
  let viewport=innerWidth+':'+innerHeight;
  if(typeof ResizeObserver==='function'){
   modalContentObserver=new ResizeObserver(()=>{
-   if(!scroller.isConnected||authModalFrame)return;
+   if(!scroller.isConnected)return;
+   syncModalToastGeometry(dialog);
+   if(authModalFrame)return;
    authModalFrame=requestAnimationFrame(()=>{
     authModalFrame=0;if(!dialog.isConnected||!scroller.isConnected||modalExit)return;
     const nextViewport=innerWidth+':'+innerHeight;
@@ -710,7 +720,7 @@ function modal({title,subtitle='',content='',onSubmit=null,onError=null,submitLa
     lastNatural=authModalMotion?.dialog===dialog?authModalMotion.target:dialog.getBoundingClientRect().height;
    });
   });
-  for(const region of dialog.querySelectorAll('.modal-fixed-header,.modal-fixed-footer,.modal-toast-rail,.modal-subtitle,#modal-form'))modalContentObserver.observe(region);
+  for(const region of dialog.querySelectorAll('.modal-fixed-header,.modal-fixed-footer,.modal-subtitle,#modal-form'))modalContentObserver.observe(region);
  }
  if(!priorDialog)animateModalEntrance(dialog.parentElement,dialog);
  document.body.style.overflow='hidden';const bd=modalRoot.querySelector('[data-backdrop]');if(!reuseAuth)bd.addEventListener('click',e=>{if(e.target===bd)closeModal()});modalRoot.querySelectorAll('[data-close]').forEach(b=>b.addEventListener('click',closeModal));
@@ -1135,7 +1145,7 @@ document.addEventListener('pointerdown',()=>{
  if(focused?.hasAttribute('data-keyboard-focus'))focused.removeAttribute('data-keyboard-focus');
 },true);
 function header(){const path=currentPath();return `<header class="site-header"><div class="container topbar"><a class="logo" href="/" data-nav="/" aria-label="Шурш! Главная">шурш<span>!</span></a>${currentUser?`<nav class="nav" aria-label="Главная навигация"><a href="/" data-nav="/" class="${navigationSection(path)==='/'?'active':''}"${navigationSection(path)==='/'?' aria-current="'+(path==='/'?'page':'location')+'"':''}>${currentUser?'Кабинет':'Главная'}</a><a href="/lists" data-nav="/lists" class="${navigationSection(path)==='/lists'?'active':''}"${navigationSection(path)==='/lists'?' aria-current="'+(path==='/lists'?'page':'location')+'"':''}>Вишлисты</a><a href="/santas" data-nav="/santas" class="${navigationSection(path)==='/santas'?'active':''}"${navigationSection(path)==='/santas'?' aria-current="'+(path==='/santas'?'page':'location')+'"':''}>Тайный Санта</a>${!isPreview?`<a href="/friends" data-nav="/friends" class="${navigationSection(path)==='/friends'?'active':''}"${navigationSection(path)==='/friends'?' aria-current="'+(path==='/friends'?'page':'location')+'"':''}>Друзья</a><a href="/profile" data-nav="/profile" class="${navigationSection(path)==='/profile'?'active':''}"${navigationSection(path)==='/profile'?' aria-current="'+(path==='/profile'?'page':'location')+'"':''}>Профиль</a>${currentUser.is_admin?`<a href="/admin" data-nav="/admin" class="${navigationSection(path)==='/admin'?'active':''}"${navigationSection(path)==='/admin'?' aria-current="'+(path==='/admin'?'page':'location')+'"':''}>Админка</a>`:''}`:''}</nav>`:""}<div class="header-actions">${currentUser?`<button class="header-bell ${path==='/notifications'?'active':''}" type="button" data-social-action="open-notifications" aria-haspopup="dialog" aria-expanded="false" title="Уведомления" aria-label="Уведомления">${ico('bell',21)}<span class="nav-unread" data-notification-count hidden></span></button><button class="header-avatar" type="button" data-nav="/profile" aria-label="Открыть профиль" title="Открыть профиль">${esc(currentUser.avatar_emoji||"🎁")}</button><button class="btn btn-ghost" data-action="logout" title="Выйти">${ico('logout')} Выйти</button>`:`<button class="btn btn-ghost" data-open="login">Войти</button>`}</div></div></header>${isPreview?`<div class="preview-ribbon"><div class="container">Интерактивное демо · данные хранятся только в этом браузере · ссылки не работают на других устройствах <button type="button" data-action="reset-preview">Сбросить демо</button></div></div>`:''}`;}
-function footer(){return `<footer class="container footer"><div><a class="logo" data-nav="/" href="/">шурш<span>!</span></a><small>Место для хотелок и сюрпризов</small></div><p class="footer-credit">Сделано с заботой о сюрпризах <span aria-hidden="true">·</span> <button class="footer-developer" type="button" data-action="contact-developer">L-code</button></p></footer>`;}
+function footer(){return `<footer class="container footer"><div><a class="logo" data-nav="/" href="/">шурш<span>!</span></a><small>Место для хотелок и сюрпризов</small><button type="button" class="footer-developer pwa-install" data-pwa-install>Установить Шурш!</button></div><p class="footer-credit">Сделано с заботой о сюрпризах <span aria-hidden="true">·</span> <button class="footer-developer" type="button" data-action="contact-developer">L-code</button></p></footer>`;}
 let shellUserSignature='';
 let headerScrollQueued=false;
 let headerIsCondensed=false;
@@ -1191,12 +1201,33 @@ function attachNavigationScrollCue(){
  requestAnimationFrame(sync);
  if(document.fonts?.ready)void document.fonts.ready.then(schedule);
 }
+let cookieNoticeObserver=null;
+function updateCookieNoticeHeight(){
+ const node=document.querySelector('.cookie-notice');
+ const height=node?.getBoundingClientRect().height||0;
+ const value=(height?Math.ceil(height)+12:0)+'px';
+ if(document.documentElement.style.getPropertyValue('--notice-cookie-height')!==value)document.documentElement.style.setProperty('--notice-cookie-height',value);
+}
+function syncNoticeViewport(){
+ const viewport=window.visualViewport;
+ const bottom=viewport?Math.max(0,innerHeight-viewport.height-viewport.offsetTop):0;
+ const value=Math.round(bottom)+'px';
+ if(document.documentElement.style.getPropertyValue('--notice-visual-bottom')!==value)document.documentElement.style.setProperty('--notice-visual-bottom',value);
+}
+window.visualViewport?.addEventListener('resize',syncNoticeViewport,{passive:true});
+window.visualViewport?.addEventListener('scroll',syncNoticeViewport,{passive:true});
 function ensureCookieNotice(){
  if(document.querySelector('.cookie-notice'))return;
  try{if(localStorage.getItem('shursh-cookie-notice-v1')==='yes')return;}catch{}
  const node=document.createElement('div');node.className='cookie-notice';node.setAttribute('role','status');
  node.innerHTML='<span class="cookie-message"><span>Используем необходимые cookie</span><span>для входа и работы сайта</span></span><button type="button" data-action="cookie-ack" aria-label="Понятно">Понятно</button>';
  app.querySelector('#page-view').before(node);
+ updateCookieNoticeHeight();syncNoticeViewport();
+ if(typeof ResizeObserver==='function'){
+  cookieNoticeObserver?.disconnect();
+  cookieNoticeObserver=new ResizeObserver(updateCookieNoticeHeight);
+  cookieNoticeObserver.observe(node);
+ }
 }
 function shell(body){
  const hadPageToast=!!pageToastRoot.firstElementChild;
@@ -2779,7 +2810,7 @@ async function dispatch(action,el){const epoch=toastRouteEpoch;try{
  if(action==='edit-santa')editSantaIdentity('exchange_date');
  if(action==='toggle-santa-rule-form'){const f=document.getElementById('rule-form');if(f){f.hidden=!f.hidden;document.querySelector('.santa-rule-toggle')?.toggleAttribute('hidden',!f.hidden);if(!f.hidden)f.querySelector('select')?.focus();}return;}
  if(action==='edit-santa-title'||action==='edit-santa-description'||action==='edit-santa-date'||action==='edit-santa-budget'){editSantaIdentity(({'edit-santa-title':'title','edit-santa-description':'description','edit-santa-date':'exchange_date','edit-santa-budget':'budget'})[action]);return;}
- if(action==='cookie-ack'){try{localStorage.setItem('shursh-cookie-notice-v1','yes')}catch{}document.querySelector('.cookie-notice')?.remove();return;}
+ if(action==='cookie-ack'){try{localStorage.setItem('shursh-cookie-notice-v1','yes')}catch{}cookieNoticeObserver?.disconnect();cookieNoticeObserver=null;document.querySelector('.cookie-notice')?.remove();updateCookieNoticeHeight();return;}
  if(action==='add-player')addPlayerModal();
  if(action==='import-own-wishes')await importOwnWishesModal(el);
  if(action==='new-player-link')confirmAction('Выдать новую личную ссылку?','Старая ссылка перестанет работать. Участнику потребуется новая',async()=>{

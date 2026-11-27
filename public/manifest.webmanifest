@@ -1,0 +1,26 @@
+{
+  "id": "/",
+  "name": "Шурш! — вишлисты и Тайный Санта",
+  "short_name": "Шурш!",
+  "description": "Вишлисты, друзья и Тайный Санта в одном месте",
+  "lang": "ru",
+  "start_url": "/",
+  "scope": "/",
+  "display": "standalone",
+  "theme_color": "#f9f7ef",
+  "background_color": "#f9f7ef",
+  "icons": [
+    {
+      "src": "/pwa-192.png",
+      "sizes": "192x192",
+      "type": "image/png",
+      "purpose": "any"
+    },
+    {
+      "src": "/pwa-512.png",
+      "sizes": "512x512",
+      "type": "image/png",
+      "purpose": "any maskable"
+    }
+  ]
+}

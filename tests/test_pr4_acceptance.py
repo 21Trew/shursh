@@ -127,7 +127,21 @@ def _layout(page, width, path):
         return {x:Math.round(b.x), right:Math.round(b.right),
                 width:Math.round(b.width), height:Math.round(b.height)};
       };
-      return {width,path,docWidth:doc.scrollWidth,viewport:innerWidth,
+      const spacing=[];
+      if(main){
+        for(const el of [main,...main.querySelectorAll('section,div,article,aside,h1,h2,h3,h4,p,form,ul,li,button,a,label,input,textarea')]){
+          if(el.closest('svg')||!el.getClientRects().length)continue;
+          const style=getComputedStyle(el),b=el.getBoundingClientRect();
+          if(style.display==='none'||style.visibility==='hidden'||style.position==='fixed'||style.position==='absolute'||!b.height)continue;
+          const px=key=>Number.parseFloat(style[key])||0;
+          const values={marginTop:px('marginTop'),marginBottom:px('marginBottom'),paddingTop:px('paddingTop'),paddingBottom:px('paddingBottom'),rowGap:px('rowGap')};
+          spacing.push({tag:el.tagName.toLowerCase(),classes:typeof el.className==='string'?el.className:'',height:Math.round(b.height),...values});
+        }
+      }
+      const topSpacing=spacing.slice().sort((a,b)=>
+        Math.max(b.marginTop,b.marginBottom,b.paddingTop,b.paddingBottom,b.rowGap)-
+        Math.max(a.marginTop,a.marginBottom,a.paddingTop,a.paddingBottom,a.rowGap)).slice(0,25);
+      return {width,path,docWidth:doc.scrollWidth,viewport:innerWidth,spacing:{visibleElements:spacing.length,topSpacing},
         header:r(header),footer:r(footer),main:r(main),bell:r(bell),
         nav:r(nav),navScrollWidth:nav?.scrollWidth||0,
         navClientWidth:nav?.clientWidth||0,
@@ -595,6 +609,7 @@ def test_webkit_mobile_six_tabs_and_create_flows(browser_https):
     from uuid import uuid4
     import re
     errors=[]
+    spacing_findings=[]
     with sync_playwright() as play:
         browser=play.webkit.launch(headless=True)
         try:
@@ -658,6 +673,8 @@ def test_webkit_mobile_six_tabs_and_create_flows(browser_https):
                         width,path,"page overflow"
                     )
                     assert page.evaluate("document.querySelector('header')===window.__uiHeader")
+                    spacing_findings.append(_layout(page,width,path))
+                    (OUTPUT/'webkit'/'spacing-metrics.json').write_text(json.dumps(spacing_findings,ensure_ascii=False,indent=2),encoding='utf-8')
                     page.screenshot(path=str(out/f"route-{path.strip('/') or 'home'}.png"),
                                     full_page=True,animations="disabled")
                 # Long profile modal: edge-to-edge bottom sheet.
@@ -1214,15 +1231,16 @@ def test_cookie_notice_responsive_alignment_chromium_and_webkit(browser_https):
                         assert all(abs(line["left"]-metrics["textLeft"])<=1
                                    for line in metrics["lines"]),(engine,width,metrics)
                         assert metrics["flexDirection"]=="row",(engine,width,metrics)
-                        if width<=760:
-                            assert notice.evaluate("(el)=>getComputedStyle(el).position")=="relative"
-                            assert notice.evaluate("(el)=>el.parentElement.id")=="app"
-                            assert notice.evaluate("""el=>{
-                                const view=document.querySelector('#page-view');
-                                return el.getBoundingClientRect().bottom<=view.getBoundingClientRect().top+1;
-                            }"""),(engine,width,"cookie overlaps page")
-                        else:
-                            assert notice.evaluate("(el)=>getComputedStyle(el).position")=="fixed"
+                        assert notice.evaluate("""el=>{
+                            const r=el.getBoundingClientRect(), main=document.querySelector('main');
+                            const before=[main.getBoundingClientRect().top,main.offsetHeight,document.documentElement.scrollHeight];
+                            const bottom=innerHeight-r.bottom;
+                            el.style.visibility='hidden';
+                            const after=[main.getBoundingClientRect().top,main.offsetHeight,document.documentElement.scrollHeight];
+                            el.style.removeProperty('visibility');
+                            return getComputedStyle(el).position==='fixed' && bottom>=0 && bottom<=24 &&
+                                JSON.stringify(before)===JSON.stringify(after);
+                        }"""),(engine,width,"cookie must be fixed without layout shift")
 
                         assert abs(metrics["textCenterY"]-metrics["buttonCenterY"])<=1,(engine,width,metrics)
                         assert metrics["buttonLeft"]>=metrics["textLeft"]+metrics["textWidth"]-1,(engine,width,metrics)
@@ -2910,7 +2928,7 @@ def test_mobile_shared_sheets_header_actions_and_swipes(browser_https,engine):
 @pytest.mark.browser
 @pytest.mark.parametrize('engine',['chromium','webkit'])
 def test_mobile_toast_in_sheet_flow_and_lifecycle(browser_https,engine):
-    """Use the shared modal/notice functions; no network mutations or mock CSS."""
+    """Bottom overlay preserves modal geometry, form hit targets, focus and lifetime."""
     out=OUTPUT/'mobile-toast';out.mkdir(parents=True,exist_ok=True)
     with sync_playwright() as play:
         browser=getattr(play,engine).launch(headless=True)
@@ -2936,15 +2954,22 @@ def test_mobile_toast_in_sheet_flow_and_lifecycle(browser_https,engine):
                       const d=document.querySelector('.modal'),rail=d.querySelector('.modal-toast-rail');
                       const rect=e=>{const r=e.getBoundingClientRect();return {top:r.top,bottom:r.bottom,left:r.left,right:r.right,height:r.height}};
                       const footer=d.querySelector('.modal-fixed-footer'),scroller=d.querySelector('.modal-scroll-area');
+                      const before=rect(scroller);
+                      const sheetBefore=rect(d);
+                      rail.style.display='none';
+                      const after=rect(scroller),sheetAfter=rect(d);
+                      rail.style.removeProperty('display');
                       return {sheet:rect(d),rail:rect(rail),header:rect(d.querySelector('.modal-fixed-header')),
                         body:rect(scroller),footer:rect(footer),toast:rect(rail.querySelector('.toast')),
-                        scroll:scroller.scrollHeight>scroller.clientHeight,position:getComputedStyle(rail.querySelector('.toast')).position,
+                        scroll:scroller.scrollHeight>scroller.clientHeight,position:getComputedStyle(rail).position,
+                        passThrough:getComputedStyle(rail).pointerEvents==='none',
+                        stable:JSON.stringify(before)===JSON.stringify(after)&&JSON.stringify(sheetBefore)===JSON.stringify(sheetAfter),
                         width:innerWidth,height:innerHeight};
                     }""")
                 def assert_geometry(g):
-                    assert g['position']=='static' and g['scroll'],g
+                    assert g['position']=='absolute' and g['scroll'] and g['stable'] and g['passThrough'],g
                     assert g['header']['bottom']<=g['rail']['top']+1,g
-                    assert g['rail']['bottom']<=g['body']['top']+1,g
+                    assert g['rail']['bottom']<=g['footer']['top']+1,g
                     assert g['body']['bottom']<=g['footer']['top']+1,g
                     assert g['footer']['bottom']<=g['height']+1,g
                     assert g['body']['height']>0 and g['rail']['height']>0,g
@@ -3018,8 +3043,11 @@ def test_toast_route_scope_and_page_flow(browser_https,engine):
                 assert toast.evaluate("""el=>{
                     const root=el.parentElement,r=el.getBoundingClientRect();
                     const hit=document.elementFromPoint(r.left+r.width/2,r.top+r.height/2);
+                    const cookie=document.querySelector('.cookie-notice')?.getBoundingClientRect();
+                    const bottomOK=cookie?.height?r.bottom<=cookie.top+1&&cookie.top-r.bottom<=48:
+                      innerHeight-r.bottom>=0&&innerHeight-r.bottom<=30;
                     return root.parentElement===document.body&&getComputedStyle(root).position==='fixed'&&
-                      innerWidth-r.right>=0&&innerWidth-r.right<=30&&innerHeight-r.bottom>=0&&innerHeight-r.bottom<=30&&
+                      innerWidth-r.right>=0&&innerWidth-r.right<=30&&bottomOK&&
                       !root.contains(hit)&&JSON.stringify(toastBefore)===JSON.stringify(toastPageGeometry());
                 }""")
                 page.screenshot(path=str(out/f'{engine}-{width}-page.png'),animations='disabled')
@@ -3420,8 +3448,7 @@ def test_mobile_cookie_notice_never_overlays_owner_tabs(browser_https):
                             expect(notice).to_have_count(1)
                             assert notice.evaluate("""el=>{
                                 const r=el.getBoundingClientRect();
-                                const v=document.querySelector('#page-view').getBoundingClientRect();
-                                return getComputedStyle(el).position==='relative' && r.bottom<=v.top+1;
+                                return getComputedStyle(el).position==='fixed' && innerHeight-r.bottom>=0 && innerHeight-r.bottom<=24;
                             }"""),(engine,width,path)
                         notice.locator("button").click()
                         expect(notice).to_have_count(0)
@@ -3468,9 +3495,13 @@ def test_cookie_notice_nested_routes_dialogs_and_keyboard_viewport(browser_https
         notice = page.locator('.cookie-notice')
         expect(notice).to_have_count(1)
         assert notice.evaluate("""el => {
-          const view=document.querySelector('#page-view');
-          return getComputedStyle(el).position==='relative' &&
-            el.getBoundingClientRect().bottom<=view.getBoundingClientRect().top+1;
+          const r=el.getBoundingClientRect(),view=document.querySelector('#page-view');
+          const before=[view.offsetTop,view.offsetHeight,document.documentElement.scrollHeight];
+          el.style.display='none';
+          const after=[view.offsetTop,view.offsetHeight,document.documentElement.scrollHeight];
+          el.style.removeProperty('display');
+          return getComputedStyle(el).position==='fixed' && innerHeight-r.bottom>=0 &&
+            innerHeight-r.bottom<=24 && JSON.stringify(before)===JSON.stringify(after);
         }""")
         assert page.evaluate("localStorage.getItem('shursh-cookie-notice-v1')!=='yes'")
 
@@ -3478,6 +3509,7 @@ def test_cookie_notice_nested_routes_dialogs_and_keyboard_viewport(browser_https
         dialog = page.locator('.modal')
         expect(dialog).to_be_visible()
         expect(page.locator('.cookie-notice')).to_have_count(1)
+        expect(page.locator('.cookie-notice')).to_be_hidden()
         page.wait_for_function("()=>document.querySelector('.modal')?.getAnimations().length===0")
         close = dialog.locator('.modal-close').first
         hit(close)
@@ -3576,7 +3608,9 @@ def test_cookie_notice_nested_routes_dialogs_and_keyboard_viewport(browser_https
                     page.set_viewport_size({'width':width,'height':height})
                     page.evaluate("socialPersonalInviteModal()")
                     dialog_gate(page,'friend-qr',width,height)
+                    page.evaluate("document.activeElement?.blur()")
                     notice=page.locator('.cookie-notice')
+                    expect(notice).to_be_visible()
                     notice.locator('button').click()
                     expect(notice).to_have_count(0)
                     page.reload(wait_until='domcontentloaded')
@@ -4033,3 +4067,80 @@ def test_api_deadline_dedup_and_cancel(browser_https,engine):
             out=OUTPUT/'api-lifecycle';out.mkdir(parents=True,exist_ok=True)
             (out/f'{engine}.json').write_text(json.dumps(report,indent=2),encoding='utf-8')
         finally:browser.close()
+
+
+@pytest.mark.browser
+@pytest.mark.parametrize('engine',['chromium','webkit'])
+def test_pwa_manifest_install_help_and_mobile_spacing(browser_http,engine):
+    out=OUTPUT/'pwa-mobile';out.mkdir(parents=True,exist_ok=True)
+    records=[]
+    with sync_playwright() as play:
+        browser=getattr(play,engine).launch(headless=True)
+        try:
+            for width,height in ((320,568),(390,844),(430,932),(568,320),(760,844),(761,844),(1440,900)):
+                ctx=browser.new_context(viewport={'width':width,'height':height},
+                    has_touch=width<=760,reduced_motion='reduce')
+                try:
+                    page=ctx.new_page()
+                    page.goto(browser_http+'/')
+                    expect(page.locator('main h1').first).to_be_visible()
+                    expect(page.locator('link[rel=manifest]')).to_have_attribute('href','/manifest.webmanifest')
+                    manifest=page.request.get(browser_http+'/manifest.webmanifest').json()
+                    assert manifest['display']=='standalone' and manifest['scope']=='/' and manifest['start_url']=='/'
+                    assert {i['sizes'] for i in manifest['icons']}=={'192x192','512x512'}
+                    if width==390:
+                        assert page.evaluate("""async()=>{
+                          for(const size of [180,192,512]){
+                            const image=new Image();image.src='/pwa-'+size+'.png';
+                            await image.decode();
+                            if(image.naturalWidth!==size||image.naturalHeight!==size)return false;
+                          }
+                          return true;
+                        }""")
+                    metrics=page.evaluate("""()=>{
+                      const box=e=>{const r=e.getBoundingClientRect();return {top:r.top,bottom:r.bottom,width:r.width,height:r.height}};
+                      return {viewport:innerWidth,documentWidth:document.documentElement.scrollWidth,
+                        main:box(document.querySelector('main')),cookie:box(document.querySelector('.cookie-notice')),
+                        sections:[...document.querySelectorAll('main .section')].map(e=>({height:box(e).height,
+                          paddingTop:parseFloat(getComputedStyle(e).paddingTop),paddingBottom:parseFloat(getComputedStyle(e).paddingBottom)}))};
+                    }""")
+                    assert metrics['documentWidth']<=width+2,metrics
+                    assert all(s['paddingTop']<=100 and s['paddingBottom']<=100 for s in metrics['sections']),metrics
+                    records.append({'width':width,'height':height,**metrics})
+                    page.screenshot(path=str(out/f'{engine}-{width}x{height}-landing.png'),animations='disabled')
+                    if width==390:
+                        expect(page.locator('[data-pwa-install]')).to_be_visible()
+                        page.locator('.cookie-notice button').click()
+                        # A real native install prompt is browser/OS controlled.
+                        # Test the fallback guide on engines without that prompt.
+                        if engine=='webkit':
+                            page.locator('[data-pwa-install]').click()
+                            expect(page.locator('.modal')).to_contain_text('На экран Домой')
+                            expect(page.locator('.modal')).to_contain_text('Android')
+                            page.keyboard.press('Escape')
+                finally:ctx.close()
+        finally:browser.close()
+    (out/f'{engine}-metrics.json').write_text(json.dumps(records,ensure_ascii=False,indent=2),encoding='utf-8')
+
+
+@pytest.mark.browser
+def test_pwa_network_only_offline_fallback_and_reconnect(browser_http):
+    with sync_playwright() as play:
+        browser=play.chromium.launch(headless=True)
+        ctx=browser.new_context(service_workers='allow',viewport={'width':390,'height':844})
+        try:
+            page=ctx.new_page();page.goto(browser_http+'/')
+            page.wait_for_function("()=>!!navigator.serviceWorker.controller",timeout=15000)
+            assert page.evaluate("async()=> (await caches.keys()).length===0")
+            ctx.set_offline(True)
+            response=page.reload(wait_until='domcontentloaded')
+            assert response.status==503
+            expect(page.locator('h1')).to_have_text('Похоже, нет подключения')
+            assert page.evaluate("async()=> (await caches.keys()).length===0")
+            ctx.set_offline(False)
+            response=page.reload(wait_until='domcontentloaded')
+            assert response.status==200
+            expect(page.locator('main h1').first).to_be_visible()
+            assert page.evaluate("async()=> (await fetch('/api/me')).status===200")
+            assert page.evaluate("async()=> (await caches.keys()).length===0")
+        finally:ctx.close();browser.close()
