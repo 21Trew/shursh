@@ -173,6 +173,32 @@ const OWNER_DATA_LIMIT=32;
 const OWNER_DETAIL_RETENTION=10*60*1000;
 const OWNER_DETAIL_BYTES=8*1024*1024;
 const ownerPending=new Map();
+const apiReadPending=new Map(),apiReadControllers=new Set();
+let apiReadGeneration=0;
+const API_READ_TIMEOUT=15000,API_WRITE_TIMEOUT=60000;
+// Bound the complete request including response body consumption. A caller's
+// cancellation is independent of the deadline and never cancels another caller.
+async function withApiDeadline(method,opts,task){
+ const controller=new AbortController(),external=opts.signal;
+ const read=method==='GET';
+ if(external?.aborted)throw sessionChangedError();
+ let timer,onAbort,onExternal;
+ const timeout=opts.timeoutMs??(read?API_READ_TIMEOUT:API_WRITE_TIMEOUT);
+ const timeoutError=new Error(read?'Сервер не ответил вовремя. Попробуй ещё раз':'Сервер не ответил вовремя. Проверь, сохранились ли изменения, прежде чем повторить');
+ timeoutError.name='TimeoutError';
+ let failure=sessionChangedError();
+ const cancelled=new Promise((_,reject)=>{
+  onAbort=()=>reject(failure);
+  controller.signal.addEventListener('abort',onAbort,{once:true});
+ });
+ onExternal=()=>controller.abort();
+ external?.addEventListener('abort',onExternal,{once:true});
+ if(read)apiReadControllers.add(controller);
+ timer=setTimeout(()=>{failure=timeoutError;controller.abort();},timeout);
+ try{return await Promise.race([cancelled,task(controller.signal)]);}
+ catch(error){if(controller.signal.aborted)throw failure;throw error;}
+ finally{clearTimeout(timer);controller.signal.removeEventListener('abort',onAbort);external?.removeEventListener('abort',onExternal);apiReadControllers.delete(controller);}
+}
 let ownerSessionEpoch=0;
 function ownerPinned(path){return !/^\/api\/(?:lists|santas)\/\d+$/.test(path);}
 function pruneOwnerData(){
@@ -218,6 +244,9 @@ function dropOwnerRead(path){
  ownerDataCache.delete(path);ownerPending.delete(path);ownerRevalidating.delete(path);
 }
 function clearOwnerDataCache(){
+ for(const controller of apiReadControllers)controller.abort();
+ apiReadPending.clear();apiReadGeneration++;
+ if(typeof cancelAdminUserReads==='function')cancelAdminUserReads();
  ownerCacheVersion++;ownerSessionEpoch++;ownerDataCache.clear();clearOwnerTabViews();ownerRevalidating.clear();ownerPending.clear();renderedOwnerTab=null;wishlistTabGeneration++;
  ownerWarmupIdentity=null;ownerWarmupReady=false;ownerWarmupPromise=null;
  currentOwnedWishlists=[];loadedList=null;loadedSanta=null;activeGameContext=null;wishlistCoverSlots.clear();
@@ -395,7 +424,10 @@ function revalidateOwnerRead(path,entry){
  const epoch=ownerSessionEpoch,identity=currentUser.id;
  const job=(async()=>{
   try{
-   const response=await fetch(path,{credentials:'same-origin',headers:{Accept:'application/json'}});
+   const {response,value}=await withApiDeadline('GET',{},async signal=>{
+    const response=await fetch(path,{credentials:'same-origin',headers:{Accept:'application/json'},signal});
+    return {response,value:response.ok?await response.json():null};
+   });
    if(!response.ok){
     if((response.status===401||response.status===403||response.status===404)&&epoch===ownerSessionEpoch&&ownerDataCache.get(path)===entry){
      dropOwnerRead(path);
@@ -408,7 +440,6 @@ function revalidateOwnerRead(path,entry){
    }
    if(epoch!==ownerSessionEpoch||currentUser?.id!==identity||ownerDataCache.get(path)!==entry)return;
    if(!verifyOwnerViewer(response,identity)){resetOwnerSession();return;}
-   const value=await response.json();
    if(path==='/api/dashboard'&&value.user?.id!==identity){
     if(epoch===ownerSessionEpoch&&currentUser?.id===identity)resetOwnerSession();
     return;
@@ -440,7 +471,10 @@ function scheduleOwnerWarmup(){
 }
 async function api(path,opts={}){
  if(isPreview)return window.previewApi(path,opts);
- const method=opts.method||'GET',cached=method==='GET'&&cacheableOwnerRead(path);
+ const method=opts.method||'GET',cached=method==='GET'&&!opts.signal&&!opts.visit&&opts.timeoutMs==null&&cacheableOwnerRead(path);
+ const dedup=method==='GET'&&!cached&&!opts.signal&&!opts.visit&&opts.timeoutMs==null&&!opts.body;
+ const readKey=dedup?ownerSessionEpoch+':'+apiReadGeneration+':'+path:null;
+ if(readKey&&apiReadPending.has(readKey))return apiReadPending.get(readKey);
  const epoch=ownerSessionEpoch,identity=currentUser?.id;
  if(cached){
   const pending=ownerPending.get(path);
@@ -466,17 +500,18 @@ async function api(path,opts={}){
   if(opts.visit)headers['X-Shursh-Visit']='1';
   // iPadOS sometimes identifies as macOS. Only the coarse OS hint is sent.
   if((opts.visit||['/api/login','/api/register','/api/auth/complete'].includes(path))&&navigator.platform==='MacIntel'&&navigator.maxTouchPoints>1)headers['X-Shursh-Platform']='ios';
-  const response=await fetch(path,{method,headers,
-   credentials:'same-origin',body:opts.body?JSON.stringify(opts.body):undefined,
-   signal:opts.signal});
+  const {response,data}=await withApiDeadline(method,opts,async signal=>{
+   const response=await fetch(path,{method,headers,credentials:'same-origin',body:opts.body?JSON.stringify(opts.body):undefined,signal});
+   const data=await response.json().catch(error=>{if(signal.aborted)throw error;return {error:'Не удалось прочитать ответ сервера'};});
+   return {response,data};
+  });
   if(epoch!==ownerSessionEpoch||currentUser?.id!==identity)throw sessionChangedError();
   if(cached&&ownerPending.get(path)?.request!==request)return api(path,opts);
   if(cached&&((response.ok&&!verifyOwnerViewer(response,identity))||response.status===401)){resetOwnerSession();throw sessionChangedError();}
-  const data=await response.json().catch(()=>({error:'Не удалось прочитать ответ сервера'}));
   if(!response.ok){const err=new Error(data.error||'Произошла ошибка');err.status=response.status;err.apiPath=path;err.requestId=response.headers.get('x-vercel-id')||'';err.uiVersion=response.headers.get('x-shursh-ui-version')||'';throw err;}
   if(epoch!==ownerSessionEpoch||currentUser?.id!==identity)throw sessionChangedError();
   if(cached&&ownerPending.get(path)?.request!==request)return api(path,opts);
-  if(method!=='GET')invalidateOwnerDataForMutation(path);
+  if(method!=='GET'){apiReadGeneration++;invalidateOwnerDataForMutation(path);}
   return data;
  })();
  if(cached){
@@ -484,6 +519,11 @@ async function api(path,opts={}){
   request.then(value=>{
    if(ownerSessionEpoch===epoch&&currentUser?.id===identity&&ownerPending.get(path)===pending)seedOwnerCache(path,value,{derive:ownerCacheVersion===version});
   },()=>{}).finally(()=>{if(ownerPending.get(path)===pending)ownerPending.delete(path);});
+ }
+ if(readKey){
+  apiReadPending.set(readKey,request);
+  const cleanup=()=>{if(apiReadPending.get(readKey)===request)apiReadPending.delete(readKey);};
+  void request.then(cleanup,cleanup);
  }
  return request;
 }
@@ -502,13 +542,8 @@ function refreshVisibleOwner(){
 setInterval(refreshVisibleOwner,45000);
 document.addEventListener('visibilitychange',refreshVisibleOwner);
 async function startupApi(path){
- const controller=new AbortController();
- const timeout=setTimeout(()=>controller.abort(),9000);
- try{return await api(path,{signal:controller.signal,visit:true});}
- catch(error){
-  if(controller.signal.aborted)throw new Error('Не удалось дождаться ответа сервера. Проверь соединение и попробуй ещё раз');
-  throw error;
- }finally{clearTimeout(timeout);}
+ try{return await api(path,{timeoutMs:9000,visit:true});}
+ catch(error){if(error.name==='TimeoutError')throw new Error('Не удалось дождаться ответа сервера. Проверь соединение и попробуй ещё раз');throw error;}
 }
 // Page feedback belongs to one route. Modal errors belong to their dialog.
 const pageToastRoot=document.getElementById('toast-root');
@@ -517,35 +552,9 @@ function toastRail(dialog=modalRoot.querySelector('.modal')){
  return dialog?.querySelector(':scope > .modal-toast-rail')||null;
 }
 function parkPageToast(){
- const view=app.querySelector('#page-view');
- if(view){if(pageToastRoot.nextElementSibling!==view)view.before(pageToastRoot);}
- else if(pageToastRoot.parentElement!==document.body)document.body.append(pageToastRoot);
+ if(pageToastRoot.parentElement!==document.body)document.body.append(pageToastRoot);
 }
-function placePageToast(){
- parkPageToast();
- if(!pageToastRoot.firstElementChild)return;
- const view=app.querySelector('#page-view'),main=view?.querySelector(':scope > main');
- if(!main)return;
- const top=Math.max(0,app.querySelector('.site-header')?.getBoundingClientRect().bottom||0);
- const bottom=window.visualViewport?.height||innerHeight;
- if(view.getBoundingClientRect().top>=top&&view.getBoundingClientRect().top<bottom-80)return;
- // At a scrolled position insert feedback into an existing visible block
- // flow, never over a control, into a grid, form or scroll pane.
- const candidates=[...main.children,...main.querySelectorAll('section,article,div,p,h1,h2,h3')];
- const target=candidates.find(el=>{
-  const parent=el.parentElement;
-  if(!parent||el===pageToastRoot||el.closest('form,button,a,dialog,[role="dialog"],[role="tablist"],[contenteditable]'))return false;
-  const r=el.getBoundingClientRect(),p=getComputedStyle(parent);
-  if(r.top<top+8||r.top>bottom-90||r.width<Math.min(240,innerWidth-32))return false;
-  if(!(p.display==='block'||(p.display==='flex'&&p.flexDirection==='column')))return false;
-  for(let n=parent;n&&n!==main.parentElement;n=n.parentElement){
-   const style=getComputedStyle(n);
-   if(['absolute','fixed','sticky'].includes(style.position)||['hidden','auto','scroll','clip'].includes(style.overflowY))return false;
-  }
-  return true;
- });
- if(target)target.before(pageToastRoot);
-}
+function placePageToast(){parkPageToast();}
 function clearNotice(){
  clearTimeout(toastTimeout);toastTimeout=undefined;
  pageToastRoot.replaceChildren();toastRail()?.replaceChildren();parkPageToast();
@@ -553,6 +562,7 @@ function clearNotice(){
 function beginToastRoute(path=currentPath()){
  if(path===toastRoute)return;
  toastRoute=path;toastRouteEpoch++;clearNotice();
+ if(typeof cancelAdminUserReads==='function')cancelAdminUserReads();
  if(modalRoot.firstElementChild)closeModal({immediate:true});
 }
 function restorePageToast(){
