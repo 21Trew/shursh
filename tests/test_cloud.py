@@ -3761,3 +3761,143 @@ def test_own_active_sessions_and_revocation(application):
     assert call(d,'GET','/api/me').json['user'] is None
     assert [s['id'] for s in profile(a)]==[current]
     assert call(c,'GET','/api/me').json['user'] is not None
+
+def test_rate_limit_atomic_saturation_and_bucket_order(application):
+    """Same key, independent committed transactions: no lost quota or reset."""
+    from hashlib import sha256
+    from uuid import uuid4
+    from cloud import db
+    from cloud.backend import consume_rate_limit
+    key=sha256(uuid4().bytes).hexdigest()
+    bucket=1000
+    limit=17
+
+    def attempt(_):
+        with db.transaction(write=True,rate_limit=True) as con:
+            return consume_rate_limit(con,key,bucket,limit)
+
+    with ThreadPoolExecutor(max_workers=4) as pool:
+        results=list(pool.map(attempt,range(96)))
+    assert sum(results)==limit
+    with db.transaction(write=True,rate_limit=True) as con:
+        def state():
+            return con.execute('SELECT bucket,hits,ctid::text AS tuple_id FROM app_rate_limits WHERE key_hash=?',(key,)).fetchone()
+        saturated=state()
+        assert saturated['hits']==limit and saturated['bucket']==bucket
+        for _ in range(20):
+            assert not consume_rate_limit(con,key,bucket,limit)
+        assert state()==saturated, 'Rejected requests must not create another row version'
+        assert consume_rate_limit(con,key,bucket+1,limit)
+        assert state()['hits']==1
+        new=state()
+        assert not consume_rate_limit(con,key,bucket,limit)
+        assert state()==new
+        assert consume_rate_limit(con,key,bucket+1,limit)
+        assert state()['hits']==2
+
+
+def test_rate_limit_source_action_and_independent_commit(application,monkeypatch):
+    from flask import request
+    from cloud import db
+    from cloud.backend import CloudRequest
+    from server import ApiError
+    monkeypatch.delenv('VERCEL',raising=False)
+    def hit(source,action,forwarded):
+        with application.test_request_context('/api/test',environ_base={'REMOTE_ADDR':source},
+                                              headers={'x-vercel-forwarded-for':forwarded}):
+            CloudRequest(request).throttled(action,limit=1,window=86400)
+    hit('192.0.2.10','quota-a','198.51.100.1')
+    with pytest.raises(ApiError) as exc:
+        hit('192.0.2.10','quota-a','198.51.100.2')
+    assert exc.value.status==429
+    hit('192.0.2.11','quota-a','198.51.100.2')
+    hit('192.0.2.10','quota-b','198.51.100.2')
+    # A failed business transaction cannot undo the separately committed quota.
+    with application.test_request_context('/api/test',environ_base={'REMOTE_ADDR':'192.0.2.12'}):
+        handler=CloudRequest(request)
+        with pytest.raises(RuntimeError,match='rollback marker'):
+            with db.transaction(write=True):
+                handler.throttled('quota-rollback',limit=1,window=86400)
+                raise RuntimeError('rollback marker')
+        with pytest.raises(ApiError) as exc:
+            handler.throttled('quota-rollback',limit=1,window=86400)
+        assert exc.value.status==429
+
+
+@pytest.mark.performance
+def test_rate_limit_comparative_postgres_benchmark(application):
+    """Compare original and candidate under identical committed CI transactions.
+    Report timing, actual counters and WAL for a representative rejected call.
+    Do not gate noisy runner latency or extrapolate to hosted PostgreSQL.
+    """
+    import json
+    from hashlib import sha256
+    from uuid import uuid4
+    from statistics import median
+    from time import perf_counter
+    from math import ceil
+    from cloud import db
+    from cloud.backend import RATE_LIMIT_SQL, consume_rate_limit
+    old_sql="""INSERT INTO app_rate_limits(key_hash,bucket,hits) VALUES(?,?,1)
+        ON CONFLICT(key_hash) DO UPDATE SET hits=CASE WHEN app_rate_limits.bucket=excluded.bucket
+        THEN app_rate_limits.hits+1 ELSE 1 END,bucket=excluded.bucket RETURNING hits"""
+    bucket=1000
+    n=120
+    limit=180
+    def key():
+        return sha256(uuid4().bytes).hexdigest()
+    def old(con,k,b,l):
+        return con.execute(old_sql,(k,b)).fetchone()['hits']<=l
+    def seed(k,hits):
+        if hits:
+            with db.transaction(write=True,rate_limit=True) as con:
+                con.execute('INSERT INTO app_rate_limits(key_hash,bucket,hits) VALUES(?,?,?)',(k,bucket,hits))
+    def run(fn,initial,workers):
+        k=key()
+        seed(k,initial)
+        def attempt(_):
+            start=perf_counter()
+            with db.transaction(write=True,rate_limit=True) as con:
+                allowed=fn(con,k,bucket,limit)
+            return allowed,(perf_counter()-start)*1000
+        start=perf_counter()
+        if workers==1:
+            samples=[attempt(i) for i in range(n)]
+        else:
+            with ThreadPoolExecutor(max_workers=workers) as pool:
+                samples=list(pool.map(attempt,range(n)))
+        wall=(perf_counter()-start)*1000
+        with db.transaction() as con:
+            hits=con.execute('SELECT hits FROM app_rate_limits WHERE key_hash=?',(k,)).fetchone()['hits']
+        timings=sorted(x[1] for x in samples)
+        return {'requests':n,'allowed':sum(x[0] for x in samples),
+                'counter':hits,'p50_ms':round(median(timings),3),
+                'p95_ms':round(timings[ceil(.95*n)-1],3),'wall_ms':round(wall,3)}
+    # Warm the same bounded pool before measurement.
+    with ThreadPoolExecutor(max_workers=4) as pool:
+        def warm(_):
+            with db.transaction() as con:
+                con.execute('SELECT 1').fetchone()
+        list(pool.map(warm,range(16)))
+    report={}
+    for name,initial,workers in [('allowed',0,1),('mixed',120,4),('rejected',180,4)]:
+        before=run(old,initial,workers)
+        after=run(consume_rate_limit,initial,workers)
+        expected=min(n,limit-initial)
+        assert before['allowed']==after['allowed']==expected,(name,before,after)
+        assert before['counter']==initial+n
+        assert after['counter']==initial+expected
+        report[name]={'workers':workers,'before':before,'after':after,
+                      'counter_updates_avoided':before['counter']-after['counter']}
+    # A fresh saturated key for each statement: capture WAL without relying on
+    # a global statistics reset or interference from other database sessions.
+    wal={}
+    for name,sql in [('before',old_sql),('after',RATE_LIMIT_SQL)]:
+        k=key()
+        seed(k,limit)
+        with db.transaction(write=True,rate_limit=True) as con:
+            params=(k,bucket,limit) if name=='after' else (k,bucket)
+            plan=con.execute('EXPLAIN (ANALYZE, BUFFERS, WAL, FORMAT JSON) '+sql,params).fetchone()['QUERY PLAN'][0]['Plan']
+            wal[name]={field:plan.get(field,0) for field in ('WAL Records','WAL Bytes','WAL FPI','Tuples Inserted','Conflicting Tuples')}
+    print('SHURSH_RATE_LIMIT_PERF='+json.dumps({'scope':'CI-local-PostgreSQL','limit':limit,'scenarios':report,'rejected_wal':wal},sort_keys=True))
+
