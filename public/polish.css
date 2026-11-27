@@ -1243,12 +1243,12 @@ body:has(.scroll-to-top.is-visible) #toast-root{bottom:max(84px,calc(env(safe-ar
 .profile-name-visibility>.field>input{padding-inline-end:56px}
 .profile-visibility-toggle{position:absolute;inset-inline-end:5px;bottom:5px;width:44px;height:44px;display:grid;place-items:center;background:transparent;border:0;border-radius:12px;color:#625b57;cursor:pointer}
 .profile-visibility-toggle[aria-pressed=true]{color:#27272b}.profile-visibility-toggle:is(:hover,:focus-visible){background:#eee5f8}
-.personal-invite-social>.btn.share-telegram{background:#229ed9;border-color:#229ed9;color:#102637}
-.personal-invite-social>.btn.share-vk{background:#0077ff;border-color:#0077ff;color:#0d001a}
+.personal-invite-social>.btn.share-telegram{background:#1379ad;border-color:#1379ad;color:#fff}
+.personal-invite-social>.btn.share-vk{background:#0062d6;border-color:#0062d6;color:#fff}
 .personal-invite-social>.btn.share-max{background:#471aff;border-color:#471aff;color:#fff}
 .personal-invite-social>.btn:is(.share-telegram,.share-vk,.share-max):is(:hover,:focus-visible){filter:none;box-shadow:inset 0 0 0 2px currentColor}
-.personal-invite-social>.btn.share-telegram:is(:hover,:focus-visible){background:#229ed9}
-.personal-invite-social>.btn.share-vk:is(:hover,:focus-visible){background:#0077ff}
+.personal-invite-social>.btn.share-telegram:is(:hover,:focus-visible){background:#1379ad}
+.personal-invite-social>.btn.share-vk:is(:hover,:focus-visible){background:#0062d6}
 .personal-invite-social>.btn.share-max:is(:hover,:focus-visible){background:#471aff}
 .personal-invite-social>.btn.share-telegram svg{color:#fff}
 .profile-session-list{display:grid;gap:8px}.profile-session-row{display:flex;align-items:center;justify-content:space-between;gap:12px;background:#f7f3ed;border-radius:12px;padding:12px;min-width:0}.profile-session-row>div{display:grid;gap:4px;min-width:0}.profile-session-row small{color:#625b57;font-size:12px}.profile-session-row .btn{flex-shrink:0;min-height:44px}
