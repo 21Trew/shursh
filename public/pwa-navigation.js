@@ -73,9 +73,13 @@
   const top=Math.max(36,(header?.bottom||62)+31);
   const safeBottom=parseFloat(getComputedStyle(root).paddingBottom)||0;
   let bottom=H-35-safeBottom;
-  for(const n of [document.querySelector('.cookie-notice'),document.querySelector('#toast-root:not(:empty)'),document.querySelector('.scroll-to-top.is-visible')]){
+  for(const n of [document.querySelector('.cookie-notice'),document.querySelector('#toast-root:not(:empty)')]){
    if(n&&n.getClientRects().length&&getComputedStyle(n).visibility!=='hidden')bottom=Math.min(bottom,n.getBoundingClientRect().top-32);
   }
+  // Reserve the untransformed scroll-button slot even when it is hidden.
+  // Its visibility threshold and hover animation must not move the handle.
+  const scrollButton=document.querySelector('.scroll-to-top');
+  if(!open&&scrollButton?.getClientRects().length)bottom=Math.min(bottom,scrollButton.offsetTop-35);
   return {top:Math.min(top,H-35),bottom:Math.max(Math.min(top,H-35),bottom),H};
  }
  function edgeY(){const b=bounds();return b.top+prefs.ratio*(b.bottom-b.top);}
@@ -127,10 +131,13 @@
   html.classList.toggle('mobile-nav-blocked',active&&hidden);
   html.classList.toggle('mobile-nav-editing',active&&editing());
   if(html.dataset.mobileNavMode!==(active?prefs.mode:''))html.dataset.mobileNavMode=active?prefs.mode:'';
-  if(renderedMode!==prefs.mode){close();build();}
+  const revealing=root.hidden&&!hidden,rebuilding=renderedMode!==prefs.mode;
+  if(rebuilding){close();build();}
   if(root.hidden!==hidden)root.hidden=hidden;
   if(root.inert!==hidden)root.inert=hidden;
   selected();syncSettings();
+  // Publish the visible handle geometry before the next input can hit it.
+  if(!hidden&&prefs.mode==='radial'&&(revealing||rebuilding)){updateCookieNoticeHeight();layout();}
   const cookie=document.querySelector('.cookie-notice');
   if(cookie!==observedCookie){if(observedCookie)resize?.unobserve(observedCookie);observedCookie=cookie;if(cookie)resize?.observe(cookie);}
   schedule();
@@ -233,8 +240,11 @@
   else if(b.hasAttribute('data-nav-reset')){prefs.side=defaults.side;prefs.ratio=defaults.ratio;}
   const ok=save();sync();const status=b.closest('section').querySelector('.mobile-nav-storage');if(status)status.textContent=ok?'Сохранено на этом устройстве':'Настройка действует до перезагрузки';
  });
- const resize=typeof ResizeObserver==='function'?new ResizeObserver(schedule):null;
- if(resize){resize.observe(document.getElementById('toast-root'));}
+ const toastRoot=document.getElementById('toast-root');
+ function layoutOverlays(){if(enabled()&&!root.hidden&&prefs.mode==='radial'){updateCookieNoticeHeight();layout();}}
+ const resize=typeof ResizeObserver==='function'?new ResizeObserver(layoutOverlays):null;
+ if(resize)resize.observe(toastRoot);
+ new MutationObserver(layoutOverlays).observe(toastRoot,{childList:true});
  new MutationObserver(()=>{
   // Opening a dialog ends an underlying editor gesture. Do not retain an
   // editor focus or a stale pointer latch when closing a non-editable dialog.

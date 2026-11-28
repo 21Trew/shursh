@@ -4260,10 +4260,20 @@ def test_personal_mobile_navigation_modes_drag_rotation_and_storage(browser_http
                             assert tb['y']+tb['height']<=cb['y']+1,(tb,cb)
                     records.append({'mode':mode,'width':width,'height':height})
                     page.screenshot(path=str(out/f'{engine}-{mode}-{width}x{height}.png'),animations='disabled')
+            page.evaluate("""()=>{window.__resizeEdgePointer=[];
+              const record=e=>window.__resizeEdgePointer.push({type:e.type,pointerType:e.pointerType,
+                handle:!!e.target.closest?.('.mobile-nav-handle'),x:e.clientX,y:e.clientY});
+              for(const type of ['pointerdown','pointerup','pointercancel'])document.addEventListener(type,record,{capture:true});
+            }""")
             page.set_viewport_size({'width':390,'height':844})
             handle=root.locator('.mobile-nav-handle')
-            b=handle.bounding_box();x=b['x']+b['width']/2;y=b['y']+b['height']/2
+            expect(handle).to_be_visible()
+            b=handle.bounding_box();assert b is not None
+            x=b['x']+b['width']/2;y=b['y']+b['height']/2
             page.mouse.move(x,y);page.mouse.down();page.mouse.move(22,340,steps=12);page.mouse.up()
+            resize_events=page.evaluate('window.__resizeEdgePointer')
+            assert resize_events and resize_events[0]['type']=='pointerdown' and resize_events[0]['handle'] and resize_events[0]['pointerType']=='mouse',resize_events
+            assert resize_events[-1]['type']=='pointerup' and not any(e['type']=='pointercancel' for e in resize_events),resize_events
             expect(root).to_have_attribute('data-side','left')
             saved=page.evaluate("JSON.parse(localStorage.getItem('shursh-mobile-navigation-v1'))")
             assert saved['side']=='left' and 0<=saved['ratio']<=1
@@ -4445,6 +4455,41 @@ def test_personal_mobile_navigation_modes_drag_rotation_and_storage(browser_http
                 assert page.evaluate("window.__navTouchStarts.some(e=>!e.handle&&!e.prevented)")
             finally:
                 if client:client.detach()
+            # Keep the handle stable across the actual scroll-to-top threshold.
+            # Exercise both sides, with and without a live toast, while preserving
+            # the saved preference and real hit-testing.
+            viewport=page.locator('#page-view')
+            previous_min=viewport.evaluate('e=>e.style.minHeight')
+            viewport.evaluate("e=>e.style.minHeight='2400px'")
+            def assert_scroll_stability():
+                saved=page.evaluate("localStorage.getItem('shursh-mobile-navigation-v1')")
+                points=[]
+                for y in (439,440,441,500,441,440,439):
+                    page.evaluate('y=>scrollTo({top:y,behavior:"instant"})',y)
+                    page.wait_for_function("visible=>document.querySelector('.scroll-to-top').classList.contains('is-visible')===visible",arg=y>440)
+                    sample=handle.evaluate("""async e=>{
+                      await new Promise(r=>requestAnimationFrame(()=>requestAnimationFrame(r)));
+                      const a=e.getBoundingClientRect(),b=document.querySelector('.scroll-to-top'),c=b.getBoundingClientRect();
+                      const x=a.x+a.width/2,y=a.y+a.height/2;
+                      return {scroll:scrollY,y,hit:e.contains(document.elementFromPoint(x,y)),overlap:b.classList.contains('is-visible')&&a.right>c.left&&a.left<c.right&&a.bottom>c.top&&a.top<c.bottom};
+                    }""")
+                    assert abs(sample['scroll']-y)<=1 and sample['hit'] and not sample['overlap'],sample
+                    points.append(sample['y'])
+                assert max(points)-min(points)<=.5,points
+                assert page.evaluate("localStorage.getItem('shursh-mobile-navigation-v1')")==saved
+            try:
+                for side in ('left','right'):
+                    page.locator('[data-nav-side="'+side+'"]').click()
+                    expect(root).to_have_attribute('data-side',side)
+                    expect(page.locator('#toast-root .toast')).to_have_count(0,timeout=6500)
+                    assert_scroll_stability()
+                    page.evaluate("notice('Проверка прокрутки')")
+                    expect(page.locator('#toast-root .toast')).to_be_visible()
+                    assert_scroll_stability()
+                    expect(page.locator('#toast-root .toast')).to_have_count(0,timeout=6500)
+            finally:
+                viewport.evaluate('(e,value)=>e.style.minHeight=value',previous_min)
+                page.evaluate("scrollTo({top:0,behavior:'instant'})")
             assert not errors,errors
         finally:ctx.close();browser.close()
     (out/f'{engine}-metrics.json').write_text(json.dumps(records,indent=2),encoding='utf-8')
