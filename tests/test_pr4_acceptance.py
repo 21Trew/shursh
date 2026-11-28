@@ -4260,10 +4260,20 @@ def test_personal_mobile_navigation_modes_drag_rotation_and_storage(browser_http
                             assert tb['y']+tb['height']<=cb['y']+1,(tb,cb)
                     records.append({'mode':mode,'width':width,'height':height})
                     page.screenshot(path=str(out/f'{engine}-{mode}-{width}x{height}.png'),animations='disabled')
+            page.evaluate("""()=>{window.__resizeEdgePointer=[];
+              const record=e=>window.__resizeEdgePointer.push({type:e.type,pointerType:e.pointerType,
+                handle:!!e.target.closest?.('.mobile-nav-handle'),x:e.clientX,y:e.clientY});
+              for(const type of ['pointerdown','pointerup','pointercancel'])document.addEventListener(type,record,{capture:true});
+            }""")
             page.set_viewport_size({'width':390,'height':844})
             handle=root.locator('.mobile-nav-handle')
-            b=handle.bounding_box();x=b['x']+b['width']/2;y=b['y']+b['height']/2
+            expect(handle).to_be_visible()
+            b=handle.bounding_box();assert b is not None
+            x=b['x']+b['width']/2;y=b['y']+b['height']/2
             page.mouse.move(x,y);page.mouse.down();page.mouse.move(22,340,steps=12);page.mouse.up()
+            resize_events=page.evaluate('window.__resizeEdgePointer')
+            assert resize_events and resize_events[0]['type']=='pointerdown' and resize_events[0]['handle'] and resize_events[0]['pointerType']=='mouse',resize_events
+            assert resize_events[-1]['type']=='pointerup' and not any(e['type']=='pointercancel' for e in resize_events),resize_events
             expect(root).to_have_attribute('data-side','left')
             saved=page.evaluate("JSON.parse(localStorage.getItem('shursh-mobile-navigation-v1'))")
             assert saved['side']=='left' and 0<=saved['ratio']<=1
