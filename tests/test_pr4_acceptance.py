@@ -2124,6 +2124,23 @@ def test_navigation_filter_markers_focus_and_noop_mutations(browser_https,applic
                             page.set_viewport_size({'width':width,'height':844})
                             exercise('.notification-tabs button','aria-selected',[1,2,3,0])
                             assert page.locator('.notification-tabs').evaluate('e=>e.getBoundingClientRect().width<=innerWidth+1')
+                            if width<=760:
+                                toolbar=page.locator('.notification-dialog-toolbar')
+                                geometry=toolbar.evaluate("""e=>{
+                                  const tabs=e.querySelector('.notification-tabs'),all=e.querySelector('.notification-read-all');
+                                  const buttons=[...tabs.querySelectorAll('button'),all];
+                                  const rects=buttons.map(b=>b.getBoundingClientRect());
+                                  const outer=e.getBoundingClientRect(),centers=rects.map(r=>r.y+r.height/2);
+                                  return {spread:Math.max(...centers)-Math.min(...centers),tabs:rects.length-1,
+                                    contained:rects.every(r=>r.left>=outer.left-.5&&r.right<=outer.right+.5),
+                                    separated:rects.slice(0,-1).every((r,i)=>r.right<=rects[i+1].left+.5),
+                                    hit:buttons.every((b,i)=>{const r=rects[i];return b.contains(document.elementFromPoint(r.x+r.width/2,r.y+r.height/2));}),
+                                    minWidth:Math.min(...rects.map(r=>r.width)),minHeight:Math.min(...rects.map(r=>r.height)),
+                                    overflow:tabs.scrollWidth-tabs.clientWidth};
+                                }""")
+                                assert geometry['tabs']==4 and geometry['spread']<=.5 and geometry['contained'] and geometry['separated'] and geometry['hit'],geometry
+                                assert geometry['minWidth']>=43.9 and geometry['minHeight']>=43.9 and geometry['overflow']<=1,geometry
+                                toolbar.screenshot(path=str(out/f'{engine}-{touch}-{width}-notifications-toolbar.png'),animations='disabled')
                             page.locator('.notification-tabs').screenshot(path=str(out/f'{engine}-{touch}-{width}-notifications.png'),animations='disabled')
                             next(r for r in results if r['engine']==engine and r['touch']==touch and r['width']==width)['notifications']='passed'
                         page.keyboard.press('Escape')
